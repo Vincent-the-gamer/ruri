@@ -197,36 +197,7 @@ impl RuriAgentState {
 // ─── Protocol Handlers ────────────────────────────────────────────
 
 async fn handle_initialize(
-    _agent_state: Arc<RuriAgentState>,
-    request: InitializeRequest,
-) -> Result<InitializeResponse, Error> {
-    tracing::info!(
-        "ACP initialize request received, protocol_version={:?}",
-        request.protocol_version
-    );
 
-    let protocol_version = ProtocolVersion::V1;
-
-    let agent_capabilities = AgentCapabilities::new()
-        .prompt_capabilities(
-            PromptCapabilities::new()
-                .embedded_context(true)
-                .image(false),
-        )
-        .mcp_capabilities(McpCapabilities::new().http(false))
-        .load_session(true);
-
-    let session_capabilities = SessionCapabilities::new()
-        .close(SessionCloseCapabilities::new())
-        .list(SessionListCapabilities::new());
-
-    let agent_capabilities = agent_capabilities.session_capabilities(session_capabilities);
-
-    Ok(InitializeResponse::new(protocol_version)
-        .agent_capabilities(agent_capabilities)
-        .agent_info(Implementation::new("ruri", env!("CARGO_PKG_VERSION")).title("Ruri AI Agent"))
-        .auth_methods(vec![]))
-}
 
 async fn handle_session_new(
     agent_state: Arc<RuriAgentState>,
@@ -364,69 +335,74 @@ async fn handle_session_prompt(
 
     match result {
         Ok(response) => {
-            let content = response
-                .choices
-                .first()
-                .and_then(|c| c.message.content.as_ref())
-                .and_then(|c| c.as_text())
-                .unwrap_or("")
-                .to_string();
+               // Process the prompt through the agent
+               let result = session.agent.chat(&text).await;
 
-            // Determine stop reason from the model's finish_reason
-            let stop_reason = response
-                .choices
-                .first()
-                .and_then(|c| c.finish_reason.as_deref())
-                .map(|fr| match fr {
-                    "stop" => StopReason::EndTurn,
-                    "length" => StopReason::MaxTokens,
-                    "content_filter" => StopReason::Refusal,
-                    _ => StopReason::EndTurn,
-                })
-                .unwrap_or(StopReason::EndTurn);
+               match result {
+                   Ok(response) => {
+                       let content = response
+                           .choices
+                           .first()
+                           .and_then(|c| c.message.content.as_ref())
+                           .and_then(|c| c.as_text())
+                           .unwrap_or("")
+                           .to_string();
 
-            // Send the agent's response as a session/update notification
-            use agent_client_protocol::schema::{
-                AgentNotification, SessionNotification, SessionUpdate,
-            };
+                       // Determine stop reason from the model's finish_reason
+                       let stop_reason = response
+                           .choices
+                           .first()
+                           .and_then(|c| c.finish_reason.as_deref())
+                           .map(|fr| match fr {
+                               "stop" => StopReason::EndTurn,
+                               "length" => StopReason::MaxTokens,
+                               "content_filter" => StopReason::Refusal,
+                               _ => StopReason::EndTurn,
+                           })
+                           .unwrap_or(StopReason::EndTurn);
 
-            let text_content = agent_client_protocol::schema::TextContent::new(content);
-            let content_block = ContentBlock::Text(text_content);
-            let content_chunk = ContentChunk::new(content_block);
-            let update = SessionUpdate::AgentMessageChunk(content_chunk);
+                       // Send the agent's response as a session/update notification
+                       use agent_client_protocol::schema::{
+                           AgentNotification, SessionNotification, SessionUpdate,
+                       };
 
-            // Debug log the notification content
-            tracing::debug!(
-                "Sending SessionNotification: session_id={}, update_type=AgentMessageChunk",
-                request.session_id.0.as_ref()
-            );
+                       let text_content = agent_client_protocol::schema::TextContent::new(content);
+                       let content_block = ContentBlock::Text(text_content);
+                       let content_chunk = ContentChunk::new(content_block);
+                       let update = SessionUpdate::AgentMessageChunk(content_chunk);
 
-            let notification = AgentNotification::SessionNotification(SessionNotification::new(
-                request.session_id.clone(),
-                update,
-            ));
+                       // Debug log the notification content
+                       tracing::debug!(
+                           "Sending SessionNotification: session_id={}, update_type=AgentMessageChunk",
+                           request.session_id.0.as_ref()
+                       );
 
-            cx.send_notification(notification)
-                .map_err(|e| Error::internal_error().data(e.to_string()))?;
+                       let notification = AgentNotification::SessionNotification(SessionNotification::new(
+                           request.session_id.clone(),
+                           update,
+                       ));
 
-            // Debug log the response
-            tracing::debug!("Sending PromptResponse: stop_reason={:?}", stop_reason);
+                       cx.send_notification(notification)
+                           .map_err(|e| Error::internal_error().data(e.to_string()))?;
 
-            session_manager
-                .return_session(session_id_str, session)
-                .await;
+                       // Debug log the response
+                       tracing::debug!("Sending PromptResponse: stop_reason={:?}", stop_reason);
 
-            let response = PromptResponse::new(stop_reason);
-            tracing::debug!("PromptResponse created successfully");
+                       session_manager
+                           .return_session(session_id_str, session)
+                           .await;
 
-            // Log the serialized response for debugging
-            match serde_json::to_string(&response) {
-                Ok(json) => tracing::debug!("PromptResponse serialized: {}", json),
-                Err(e) => tracing::error!("Failed to serialize PromptResponse: {}", e),
-            }
+                       let response = PromptResponse::new(stop_reason);
+                       tracing::debug!("PromptResponse created successfully");
 
-            Ok(response)
-        }
+                       // Log the serialized response for debugging
+                       match serde_json::to_string(&response) {
+                           Ok(json) => tracing::debug!("PromptResponse serialized: {}", json),
+                           Err(e) => tracing::error!("Failed to serialize PromptResponse: {}", e),
+                       }
+
+                       Ok(response)
+                   }
         Err(e) => {
             session_manager
                 .return_session(session_id_str, session)
