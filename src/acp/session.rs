@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use agent_client_protocol::schema::ContentBlock;
 use tokio::sync::RwLock;
 
 use crate::agent::runner::{Agent, AgentConfig};
@@ -56,43 +57,18 @@ impl AcpSession {
     }
 
     /// Extract text content from ACP prompt ContentBlock list.
-    /// The prompt is a JSON array of ContentBlock objects.
-    pub fn extract_text_from_prompt(prompt: &serde_json::Value) -> String {
+    pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> String {
         prompt
-            .as_array()
-            .map(|blocks| {
-                blocks
-                    .iter()
-                    .filter_map(|b| {
-                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            b.get("text").and_then(|t| t.as_str()).map(String::from)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default()
-    }
-
-    /// Get the available modes for this agent as a JSON value.
-    pub fn mode_state_json() -> serde_json::Value {
-        serde_json::json!({
-            "currentModeId": "ask",
-            "availableModes": [
-                {
-                    "id": "ask",
-                    "name": "Ask",
-                    "description": "Request permission before making any changes"
-                },
-                {
-                    "id": "code",
-                    "name": "Code",
-                    "description": "Write and modify code with full tool access"
+            .iter()
+            .filter_map(|block| {
+                if let ContentBlock::Text(text_content) = block {
+                    Some(text_content.text.clone())
+                } else {
+                    None
                 }
-            ]
-        })
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
