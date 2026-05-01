@@ -7,7 +7,10 @@ mod provider;
 mod transport;
 mod types;
 
-use agent::tool_executor::{CalculatorTool, DateTimeTool, EchoTool, ToolExecutor};
+use agent::builtin_tools::{
+    CreateFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, WriteFileTool,
+};
+use agent::tool_executor::ToolExecutor;
 use api::AppState;
 use axum::{
     Router,
@@ -114,9 +117,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Register built-in tools and store definitions
     let mut tool_executor = ToolExecutor::new();
-    tool_executor.register(Arc::new(EchoTool));
-    tool_executor.register(Arc::new(CalculatorTool));
-    tool_executor.register(Arc::new(DateTimeTool));
+    tool_executor.register(Arc::new(ReadFileTool));
+    tool_executor.register(Arc::new(WriteFileTool));
+    tool_executor.register(Arc::new(CreateFileTool));
+    tool_executor.register(Arc::new(EditFileTool));
+    tool_executor.register(Arc::new(ListDirectoryTool));
+    tool_executor.register(Arc::new(SearchFilesTool));
 
     // Store tool definitions for the API
     let tool_defs = tool_executor.definitions();

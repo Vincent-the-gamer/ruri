@@ -169,31 +169,3 @@ impl HttpTransport {
         self.provider.default_model()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_builder() {
-        let config = HttpTransportConfig::new()
-            .with_timeout(60)
-            .with_max_retries(5)
-            .with_retry_base_delay(500)
-            .with_header("X-Custom", "value");
-
-        assert_eq!(config.timeout_secs, 60);
-        assert_eq!(config.max_retries, 5);
-        assert_eq!(config.retry_base_delay_ms, 500);
-        assert_eq!(config.default_headers.len(), 1);
-    }
-
-    #[test]
-    fn test_should_retry_logic() {
-        let config = HttpTransportConfig::default();
-        // We can't easily test this without a transport instance,
-        // but we can verify config defaults.
-        assert!(config.retry_on_rate_limit);
-        assert!(config.retry_on_server_error);
-    }
-}

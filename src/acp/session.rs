@@ -44,9 +44,12 @@ impl AcpSession {
         }
 
         // Register built-in tools
-        agent.register_tool(Arc::new(crate::agent::tool_executor::EchoTool));
-        agent.register_tool(Arc::new(crate::agent::tool_executor::CalculatorTool));
-        agent.register_tool(Arc::new(crate::agent::tool_executor::DateTimeTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
 
         Self {
             agent,

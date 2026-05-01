@@ -48,3 +48,9 @@ tokio-util = { version = "0.7", features = ["compat"] }
 
 # Home directory resolution
 dirs = "6"
+
+# Regex for search_files tool
+regex = "1"
+
+# Directory walking for search_files tool
+walkdir = "2"
