@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod acp;
 mod agent;
 mod api;
 mod provider;
@@ -59,13 +60,32 @@ async fn static_handler(req: Request) -> Response {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // ── Check for ACP mode ──────────────────────────────────────
+    let args: Vec<String> = std::env::args().collect();
+    let acp_mode = args.iter().any(|arg| arg == "--acp");
+
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    if acp_mode {
+        // ACP mode: logging goes to stderr so it doesn't interfere with JSON-RPC on stdout
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .with_writer(std::io::stderr)
+            .init();
+
+        tracing::info!("Starting Ruri in ACP mode (stdio)");
+        return acp::run_acp_server().await.map_err(Into::into);
+    } else {
+        // Normal mode: logging to stdout/stderr as usual
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .init();
+    }
 
     println!("╔══════════════════════════════════════╗");
     println!("║         🤖 Ruri AI Agent             ║");
@@ -115,6 +135,10 @@ async fn main() -> anyhow::Result<()> {
     println!("  PATCH  /api/skills/:name       Toggle skill");
     println!("  GET    /api/tools              List tools");
     println!("  GET    /api/agent/status       Get agent status");
+    println!();
+    println!("ACP (Agent Client Protocol) mode:");
+    println!("  Run with --acp to start in ACP mode (stdio transport)");
+    println!("  Compatible with Zed, JetBrains, and other ACP clients");
     println!();
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
