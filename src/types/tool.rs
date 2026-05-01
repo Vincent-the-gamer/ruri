@@ -125,10 +125,8 @@ impl ToolDefinitionBuilder {
             );
         }
 
-        if required {
-            if let Some(ref mut req) = params.required {
-                req.push(param_name);
-            }
+        if required && let Some(ref mut req) = params.required {
+            req.push(param_name);
         }
 
         self

@@ -118,13 +118,19 @@ impl Agent {
     /// 4. If the model requests tool calls, executes them and loops
     /// 5. Post-processes the response through skills
     /// 6. Returns the final response
-    pub async fn chat(&mut self, user_message: impl Into<String>) -> Result<ChatResponse, crate::provider::ProviderError> {
+    pub async fn chat(
+        &mut self,
+        user_message: impl Into<String>,
+    ) -> Result<ChatResponse, crate::provider::ProviderError> {
         let user_msg = ChatMessage::user(user_message);
         self.chat_with_message(user_msg).await
     }
 
     /// Run a single turn with a pre-constructed message.
-    pub async fn chat_with_message(&mut self, message: ChatMessage) -> Result<ChatResponse, crate::provider::ProviderError> {
+    pub async fn chat_with_message(
+        &mut self,
+        message: ChatMessage,
+    ) -> Result<ChatResponse, crate::provider::ProviderError> {
         // Add user message to history
         self.history.push(message);
 
@@ -168,7 +174,9 @@ impl Agent {
                         // Notify skills
                         for skill in &self.skills {
                             if skill.is_active() {
-                                skill.on_tool_result(&call.function.name, &result.content).await;
+                                skill
+                                    .on_tool_result(&call.function.name, &result.content)
+                                    .await;
                             }
                         }
 
@@ -181,10 +189,7 @@ impl Agent {
 
                     round += 1;
                     if round >= self.config.max_tool_rounds {
-                        tracing::warn!(
-                            rounds = round,
-                            "Maximum tool rounds reached, stopping"
-                        );
+                        tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                         break response;
                     }
                     // Loop back to get the model's next response
@@ -205,8 +210,8 @@ impl Agent {
 
     /// Build a ChatRequest from the current history and configuration.
     fn build_request(&self) -> ChatRequest {
-        let mut request = ChatRequest::new(self.history.clone())
-            .with_model(self.transport.default_model());
+        let mut request =
+            ChatRequest::new(self.history.clone()).with_model(self.transport.default_model());
 
         // Add tools if any are registered
         let tool_defs = self.tool_executor.definitions();
@@ -239,12 +244,12 @@ impl Agent {
 
     /// Run skill post-processing on the last response.
     async fn run_skills_on_response(&mut self) {
-        if let Some(last) = self.history.last_mut() {
-            if last.role == MessageRole::Assistant {
-                for skill in &self.skills {
-                    if skill.is_active() {
-                        skill.on_response(last).await;
-                    }
+        if let Some(last) = self.history.last_mut()
+            && last.role == MessageRole::Assistant
+        {
+            for skill in &self.skills {
+                if skill.is_active() {
+                    skill.on_response(last).await;
                 }
             }
         }

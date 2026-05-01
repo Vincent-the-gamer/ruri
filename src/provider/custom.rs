@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use crate::provider::{Provider, ProviderError};
 use crate::types::{ChatRequest, ChatResponse};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -80,8 +80,9 @@ impl CustomProvider {
     }
 
     pub fn from_config_file(path: &str, api_key: Option<String>) -> Result<Self, ProviderError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ProviderError::ConfigError(format!("Failed to read config file: {}", e)))?;
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            ProviderError::ConfigError(format!("Failed to read config file: {}", e))
+        })?;
         let config: CustomProviderConfig = serde_json::from_str(&content)?;
         Ok(Self::new(config, api_key))
     }
@@ -103,13 +104,13 @@ impl CustomProvider {
         };
 
         // Ensure model is set
-        if body.get("model").is_none() || body["model"].is_null() {
-            if let Some(obj) = body.as_object_mut() {
-                obj.insert(
-                    "model".into(),
-                    serde_json::Value::String(self.config.default_model.clone()),
-                );
-            }
+        if (body.get("model").is_none() || body["model"].is_null())
+            && let Some(obj) = body.as_object_mut()
+        {
+            obj.insert(
+                "model".into(),
+                serde_json::Value::String(self.config.default_model.clone()),
+            );
         }
 
         body
@@ -148,15 +149,21 @@ impl CustomProvider {
                     .collect();
                 serde_json::Value::Object(new_map)
             }
-            serde_json::Value::Array(arr) => {
-                serde_json::Value::Array(arr.iter().map(|v| self.apply_template(v, request)).collect())
-            }
+            serde_json::Value::Array(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| self.apply_template(v, request))
+                    .collect(),
+            ),
             other => other.clone(),
         }
     }
 
     /// Extract a value from a JSON structure using a dot-separated path.
-    fn extract_path<'a>(&self, value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    fn extract_path<'a>(
+        &self,
+        value: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
         let parts: Vec<&str> = path.split('.').collect();
         let mut current = value;
 
@@ -211,7 +218,11 @@ impl CustomProvider {
 
         let message = if let Some(tc) = tool_calls {
             crate::types::ChatMessage::assistant_with_tool_calls(
-                if content.is_empty() { None } else { Some(content) },
+                if content.is_empty() {
+                    None
+                } else {
+                    Some(content)
+                },
                 tc,
             )
         } else {
@@ -245,11 +256,11 @@ impl Provider for CustomProvider {
             .header("Content-Type", "application/json");
 
         // Apply authentication
-        if let Some(ref api_key) = self.api_key {
-            if let Some(ref auth_header) = self.config.auth_header {
-                let header_value = format!("{}{}", self.config.auth_prefix, api_key);
-                req_builder = req_builder.header(auth_header.as_str(), header_value);
-            }
+        if let Some(ref api_key) = self.api_key
+            && let Some(ref auth_header) = self.config.auth_header
+        {
+            let header_value = format!("{}{}", self.config.auth_prefix, api_key);
+            req_builder = req_builder.header(auth_header.as_str(), header_value);
         }
 
         // Apply extra headers
@@ -266,7 +277,10 @@ impl Provider for CustomProvider {
 
         let status = response.status();
         if status.is_client_error() || status.is_server_error() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".into());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".into());
             return Err(ProviderError::ApiError {
                 status: status.as_u16(),
                 message: error_text,

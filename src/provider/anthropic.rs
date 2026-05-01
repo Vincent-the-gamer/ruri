@@ -74,7 +74,7 @@ impl AnthropicProvider {
             if msg.role == MessageRole::System {
                 system_parts.push(json!({
                     "type": "text",
-                    "text": msg.content.as_text().unwrap_or(""),
+                    "text": msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or(""),
                 }));
             } else {
                 messages.push(self.convert_message(msg));
@@ -147,50 +147,50 @@ impl AnthropicProvider {
                 "content": [{
                     "type": "tool_result",
                     "tool_use_id": msg.tool_call_id,
-                    "content": msg.content.as_text().unwrap_or(""),
+                    "content": msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or(""),
                 }]
             });
         }
 
         // Handle assistant messages with tool calls
-        if msg.role == MessageRole::Assistant {
-            if let Some(ref tool_calls) = msg.tool_calls {
-                let mut content: Vec<serde_json::Value> = Vec::new();
+        if msg.role == MessageRole::Assistant
+            && let Some(ref tool_calls) = msg.tool_calls
+        {
+            let mut content: Vec<serde_json::Value> = Vec::new();
 
-                // Text content first
-                let text = msg.content.as_text().unwrap_or("");
-                if !text.is_empty() {
-                    content.push(json!({
-                        "type": "text",
-                        "text": text,
-                    }));
-                }
-
-                // Then tool use blocks
-                for tc in tool_calls {
-                    content.push(json!({
-                        "type": "tool_use",
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "input": serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
-                            .unwrap_or(json!({})),
-                    }));
-                }
-
-                return json!({
-                    "role": role,
-                    "content": content,
-                });
+            // Text content first
+            let text = msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or("");
+            if !text.is_empty() {
+                content.push(json!({
+                    "type": "text",
+                    "text": text,
+                }));
             }
+
+            // Then tool use blocks
+            for tc in tool_calls {
+                content.push(json!({
+                    "type": "tool_use",
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "input": serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
+                        .unwrap_or(json!({})),
+                }));
+            }
+
+            return json!({
+                "role": role,
+                "content": content,
+            });
         }
 
         // Simple text messages
         match &msg.content {
-            MessageContent::Text(text) => json!({
+            Some(MessageContent::Text(text)) => json!({
                 "role": role,
                 "content": text,
             }),
-            MessageContent::Parts(parts) => {
+            Some(MessageContent::Parts(parts)) => {
                 let content: Vec<serde_json::Value> = parts
                     .iter()
                     .map(|p| match p.part_type {
@@ -215,6 +215,10 @@ impl AnthropicProvider {
                     "content": content,
                 })
             }
+            None => json!({
+                "role": role,
+                "content": "",
+            }),
         }
     }
 

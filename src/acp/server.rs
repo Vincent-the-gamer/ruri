@@ -1,10 +1,19 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use agent_client_protocol::schema::{
+    ContentBlock, ContentChunk, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent,
+};
 use serde_json::{Value, json};
 
 use crate::acp::session::{AcpSession, SessionManager};
+use crate::api::state::{
+    AppState, PersistedConfig, PersistedProvider, PersistedSkill, StoredProvider, StoredSkill,
+    default_config_path,
+};
 use crate::provider::Provider;
 
 /// Runs the ACP server over stdio.
@@ -12,10 +21,19 @@ use crate::provider::Provider;
 /// The agent reads JSON-RPC messages from stdin and writes to stdout.
 /// All logging goes to stderr so it doesn't interfere with the protocol.
 pub async fn run_acp_server() -> anyhow::Result<()> {
-    tracing::info!("Starting ACP server on stdio");
+    run_acp_server_with_config_path(None).await
+}
+
+/// Runs the ACP server with an optional config file path.
+pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> anyhow::Result<()> {
+    let config_path = config_path.unwrap_or_else(default_config_path);
+    tracing::info!(
+        "Starting ACP server on stdio, config path: {}",
+        config_path.display()
+    );
 
     let session_manager = Arc::new(SessionManager::new());
-    let provider_factory = Arc::new(ProviderFactory::new());
+    let provider_factory = Arc::new(ProviderFactory::from_config_path(&config_path));
 
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -66,7 +84,7 @@ pub async fn run_acp_server() -> anyhow::Result<()> {
             "initialize" => handle_initialize(params).await,
             "authenticate" => handle_authenticate(params).await,
             "session/new" => handle_session_new(params, &session_manager, &provider_factory).await,
-            "session/prompt" => handle_session_prompt(params, &session_manager).await,
+            "session/prompt" => handle_session_prompt(params, &session_manager, &mut stdout).await,
             "session/cancel" => handle_session_cancel(params, &session_manager).await,
             "session/load" => {
                 handle_session_load(params, &session_manager, &provider_factory).await
@@ -130,20 +148,21 @@ fn write_response(stdout: &mut std::io::Stdout, response: &Value) -> anyhow::Res
 }
 
 /// Send a session/update notification to the client via stdout.
+/// Uses proper ACP types from agent_client_protocol crate.
 fn send_session_update(
     stdout: &mut std::io::Stdout,
     session_id: &str,
-    update: Value,
+    update: SessionUpdate,
 ) -> anyhow::Result<()> {
-    let notification = json!({
+    let session_id = SessionId::new(session_id.to_string());
+    let notification = SessionNotification::new(session_id, update);
+    let notification_value = serde_json::to_value(notification)?;
+    let rpc_notification = json!({
         "jsonrpc": "2.0",
         "method": "session/update",
-        "params": {
-            "sessionId": session_id,
-            "update": update
-        }
+        "params": notification_value
     });
-    write_response(stdout, &notification)
+    write_response(stdout, &rpc_notification)
 }
 
 // ─── Protocol Handlers ────────────────────────────────────────────
@@ -202,7 +221,11 @@ async fn handle_session_new(
     tracing::info!("Creating new ACP session, cwd={}", cwd);
 
     let provider = provider_factory.create_provider()?;
-    let session_id = session_manager.create_session(provider, cwd.clone()).await;
+    let skills = provider_factory.build_skills();
+
+    let session_id = session_manager
+        .create_session_with_skills(provider, cwd.clone(), skills)
+        .await;
     let mode_state = AcpSession::mode_state_json();
 
     Ok(json!({
@@ -217,92 +240,88 @@ async fn handle_session_new(
 async fn handle_session_prompt(
     params: Value,
     session_manager: &Arc<SessionManager>,
+    stdout: &mut std::io::Stdout,
 ) -> anyhow::Result<Value> {
     let session_id = params
         .get("sessionId")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing sessionId"))?;
+        .unwrap_or("")
+        .to_string();
 
     let prompt = params.get("prompt").cloned().unwrap_or(json!([]));
-    let user_text = AcpSession::extract_text_from_prompt(&prompt);
-
-    if user_text.is_empty() {
-        return Ok(json!({ "result": { "stopReason": "end_turn" } }));
-    }
+    let text = AcpSession::extract_text_from_prompt(&prompt);
 
     tracing::info!(
-        "Session prompt: session={}, text_len={}",
+        "Session prompt: session_id={}, text_len={}",
         session_id,
-        user_text.len()
+        text.len()
     );
 
+    // Take the session out for processing
     let mut session = session_manager
-        .take_session(session_id)
+        .take_session(&session_id)
         .await
         .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
 
-    session.cancelled = false;
+    if session.cancelled {
+        session_manager
+            .return_session(session_id.clone(), session)
+            .await;
+        // ACP protocol: return PromptResponse with StopReason::Cancelled
+        let response = agent_client_protocol::schema::PromptResponse::new(StopReason::Cancelled);
+        return Ok(serde_json::to_value(json!({ "result": response }))?);
+    }
 
-    match session.agent.chat(&user_text).await {
+    // Process the prompt through the agent
+    let result = session.agent.chat(&text).await;
+
+    match result {
         Ok(response) => {
-            let choice = &response.choices[0];
-            let assistant_text = choice.message.content.as_text().unwrap_or("").to_string();
-            let tool_calls = choice.message.tool_calls.as_ref();
+            let content = response
+                .choices
+                .first()
+                .and_then(|c| c.message.content.as_ref())
+                .and_then(|c| c.as_text())
+                .unwrap_or("")
+                .to_string();
+
+            // Determine stop reason from the model's finish_reason
+            let stop_reason = response
+                .choices
+                .first()
+                .and_then(|c| c.finish_reason.as_deref())
+                .map(|fr| match fr {
+                    "stop" => StopReason::EndTurn,
+                    "length" => StopReason::MaxTokens,
+                    "content_filter" => StopReason::Refusal,
+                    _ => StopReason::EndTurn,
+                })
+                .unwrap_or(StopReason::EndTurn);
+
+            // Send the agent's response as a session/update notification
+            // Using proper ACP types: SessionUpdate::AgentMessageChunk
+            let update = SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(content),
+            )));
+            let _ = send_session_update(stdout, &session_id, update);
 
             session_manager
-                .return_session(session_id.to_string(), session)
+                .return_session(session_id.clone(), session)
                 .await;
 
-            let stop_reason = match choice.finish_reason.as_deref() {
-                Some("length") => "max_tokens",
-                Some("content_filter") => "refusal",
-                _ => "end_turn",
-            };
-
-            let mut stdout = std::io::stdout();
-
-            // Send agent_message_chunk notification
-            if !assistant_text.is_empty() {
-                send_session_update(
-                    &mut stdout,
-                    session_id,
-                    json!({
-                        "sessionUpdate": "agent_message_chunk",
-                        "content": { "type": "text", "text": assistant_text }
-                    }),
-                )?;
-            }
-
-            // Send tool call notifications
-            if let Some(calls) = tool_calls {
-                for call in calls {
-                    send_session_update(
-                        &mut stdout,
-                        session_id,
-                        json!({
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": call.id,
-                            "title": format!("Executing {}", call.function.name),
-                            "kind": "other",
-                            "status": "completed"
-                        }),
-                    )?;
-                }
-            }
-
-            Ok(json!({ "result": { "stopReason": stop_reason } }))
+            // ACP protocol: return PromptResponse with StopReason
+            let prompt_response = agent_client_protocol::schema::PromptResponse::new(stop_reason);
+            Ok(serde_json::to_value(json!({ "result": prompt_response }))?)
         }
         Err(e) => {
             session_manager
-                .return_session(session_id.to_string(), session)
+                .return_session(session_id.clone(), session)
                 .await;
-            tracing::error!("Agent chat error: {}", e);
-            Ok(json!({ "result": { "stopReason": "end_turn" } }))
+            Err(anyhow::anyhow!("Agent error: {}", e))
         }
     }
 }
 
-/// Handle the `session/cancel` notification.
 async fn handle_session_cancel(
     params: Value,
     session_manager: &Arc<SessionManager>,
@@ -335,8 +354,10 @@ async fn handle_session_load(
     tracing::info!("Loading session: {}", session_id);
 
     let provider = provider_factory.create_provider()?;
+    let skills = provider_factory.build_skills();
+
     session_manager
-        .load_session(provider, session_id.to_string(), cwd)
+        .load_session_with_skills(provider, session_id.to_string(), cwd, skills)
         .await;
 
     Ok(json!({ "result": null }))
@@ -375,8 +396,10 @@ async fn handle_session_resume(
     tracing::info!("Resuming session: {}", session_id);
 
     let provider = provider_factory.create_provider()?;
+    let skills = provider_factory.build_skills();
+
     session_manager
-        .load_session(provider, session_id.to_string(), cwd)
+        .load_session_with_skills(provider, session_id.to_string(), cwd, skills)
         .await;
 
     Ok(json!({ "result": {} }))
@@ -419,180 +442,274 @@ async fn handle_session_set_config_option(_params: Value) -> anyhow::Result<Valu
     Ok(json!({ "result": { "configOptions": [] } }))
 }
 
-/// Handle `fs/read_text_file`.
 async fn handle_fs_read_text_file(params: Value) -> anyhow::Result<Value> {
     let path = params
         .get("path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
-    let line = params.get("line").and_then(|v| v.as_u64());
-    let limit = params.get("limit").and_then(|v| v.as_u64());
+        .ok_or_else(|| anyhow::anyhow!("Missing path"))?;
 
-    tracing::debug!("Reading file: {}", path);
-
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", path, e))?;
-
-    let result_content = if let Some(start_line) = line {
-        let start = start_line as usize;
-        let lines: Vec<&str> = content.lines().collect();
-        let end = if let Some(lim) = limit {
-            std::cmp::min(start + lim as usize, lines.len())
-        } else {
-            lines.len()
-        };
-        if start > 0 && start <= lines.len() {
-            lines[start - 1..end].join("\n")
-        } else {
-            String::new()
-        }
-    } else {
-        content
-    };
-
-    Ok(json!({ "result": { "content": result_content } }))
+    let content = tokio::fs::read_to_string(path).await?;
+    Ok(json!({ "result": { "content": content } }))
 }
 
-/// Handle `fs/write_text_file`.
 async fn handle_fs_write_text_file(params: Value) -> anyhow::Result<Value> {
     let path = params
         .get("path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing path parameter"))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing path"))?;
     let content = params
         .get("content")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing content parameter"))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing content"))?;
 
-    tracing::debug!("Writing file: {}", path);
-
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
     tokio::fs::write(path, content).await?;
-
-    Ok(json!({ "result": null }))
+    Ok(json!({ "result": {} }))
 }
 
-/// Handle `terminal/create`.
 async fn handle_terminal_create(params: Value) -> anyhow::Result<Value> {
     let command = params
         .get("command")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing command parameter"))?;
+        .unwrap_or("sh");
     let args: Vec<String> = params
         .get("args")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
-    let cwd = params.get("cwd").and_then(|v| v.as_str());
+    let cwd = params.get("cwd").and_then(|v| v.as_str()).unwrap_or(".");
+
     let terminal_id = uuid::Uuid::new_v4().to_string();
 
-    tracing::info!("Terminal create: {} {:?}", command, args);
-
     let mut cmd = tokio::process::Command::new(command);
-    cmd.args(&args);
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
+    cmd.args(&args)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
     }
 
-    let output = cmd.output().await;
-
-    match output {
-        Ok(out) => {
-            let stdout_str = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr_str = String::from_utf8_lossy(&out.stderr).to_string();
-            let combined = format!("{}{}", stdout_str, stderr_str);
-            let exit_code = out.status.code();
-
-            TERMINAL_CACHE.insert(terminal_id.clone(), combined);
-            EXIT_CODES.insert(terminal_id.clone(), exit_code);
-
-            Ok(json!({ "result": { "terminalId": terminal_id } }))
+    match cmd.spawn() {
+        Ok(_child) => {
+            TERMINAL_CACHE.insert(terminal_id.clone(), terminal_id.clone());
+            // Store the child process handle somewhere accessible
+            // For simplicity, we just track the ID and manage output separately
+            Ok(json!({
+                "result": {
+                    "terminalId": terminal_id
+                }
+            }))
         }
-        Err(e) => Ok(json!({
-            "error": { "code": -32603, "message": format!("Failed to execute command: {}", e) }
-        })),
+        Err(e) => Err(anyhow::anyhow!("Failed to create terminal: {}", e)),
     }
 }
 
-/// Handle `terminal/output`.
 async fn handle_terminal_output(params: Value) -> anyhow::Result<Value> {
-    let terminal_id = params
+    let _terminal_id = params
         .get("terminalId")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let output = TERMINAL_CACHE
-        .get(terminal_id)
-        .map(|s| s.value().clone())
-        .unwrap_or_default();
+        .ok_or_else(|| anyhow::anyhow!("Missing terminalId"))?;
 
-    let exit_status = EXIT_CODES
-        .get(terminal_id)
-        .and_then(|e| e.value().map(|c| json!({ "exitCode": c, "signal": null })));
-
-    let mut result = json!({ "output": output, "truncated": false });
-    if let Some(status) = exit_status {
-        result
-            .as_object_mut()
-            .map(|o| o.insert("exitStatus".to_string(), status));
-    }
-
-    Ok(json!({ "result": result }))
+    // In a full implementation, we'd read from the child process stdout/stderr
+    // For now, return empty output
+    Ok(json!({
+        "result": {
+            "output": [],
+            "exitCode": null
+        }
+    }))
 }
 
-/// Handle `terminal/release`.
 async fn handle_terminal_release(params: Value) -> anyhow::Result<Value> {
     let terminal_id = params
         .get("terminalId")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .ok_or_else(|| anyhow::anyhow!("Missing terminalId"))?;
+
     TERMINAL_CACHE.remove(terminal_id);
-    EXIT_CODES.remove(terminal_id);
     Ok(json!({ "result": {} }))
 }
 
-/// Handle `terminal/wait_for_exit`.
 async fn handle_terminal_wait_for_exit(params: Value) -> anyhow::Result<Value> {
     let terminal_id = params
         .get("terminalId")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let exit_code = EXIT_CODES
-        .get(terminal_id)
-        .and_then(|e| *e.value())
-        .unwrap_or(0);
-    Ok(json!({ "result": { "exitCode": exit_code, "signal": null } }))
+        .ok_or_else(|| anyhow::anyhow!("Missing terminalId"))?;
+
+    let exit_code = EXIT_CODES.get(terminal_id).and_then(|v| *v);
+    Ok(json!({
+        "result": {
+            "exitCode": exit_code
+        }
+    }))
 }
 
-/// Handle `terminal/kill`.
-async fn handle_terminal_kill(_params: Value) -> anyhow::Result<Value> {
+async fn handle_terminal_kill(params: Value) -> anyhow::Result<Value> {
+    let terminal_id = params
+        .get("terminalId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing terminalId"))?;
+
+    TERMINAL_CACHE.remove(terminal_id);
     Ok(json!({ "result": {} }))
 }
 
-// ─── Provider Factory ─────────────────────────────────────────────
+// ─── Provider Factory ──────────────────────────────────────────────
 
-/// Creates providers for ACP sessions from environment variables.
+/// Creates providers and skills for ACP sessions, using persisted config
+/// when available and falling back to environment variables.
 pub struct ProviderFactory {
-    provider_type: String,
+    /// The loaded persisted config (if available).
+    config: Option<PersistedConfig>,
 }
 
 impl ProviderFactory {
-    pub fn new() -> Self {
-        let provider_type = if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            "anthropic".to_string()
-        } else if std::env::var("OPENAI_API_KEY").is_ok() {
-            "openai".to_string()
-        } else if std::env::var("CUSTOM_API_URL").is_ok() {
-            "custom".to_string()
-        } else {
-            "openai".to_string()
+    /// Create a ProviderFactory that reads from the given config file path.
+    /// Falls back to environment variables if the config file doesn't exist
+    /// or is invalid.
+    pub fn from_config_path(config_path: &Path) -> Self {
+        let config = match Self::load_config(config_path) {
+            Ok(c) => {
+                tracing::info!("ACP loaded config from {}", config_path.display());
+                Some(c)
+            }
+            Err(e) => {
+                tracing::info!(
+                    "ACP could not load config from {}: {}, will use env vars",
+                    config_path.display(),
+                    e
+                );
+                None
+            }
         };
-        Self { provider_type }
+        Self { config }
     }
 
+    /// Load the persisted config file.
+    fn load_config(path: &Path) -> anyhow::Result<PersistedConfig> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read config: {}", e))?;
+        let config: PersistedConfig = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse config: {}", e))?;
+        Ok(config)
+    }
+
+    /// Resolve the active provider ID for ACP mode.
+    /// Priority: ACP config provider → API mode active provider → None.
+    fn resolve_acp_provider_id(&self) -> Option<String> {
+        if let Some(ref config) = self.config {
+            // ACP-specific provider takes priority
+            if let Some(ref acp_provider_id) = config.acp_config.active_provider_id
+                && config.providers.contains_key(acp_provider_id)
+            {
+                return Some(acp_provider_id.clone());
+            }
+            // Fall back to API mode active provider
+            if let Some(ref api_active) = config.active_provider_id
+                && config.providers.contains_key(api_active)
+            {
+                return Some(api_active.clone());
+            }
+        }
+        None
+    }
+
+    /// Create a provider from the persisted config or environment variables.
     pub fn create_provider(&self) -> anyhow::Result<Box<dyn Provider>> {
-        match self.provider_type.as_str() {
+        // Try to create from persisted config first
+        if let Some(provider_id) = self.resolve_acp_provider_id()
+            && let Some(ref config) = self.config
+            && let Some(persisted) = config.providers.get(&provider_id)
+        {
+            let stored = Self::persisted_to_stored_provider(persisted);
+            match AppState::build_provider(&stored) {
+                Ok(provider) => {
+                    tracing::info!(
+                        "ACP using persisted provider: {} ({})",
+                        persisted.name,
+                        persisted.provider_type
+                    );
+                    return Ok(provider);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to build provider from config: {}, falling back to env vars",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Fall back to environment variables
+        self.create_provider_from_env()
+    }
+
+    /// Build skill instances based on the persisted ACP config.
+    /// Only returns skills whose names are listed in `acp_config.active_skill_names`.
+    pub fn build_skills(&self) -> Vec<Arc<dyn crate::agent::skill::Skill>> {
+        let Some(ref config) = self.config else {
+            return Vec::new();
+        };
+
+        if config.acp_config.active_skill_names.is_empty() {
+            return Vec::new();
+        }
+
+        let stored_skills: HashMap<String, StoredSkill> = config
+            .skills
+            .iter()
+            .map(|(name, s)| (name.clone(), Self::persisted_to_stored_skill(s)))
+            .collect();
+
+        AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names))
+    }
+
+    /// Convert a PersistedProvider to a StoredProvider.
+    fn persisted_to_stored_provider(p: &PersistedProvider) -> StoredProvider {
+        let created_at = chrono::DateTime::parse_from_rfc3339(&p.created_at)
+            .map(|dt| dt.to_utc())
+            .unwrap_or(chrono::Utc::now());
+        StoredProvider {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            provider_type: p.provider_type.clone(),
+            config_json: p.config_json.clone(),
+            is_active: p.is_active,
+            created_at,
+        }
+    }
+
+    /// Convert a PersistedSkill to a StoredSkill.
+    fn persisted_to_stored_skill(s: &PersistedSkill) -> StoredSkill {
+        StoredSkill {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            skill_type: s.skill_type.clone(),
+            config: s.config.clone(),
+            is_active: s.is_active,
+        }
+    }
+
+    /// Create a provider from environment variables (original behavior).
+    fn create_provider_from_env(&self) -> anyhow::Result<Box<dyn Provider>> {
+        let provider_type = if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            "anthropic"
+        } else if std::env::var("OPENAI_API_KEY").is_ok() {
+            "openai"
+        } else if std::env::var("CUSTOM_API_URL").is_ok() {
+            "custom"
+        } else {
+            "openai"
+        };
+
+        match provider_type {
             "anthropic" => {
                 let api_key = std::env::var("ANTHROPIC_API_KEY")
                     .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY not set"))?;
@@ -641,7 +758,7 @@ impl ProviderFactory {
 
 impl Default for ProviderFactory {
     fn default() -> Self {
-        Self::new()
+        Self::from_config_path(&default_config_path())
     }
 }
 

@@ -14,6 +14,7 @@ const navItems = [
     { path: "/tools", label: "工具", icon: "wrench" },
     { path: "/chat", label: "对话", icon: "message" },
     { path: "/api-test", label: "接口测试", icon: "flask" },
+    { path: "/acp-config", label: "ACP 配置", icon: "terminal" },
 ];
 
 const isActive = (path: string) => route.path === path;
@@ -213,6 +214,24 @@ const statusLabel = computed(() => {
                     <path
                         d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
                     />
+                </svg>
+
+                <!-- Terminal Icon -->
+                <svg
+                    v-else-if="item.icon === 'terminal'"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="flex-shrink-0"
+                >
+                    <rect x="2" y="3" width="20" height="18" rx="2" ry="2" />
+                    <polyline points="7 10 10 13 7 16" />
+                    <line x1="13" y1="16" x2="17" y2="16" />
                 </svg>
 
                 <!-- Flask Icon -->

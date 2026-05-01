@@ -136,6 +136,33 @@ export interface AgentStatus {
   message_count: number
 }
 
+// ─── ACP Types ───────────────────────────────────────────────────
+
+export interface AcpProviderOption {
+  id: string
+  name: string
+  provider_type: ProviderType
+  default_model: string
+}
+
+export interface AcpSkillOption {
+  name: string
+  description: string
+  is_active: boolean
+}
+
+export interface AcpConfig {
+  active_provider_id: string | null
+  active_skill_names: string[]
+  available_providers: AcpProviderOption[]
+  available_skills: AcpSkillOption[]
+}
+
+export interface UpdateAcpConfigRequest {
+  active_provider_id: string | null
+  active_skill_names: string[]
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

@@ -15,7 +15,10 @@ pub enum MessageRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: MessageRole,
-    pub content: MessageContent,
+    /// The content of the message. Can be `null` when tool calls are present
+    /// (e.g., kimi-k2.5 returns `"content": null` when tool_calls exist).
+    #[serde(default)]
+    pub content: Option<MessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,6 +28,9 @@ pub struct ChatMessage {
 }
 
 /// Content of a message — can be simple text or a list of content parts.
+///
+/// Note: Some API providers (e.g., Kimi) may return `null` for the content field
+/// when tool calls are present. This is handled via custom deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MessageContent {
@@ -145,7 +151,7 @@ impl ChatMessage {
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: MessageRole::System,
-            content: MessageContent::Text(content.into()),
+            content: Some(MessageContent::Text(content.into())),
             name: None,
             tool_calls: None,
             tool_call_id: None,
@@ -155,7 +161,7 @@ impl ChatMessage {
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
-            content: MessageContent::Text(content.into()),
+            content: Some(MessageContent::Text(content.into())),
             name: None,
             tool_calls: None,
             tool_call_id: None,
@@ -165,7 +171,7 @@ impl ChatMessage {
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Assistant,
-            content: MessageContent::Text(content.into()),
+            content: Some(MessageContent::Text(content.into())),
             name: None,
             tool_calls: None,
             tool_call_id: None,
@@ -175,9 +181,7 @@ impl ChatMessage {
     pub fn assistant_with_tool_calls(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             role: MessageRole::Assistant,
-            content: content
-                .map(MessageContent::Text)
-                .unwrap_or(MessageContent::Text(String::new())),
+            content: content.map(|c| MessageContent::Text(c)),
             name: None,
             tool_calls: Some(tool_calls),
             tool_call_id: None,
@@ -187,7 +191,7 @@ impl ChatMessage {
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Tool,
-            content: MessageContent::Text(content.into()),
+            content: Some(MessageContent::Text(content.into())),
             name: None,
             tool_calls: None,
             tool_call_id: Some(tool_call_id.into()),

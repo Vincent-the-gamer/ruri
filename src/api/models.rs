@@ -10,7 +10,7 @@ use crate::types;
 pub enum ProviderConfigDto {
     Openai(OpenAIProviderConfigDto),
     Anthropic(AnthropicProviderConfigDto),
-    Custom(CustomProviderConfigDto),
+    Custom(Box<CustomProviderConfigDto>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +188,40 @@ pub struct AgentStatusDto {
     pub message_count: usize,
 }
 
+// ─── ACP Config Models ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpProviderOptionDto {
+    pub id: String,
+    pub name: String,
+    pub provider_type: String,
+    pub default_model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpSkillOptionDto {
+    pub name: String,
+    pub description: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpConfigDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider_id: Option<String>,
+    pub active_skill_names: Vec<String>,
+    pub available_providers: Vec<AcpProviderOptionDto>,
+    pub available_skills: Vec<AcpSkillOptionDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAcpConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_skill_names: Option<Vec<String>>,
+}
+
 // ─── Conversions ─────────────────────────────────────────────────
 
 impl From<&types::ChatMessage> for ChatMessageDto {
@@ -200,7 +234,12 @@ impl From<&types::ChatMessage> for ChatMessageDto {
                 types::MessageRole::Tool => "tool",
             }
             .to_string(),
-            content: msg.content.as_text().unwrap_or("").to_string(),
+            content: msg
+                .content
+                .as_ref()
+                .and_then(|c| c.as_text())
+                .unwrap_or("")
+                .to_string(),
             tool_calls: msg.tool_calls.as_ref().map(|calls| {
                 calls
                     .iter()

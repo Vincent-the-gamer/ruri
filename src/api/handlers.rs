@@ -41,6 +41,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Agent status
         .route("/api/agent/status", get(get_status))
+        // ACP config
+        .route(
+            "/api/acp/config",
+            get(get_acp_config).put(update_acp_config),
+        )
         .with_state(state)
 }
 
@@ -93,6 +98,8 @@ async fn create_provider(
         *state.active_provider_id.write().await = Some(id);
     }
 
+    state.auto_save().await;
+
     Ok(Json(dto))
 }
 
@@ -111,6 +118,10 @@ async fn update_provider(
     let active_id = state.active_provider_id.read().await;
     let dto = stored_provider_to_dto(stored, active_id.as_deref());
 
+    drop(active_id);
+    drop(providers);
+    state.auto_save().await;
+
     Ok(Json(dto))
 }
 
@@ -121,6 +132,9 @@ async fn delete_provider(State(state): State<Arc<AppState>>, Path(id): Path<Stri
     if active_id.as_deref() == Some(&id) {
         *active_id = None;
     }
+    drop(active_id);
+
+    state.auto_save().await;
 
     StatusCode::NO_CONTENT
 }
@@ -143,6 +157,9 @@ async fn activate_provider(
     let providers = state.providers.read().await;
     let stored = providers.get(&id).ok_or(StatusCode::NOT_FOUND)?;
     let dto = stored_provider_to_dto(stored, Some(&id));
+    drop(providers);
+
+    state.auto_save().await;
 
     Ok(Json(dto))
 }
@@ -156,7 +173,7 @@ fn stored_provider_to_dto(
         name: stored.name.clone(),
         provider_type: stored.provider_type.clone(),
         config: serde_json::from_value(stored.config_json.clone()).unwrap_or(
-            ProviderConfigDto::Custom(CustomProviderConfigDto {
+            ProviderConfigDto::Custom(Box::new(CustomProviderConfigDto {
                 base_url: String::new(),
                 chat_path: String::new(),
                 method: "POST".into(),
@@ -171,7 +188,7 @@ fn stored_provider_to_dto(
                 response_finish_reason_path: None,
                 default_model: String::new(),
                 use_openai_format: true,
-            }),
+            })),
         ),
         is_active: active_id == Some(stored.id.as_str()),
         created_at: stored.created_at.to_rfc3339(),
@@ -222,11 +239,16 @@ async fn add_skill(
     let dto = skill_to_dto(stored.clone());
     state.skills.write().await.insert(name, stored);
 
+    state.auto_save().await;
+
     Ok(Json(dto))
 }
 
 async fn remove_skill(State(state): State<Arc<AppState>>, Path(name): Path<String>) -> StatusCode {
     state.skills.write().await.remove(&name);
+
+    state.auto_save().await;
+
     StatusCode::NO_CONTENT
 }
 
@@ -238,7 +260,12 @@ async fn toggle_skill(
     let mut skills = state.skills.write().await;
     let skill = skills.get_mut(&name).ok_or(StatusCode::NOT_FOUND)?;
     skill.is_active = req.is_active;
-    Ok(Json(skill_to_dto(skill.clone())))
+    let dto = skill_to_dto(skill.clone());
+    drop(skills);
+
+    state.auto_save().await;
+
+    Ok(Json(dto))
 }
 
 fn skill_to_dto(skill: crate::api::state::StoredSkill) -> SkillDto {
@@ -254,11 +281,7 @@ fn skill_to_dto(skill: crate::api::state::StoredSkill) -> SkillDto {
 // ─── Tool Handlers ───────────────────────────────────────────────
 
 async fn list_tools(State(state): State<Arc<AppState>>) -> Json<Vec<ToolDto>> {
-    let list: Vec<ToolDto> = state
-        .tool_definitions
-        .iter()
-        .map(|def| ToolDto::from(def))
-        .collect();
+    let list: Vec<ToolDto> = state.tool_definitions.iter().map(ToolDto::from).collect();
     Json(list)
 }
 
@@ -293,6 +316,11 @@ async fn send_chat_message(
         .await
         .push(choice.message.clone());
 
+    // Persist chat history
+    if let Err(e) = state.save_chat_history().await {
+        tracing::warn!("Failed to save chat history after message: {}", e);
+    }
+
     // Convert response
     let message_dto = ChatMessageDto::from(&choice.message);
 
@@ -300,7 +328,7 @@ async fn send_chat_message(
         .message
         .tool_calls
         .as_ref()
-        .map_or(true, |c| c.is_empty())
+        .is_none_or(|c| c.is_empty())
     {
         // Collect tool results from history that were just added
         None // Tool results are embedded in the conversation flow
@@ -328,6 +356,9 @@ async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMe
 
 async fn clear_chat_history(State(state): State<Arc<AppState>>) -> StatusCode {
     state.chat_history.write().await.clear();
+    if let Err(e) = state.save_chat_history().await {
+        tracing::warn!("Failed to save chat history after clear: {}", e);
+    }
     StatusCode::NO_CONTENT
 }
 
@@ -375,4 +406,121 @@ async fn get_status(State(state): State<Arc<AppState>>) -> Json<AgentStatusDto> 
         uptime_secs: uptime,
         message_count: history.len(),
     })
+}
+
+// ─── ACP Config Handlers ─────────────────────────────────────────
+
+async fn get_acp_config(State(state): State<Arc<AppState>>) -> Json<AcpConfigDto> {
+    let acp_config = state.acp_config.read().await;
+    let providers = state.providers.read().await;
+    let skills = state.skills.read().await;
+
+    let available_providers: Vec<AcpProviderOptionDto> = providers
+        .values()
+        .map(|p| {
+            let default_model = match p.provider_type.as_str() {
+                "openai" => p.config_json["default_model"].as_str().unwrap_or("gpt-4o"),
+                "anthropic" => p.config_json["default_model"]
+                    .as_str()
+                    .unwrap_or("claude-sonnet-4-20250514"),
+                _ => p.config_json["default_model"].as_str().unwrap_or("default"),
+            };
+            AcpProviderOptionDto {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                provider_type: p.provider_type.clone(),
+                default_model: default_model.to_string(),
+            }
+        })
+        .collect();
+
+    let available_skills: Vec<AcpSkillOptionDto> = skills
+        .values()
+        .map(|s| AcpSkillOptionDto {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            is_active: acp_config.active_skill_names.contains(&s.name),
+        })
+        .collect();
+
+    Json(AcpConfigDto {
+        active_provider_id: acp_config.active_provider_id.clone(),
+        active_skill_names: acp_config.active_skill_names.clone(),
+        available_providers,
+        available_skills,
+    })
+}
+
+async fn update_acp_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateAcpConfigRequest>,
+) -> Result<Json<AcpConfigDto>, (StatusCode, Json<serde_json::Value>)> {
+    let mut acp_config = state.acp_config.write().await;
+
+    if let Some(active_provider_id) = req.active_provider_id {
+        // Validate that the provider exists if a non-empty ID is given
+        if !active_provider_id.is_empty() {
+            let providers = state.providers.read().await;
+            if !providers.contains_key(&active_provider_id) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Provider '{}' not found", active_provider_id)
+                    })),
+                ));
+            }
+        }
+        acp_config.active_provider_id = if active_provider_id.is_empty() {
+            None
+        } else {
+            Some(active_provider_id)
+        };
+    }
+
+    if let Some(active_skill_names) = req.active_skill_names {
+        acp_config.active_skill_names = active_skill_names;
+    }
+
+    let providers = state.providers.read().await;
+    let skills = state.skills.read().await;
+
+    let available_providers: Vec<AcpProviderOptionDto> = providers
+        .values()
+        .map(|p| {
+            let default_model = match p.provider_type.as_str() {
+                "openai" => p.config_json["default_model"].as_str().unwrap_or("gpt-4o"),
+                "anthropic" => p.config_json["default_model"]
+                    .as_str()
+                    .unwrap_or("claude-sonnet-4-20250514"),
+                _ => p.config_json["default_model"].as_str().unwrap_or("default"),
+            };
+            AcpProviderOptionDto {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                provider_type: p.provider_type.clone(),
+                default_model: default_model.to_string(),
+            }
+        })
+        .collect();
+
+    let available_skills: Vec<AcpSkillOptionDto> = skills
+        .values()
+        .map(|s| AcpSkillOptionDto {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            is_active: acp_config.active_skill_names.contains(&s.name),
+        })
+        .collect();
+
+    let dto = AcpConfigDto {
+        active_provider_id: acp_config.active_provider_id.clone(),
+        active_skill_names: acp_config.active_skill_names.clone(),
+        available_providers,
+        available_skills,
+    };
+    drop(acp_config);
+
+    state.auto_save().await;
+
+    Ok(Json(dto))
 }

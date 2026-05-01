@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::agent::runner::{Agent, AgentConfig};
+use crate::agent::skill::Skill;
 use crate::provider::Provider;
 
 /// State tracked for each ACP session.
@@ -19,12 +20,27 @@ pub struct AcpSession {
 }
 
 impl AcpSession {
+    /// Create a new ACP session with only built-in tools (backward compatible).
     pub fn new(provider: Box<dyn Provider>, cwd: String) -> Self {
+        Self::new_with_skills(provider, cwd, Vec::new())
+    }
+
+    /// Create a new ACP session with skills applied.
+    pub fn new_with_skills(
+        provider: Box<dyn Provider>,
+        cwd: String,
+        skills: Vec<Arc<dyn Skill>>,
+    ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
             .with_auto_execute_tools(true);
 
         let mut agent = Agent::with_config(provider, config);
+
+        // Add skills before built-in tools so they can be initialized
+        for skill in skills {
+            agent.add_skill(skill);
+        }
 
         // Register built-in tools
         agent.register_tool(Arc::new(crate::agent::tool_executor::EchoTool));
@@ -92,10 +108,21 @@ impl SessionManager {
         }
     }
 
-    /// Create a new session and return its ID.
+    /// Create a new session and return its ID (backward compatible, no skills).
     pub async fn create_session(&self, provider: Box<dyn Provider>, cwd: String) -> String {
+        self.create_session_with_skills(provider, cwd, Vec::new())
+            .await
+    }
+
+    /// Create a new session with skills and return its ID.
+    pub async fn create_session_with_skills(
+        &self,
+        provider: Box<dyn Provider>,
+        cwd: String,
+        skills: Vec<Arc<dyn Skill>>,
+    ) -> String {
         let session_id = uuid::Uuid::new_v4().to_string();
-        let session = AcpSession::new(provider, cwd);
+        let session = AcpSession::new_with_skills(provider, cwd, skills);
         self.sessions
             .write()
             .await
@@ -131,14 +158,26 @@ impl SessionManager {
             .unwrap_or(true)
     }
 
-    /// Load an existing session (for session/load support).
+    /// Load an existing session (for session/load support), backward compatible.
     pub async fn load_session(
         &self,
         provider: Box<dyn Provider>,
         session_id: String,
         cwd: String,
     ) -> bool {
-        let session = AcpSession::new(provider, cwd);
+        self.load_session_with_skills(provider, session_id, cwd, Vec::new())
+            .await
+    }
+
+    /// Load an existing session with skills applied.
+    pub async fn load_session_with_skills(
+        &self,
+        provider: Box<dyn Provider>,
+        session_id: String,
+        cwd: String,
+        skills: Vec<Arc<dyn Skill>>,
+    ) -> bool {
+        let session = AcpSession::new_with_skills(provider, cwd, skills);
         self.sessions.write().await.insert(session_id, session);
         true
     }

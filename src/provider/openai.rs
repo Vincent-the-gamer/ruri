@@ -1,5 +1,7 @@
 use crate::provider::{Provider, ProviderError};
-use crate::types::{ChatRequest, ChatResponse};
+use crate::types::{
+    ChatMessage, ChatRequest, ChatResponse, Choice, MessageContent, MessageRole, Usage,
+};
 use async_trait::async_trait;
 
 /// OpenAI-compatible API provider.
@@ -103,7 +105,8 @@ impl Provider for OpenAIProvider {
             });
         }
 
-        let chat_response: ChatResponse = response.json().await?;
+        let raw_response: serde_json::Value = response.json().await?;
+        let chat_response = self.convert_response(raw_response);
         Ok(chat_response)
     }
 
@@ -113,5 +116,107 @@ impl Provider for OpenAIProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+}
+
+impl OpenAIProvider {
+    /// Convert a raw JSON response into our unified `ChatResponse`.
+    ///
+    /// This handles non-standard responses from OpenAI-compatible APIs
+    /// (e.g., kimi-k2.5 may return `"content": null` when tool_calls are present).
+    fn convert_response(&self, raw: serde_json::Value) -> ChatResponse {
+        // Try direct deserialization first (fast path for standard responses)
+        if let Ok(resp) = serde_json::from_value::<ChatResponse>(raw.clone()) {
+            return resp;
+        }
+
+        // Fallback: manually extract fields from the raw JSON
+        tracing::warn!("Standard deserialization failed, attempting manual conversion");
+
+        let id = raw.get("id").and_then(|v| v.as_str()).map(String::from);
+        let object = raw.get("object").and_then(|v| v.as_str()).map(String::from);
+        let model = raw.get("model").and_then(|v| v.as_str()).map(String::from);
+
+        let usage = raw.get("usage").and_then(|u| {
+            Some(Usage {
+                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()),
+                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()),
+                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()),
+            })
+        });
+
+        let choices = raw
+            .get("choices")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .enumerate()
+                    .filter_map(|(i, choice)| {
+                        let message_val = choice.get("message")?;
+                        let role_str = message_val
+                            .get("role")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("assistant");
+                        let role = match role_str {
+                            "system" => MessageRole::System,
+                            "user" => MessageRole::User,
+                            "assistant" => MessageRole::Assistant,
+                            "tool" => MessageRole::Tool,
+                            _ => MessageRole::Assistant,
+                        };
+
+                        // Handle content that may be null, string, or array
+                        let content = match message_val.get("content") {
+                            Some(val) if !val.is_null() => {
+                                serde_json::from_value::<MessageContent>(val.clone()).ok()
+                            }
+                            _ => None,
+                        };
+
+                        let tool_calls = message_val
+                            .get("tool_calls")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+                        let tool_call_id = message_val
+                            .get("tool_call_id")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+
+                        let name = message_val
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+
+                        let message = ChatMessage {
+                            role,
+                            content,
+                            name,
+                            tool_calls,
+                            tool_call_id,
+                        };
+
+                        let finish_reason = choice
+                            .get("finish_reason")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+
+                        Some(Choice {
+                            index: i as u64,
+                            message,
+                            finish_reason,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        ChatResponse {
+            id,
+            object,
+            model,
+            choices,
+            usage,
+            extra: serde_json::Map::new(),
+        }
     }
 }

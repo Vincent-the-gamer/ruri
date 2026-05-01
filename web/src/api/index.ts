@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type {
   AgentStatus,
+  AcpConfig,
   ChatRequest,
   ChatResponse,
   ChatMessage,
@@ -9,6 +10,7 @@ import type {
   Provider,
   Skill,
   Tool,
+  UpdateAcpConfigRequest,
 } from '../types'
 
 const client = axios.create({
@@ -102,6 +104,18 @@ export async function getChatHistory(): Promise<ChatMessage[]> {
 
 export async function clearChatHistory(): Promise<void> {
   await client.delete('/api/chat/history')
+}
+
+// ─── ACP ──────────────────────────────────────────────────────────
+
+export async function getAcpConfig(): Promise<AcpConfig> {
+  const res = await client.get('/api/acp/config')
+  return res.data
+}
+
+export async function updateAcpConfig(data: UpdateAcpConfigRequest): Promise<AcpConfig> {
+  const res = await client.put('/api/acp/config', data)
+  return res.data
 }
 
 // ─── Agent ───────────────────────────────────────────────────────

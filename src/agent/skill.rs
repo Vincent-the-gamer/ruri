@@ -147,13 +147,12 @@ impl Skill for ContextPrefixSkill {
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
-        if let Some(last) = messages.last_mut() {
-            if last.role == crate::types::MessageRole::User {
-                if let crate::types::MessageContent::Text(ref text) = last.content {
-                    let new_content = format!("{}\n\n{}", self.prefix, text);
-                    last.content = crate::types::MessageContent::Text(new_content);
-                }
-            }
+        if let Some(last) = messages.last_mut()
+            && last.role == crate::types::MessageRole::User
+            && let Some(crate::types::MessageContent::Text(ref text)) = last.content
+        {
+            let new_content = format!("{}\n\n{}", self.prefix, text);
+            last.content = Some(crate::types::MessageContent::Text(new_content));
         }
     }
 }

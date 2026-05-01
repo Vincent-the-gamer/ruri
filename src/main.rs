@@ -64,6 +64,19 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let acp_mode = args.iter().any(|arg| arg == "--acp");
 
+    // Check for --acp-config <path> to override the config file location
+    let acp_config_path = {
+        let mut path = None;
+        let mut iter = args.iter().peekable();
+        while let Some(arg) = iter.next() {
+            if arg == "--acp-config" {
+                path = iter.next().map(std::path::PathBuf::from);
+                break;
+            }
+        }
+        path
+    };
+
     // Initialize logging
     if acp_mode {
         // ACP mode: logging goes to stderr so it doesn't interfere with JSON-RPC on stdout
@@ -76,7 +89,12 @@ async fn main() -> anyhow::Result<()> {
             .init();
 
         tracing::info!("Starting Ruri in ACP mode (stdio)");
-        return acp::run_acp_server().await.map_err(Into::into);
+        // Clippy claims the `Into::into` is useless, but removing it breaks type
+        // inference through the `return` expression.
+        #[allow(clippy::useless_conversion)]
+        return acp::run_acp_server_with_config_path(acp_config_path)
+            .await
+            .map_err(Into::into);
     } else {
         // Normal mode: logging to stdout/stderr as usual
         tracing_subscriber::fmt()
@@ -135,6 +153,8 @@ async fn main() -> anyhow::Result<()> {
     println!("  PATCH  /api/skills/:name       Toggle skill");
     println!("  GET    /api/tools              List tools");
     println!("  GET    /api/agent/status       Get agent status");
+    println!("  GET    /api/acp/config         Get ACP mode config");
+    println!("  PUT    /api/acp/config         Update ACP mode config");
     println!();
     println!("ACP (Agent Client Protocol) mode:");
     println!("  Run with --acp to start in ACP mode (stdio transport)");

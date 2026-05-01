@@ -33,6 +33,11 @@ const router = createRouter({
       component: () => import('../views/Chat.vue'),
     },
     {
+      path: '/acp-config',
+      name: 'ACP Config',
+      component: () => import('../views/AcpConfig.vue'),
+    },
+    {
       path: '/api-test',
       name: 'API Test',
       component: () => import('../views/APITest.vue'),

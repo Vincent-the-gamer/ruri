@@ -138,10 +138,10 @@ impl HttpTransport {
                 if e.is_timeout() {
                     return true;
                 }
-                if let Some(status) = e.status() {
-                    if status.is_server_error() {
-                        return self.config.retry_on_server_error;
-                    }
+                if let Some(status) = e.status()
+                    && status.is_server_error()
+                {
+                    return self.config.retry_on_server_error;
                 }
                 false
             }
