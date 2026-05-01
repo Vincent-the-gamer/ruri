@@ -50,15 +50,11 @@ Add to your Zed `settings.json`:
 
 ```json
 {
-  "agent": {
-    "profiles": {
-      "ruri": {
-        "name": "Ruri",
-        "agent_client_protocol": {
-          "command": "path/to/ruri",
-          "args": ["--acp"]
-        }
-      }
+  "agent_servers": {
+    "ruri": {
+      "type": "custom",
+      "command": "/<path_to>/ruri",
+      "args": ["--acp"]
     }
   }
 }
