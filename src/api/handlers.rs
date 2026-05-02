@@ -1,10 +1,16 @@
+use axum::extract::ws::Utf8Bytes;
 use axum::{
     Json, Router,
-    extract::{Path, Request, State},
+    extract::{
+        Path, Request, State,
+        ws::{WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
+    response::Response,
     routing::{delete, get, post},
 };
 use chrono::Utc;
+// futures::sink::SinkExt is not needed for axum WebSocket
 use serde::Deserialize;
 use serde_json::json;
 use std::io::{Cursor, Read};
@@ -125,6 +131,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/acp/config",
             get(get_acp_config).put(update_acp_config),
         )
+        // Logs
+        .route("/api/logs", get(get_logs).delete(clear_logs))
+        .route("/api/logs/stream", get(ws_logs_upgrade))
         .with_state(state)
 }
 
@@ -994,4 +1003,56 @@ async fn update_acp_config(
     state.auto_save().await;
 
     Ok(Json(dto))
+}
+
+// ─── Logs ─────────────────────────────────────────────────────────
+
+/// 获取所有日志
+async fn get_logs(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let logs = state.log_manager.get_logs().await;
+    Json(serde_json::to_value(logs).unwrap_or(json!([])))
+}
+
+/// 清空所有日志
+async fn clear_logs(State(state): State<Arc<AppState>>) -> StatusCode {
+    state.log_manager.clear_logs().await;
+    StatusCode::NO_CONTENT
+}
+
+/// WebSocket日志推送handler
+async fn ws_logs_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(move |socket| ws_logs_handler(socket, state))
+}
+
+/// WebSocket日志推送处理器
+async fn ws_logs_handler(mut socket: WebSocket, state: Arc<AppState>) {
+    // 订阅日志广播
+    let mut log_rx = state.log_manager.subscribe();
+
+    // 发送历史日志
+    let logs = state.log_manager.get_logs().await;
+    for log in logs {
+        if let Ok(log_json) = serde_json::to_string(&log) {
+            if socket
+                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(log_json)))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+    }
+
+    // 持续接收新日志并推送
+    while let Ok(log) = log_rx.recv().await {
+        if let Ok(log_json) = serde_json::to_string(&log) {
+            if socket
+                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(log_json)))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
 }

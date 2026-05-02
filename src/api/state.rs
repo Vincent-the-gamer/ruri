@@ -134,6 +134,8 @@ pub struct AppState {
     pub(crate) config_path: PathBuf,
     /// Path to the chat history file.
     pub(crate) chat_history_path: PathBuf,
+    /// Log manager for real-time log broadcasting.
+    pub log_manager: std::sync::Arc<crate::logging::LogManager>,
 }
 
 impl AppState {
@@ -141,6 +143,15 @@ impl AppState {
     pub fn new() -> Self {
         let config_path = default_config_path();
         Self::with_config_path(&config_path)
+    }
+
+    /// Set the log manager.
+    pub fn with_log_manager(
+        mut self,
+        log_manager: std::sync::Arc<crate::logging::LogManager>,
+    ) -> Self {
+        self.log_manager = log_manager;
+        self
     }
 
     /// Create a new AppState with a specific config file path,
@@ -236,6 +247,7 @@ impl AppState {
             start_time: Utc::now(),
             config_path: config_path.to_path_buf(),
             chat_history_path: chat_history_file_path,
+            log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
         }
     }
 

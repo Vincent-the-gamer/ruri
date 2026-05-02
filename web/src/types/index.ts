@@ -187,6 +187,19 @@ export interface UpdateAcpConfigRequest {
   active_skill_names: string[]
 }
 
+// ─── Log Types ────────────────────────────────────────────────────────
+
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogEntry {
+  timestamp: number
+  level: LogLevel
+  target: string
+  message: string
+  file?: string
+  line?: number
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   CreateProviderRequest,
   CreateSkillRequest,
+  LogEntry,
   Provider,
   Skill,
   Tool,
@@ -132,4 +133,21 @@ export async function updateAcpConfig(data: UpdateAcpConfigRequest): Promise<Acp
 export async function getAgentStatus(): Promise<AgentStatus> {
   const res = await client.get('/api/agent/status')
   return res.data
+}
+
+// ─── Logs ─────────────────────────────────────────────────────────
+
+export async function getLogs(): Promise<LogEntry[]> {
+  const res = await client.get('/api/logs')
+  return res.data
+}
+
+export async function clearLogs(): Promise<void> {
+  await client.delete('/api/logs')
+}
+
+export function openLogsStream(): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  return new WebSocket(`${protocol}//${host}/api/logs/stream`)
 }

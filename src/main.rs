@@ -3,6 +3,7 @@
 mod acp;
 mod agent;
 mod api;
+mod logging;
 mod provider;
 mod transport;
 mod types;
@@ -98,20 +99,14 @@ async fn main() -> anyhow::Result<()> {
         return acp::run_acp_server_with_config_path(acp_config_path)
             .await
             .map_err(Into::into);
-    } else {
-        // Normal mode: logging to stdout/stderr as usual
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-            )
-            .init();
     }
 
-    println!("╔══════════════════════════════════════╗");
-    println!("║         🤖 Ruri AI Agent             ║");
-    println!("╚══════════════════════════════════════╝");
-    println!();
+    // Normal mode: use our logging system with LogManager
+    let log_manager = logging::init_logging(1000);
+
+    tracing::info!("╔══════════════════════════════════════╗");
+    tracing::info!("║         🤖 Ruri AI Agent             ║");
+    tracing::info!("╚══════════════════════════════════════╝");
 
     // ── Create shared application state ──────────────────────────
 
@@ -129,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         tool_definitions: tool_defs,
+        log_manager,
         ..AppState::new()
     });
 
@@ -140,33 +136,32 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Start the server ─────────────────────────────────────────
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 3000));
-    println!("🌐 WebUI:  http://localhost:3000");
-    println!("📡 API:    http://localhost:3000/api");
-    println!();
-    println!("Available API endpoints:");
-    println!("  POST   /api/chat              Send a chat message");
-    println!("  GET    /api/chat/history       Get chat history");
-    println!("  DELETE /api/chat/history       Clear chat history");
-    println!("  GET    /api/providers          List providers");
-    println!("  POST   /api/providers          Create provider");
-    println!("  GET    /api/providers/:id      Get provider");
-    println!("  PUT    /api/providers/:id      Update provider");
-    println!("  DELETE /api/providers/:id      Delete provider");
-    println!("  POST   /api/providers/:id/activate  Set active provider");
-    println!("  GET    /api/skills             List skills");
-    println!("  POST   /api/skills             Add skill");
-    println!("  POST   /api/skills/upload     Upload skill package (ZIP)");
-    println!("  DELETE /api/skills/:name       Remove skill");
-    println!("  PATCH  /api/skills/:name       Toggle skill");
-    println!("  GET    /api/tools              List tools");
-    println!("  GET    /api/agent/status       Get agent status");
-    println!("  GET    /api/acp/config         Get ACP mode config");
-    println!("  PUT    /api/acp/config         Update ACP mode config");
-    println!();
-    println!("ACP (Agent Client Protocol) mode:");
-    println!("  Run with --acp to start in ACP mode (stdio transport)");
-    println!("  Compatible with Zed, JetBrains, and other ACP clients");
-    println!();
+    tracing::info!("🌐 WebUI:  http://localhost:3000");
+    tracing::info!("📡 API:    http://localhost:3000/api");
+    tracing::info!("");
+    tracing::info!("Available API endpoints:");
+    tracing::info!("  POST   /api/chat              Send a chat message");
+    tracing::info!("  GET    /api/chat/history       Get chat history");
+    tracing::info!("  DELETE /api/chat/history       Clear chat history");
+    tracing::info!("  GET    /api/providers          List providers");
+    tracing::info!("  POST   /api/providers          Create provider");
+    tracing::info!("  GET    /api/providers/:id      Get provider");
+    tracing::info!("  PUT    /api/providers/:id      Update provider");
+    tracing::info!("  DELETE /api/providers/:id      Delete provider");
+    tracing::info!("  POST   /api/providers/:id/activate  Set active provider");
+    tracing::info!("  GET    /api/skills             List skills");
+    tracing::info!("  POST   /api/skills             Add skill");
+    tracing::info!("  POST   /api/skills/upload     Upload skill package (ZIP)");
+    tracing::info!("  DELETE /api/skills/:name       Remove skill");
+    tracing::info!("  PATCH  /api/skills/:name       Toggle skill");
+    tracing::info!("  GET    /api/tools              List tools");
+    tracing::info!("  GET    /api/agent/status       Get agent status");
+    tracing::info!("  GET    /api/acp/config         Get ACP mode config");
+    tracing::info!("  PUT    /api/acp/config         Update ACP mode config");
+    tracing::info!("");
+    tracing::info!("ACP (Agent Client Protocol) mode:");
+    tracing::info!("  Run with --acp to start in ACP mode (stdio transport)");
+    tracing::info!("  Compatible with Zed, JetBrains, and other ACP clients");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
