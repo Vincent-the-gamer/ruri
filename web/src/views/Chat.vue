@@ -44,7 +44,7 @@ async function handleSend(message: string) {
 }
 
 async function handleClear() {
-    if (!confirm("确定清空所有聊天记录？")) return;
+    if (!confirm("💕 确定要清空所有和琉璃的聊天记录吗？")) return;
     await chatStore.clearHistory();
 }
 
@@ -55,88 +55,88 @@ function toggleSettings() {
 
 <template>
     <div class="chat-view">
-        <!-- Header -->
-        <header class="chat-header">
+        <!-- Header - 可爱风格 -->
+        <header class="chat-header glass">
             <div class="header-left">
-                <h1 class="header-title">对话</h1>
-                <span v-if="chatStore.loading" class="thinking-indicator">
-                    <svg class="spinner-icon" viewBox="0 0 24 24" fill="none">
-                        <circle
-                            class="spinner-track"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        />
-                        <path
-                            class="spinner-head"
-                            fill="currentColor"
-                            d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"
-                        />
-                    </svg>
-                    思考中
-                </span>
-                <span v-if="providerStore.activeProvider" class="model-badge">
-                    {{ providerStore.activeProvider.name }} ·
-                    {{
+                <div class="header-icon bounce">
+                    <span>💬</span>
+                </div>
+                <div>
+                    <h1 class="header-title font-cute">
+                        <span>💎</span>
+                        <span>对话</span>
+                        <span>✨</span>
+                    </h1>
+                    <span v-if="chatStore.loading" class="thinking-indicator">
+                        <svg
+                            class="spinner-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                        >
+                            <circle
+                                class="spinner-track"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            />
+                            <path
+                                class="spinner-head"
+                                fill="currentColor"
+                                d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"
+                            />
+                        </svg>
+                        <span>琉璃正在思考...</span>
+                    </span>
+                    <span v-else class="thinking-indicator ready">
+                        <span>✨ 琉璃准备好了</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div v-if="providerStore.activeProvider" class="model-badge">
+                    <span class="badge-icon">🤖</span>
+                    <span>{{ providerStore.activeProvider.name }}</span>
+                    <span class="badge-divider">·</span>
+                    <span>{{
                         (providerStore.activeProvider.config as any)
                             ?.default_model
-                    }}
-                </span>
-            </div>
-            <div class="header-actions">
-                <button
-                    class="icon-btn"
-                    :class="{ active: showSettings }"
-                    @click="toggleSettings"
-                    title="设置"
+                    }}</span>
+                </div>
+                <div
+                    class="header-actions"
+                    :class="{ 'has-badge': !!providerStore.activeProvider }"
                 >
-                    <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                    <button
+                        class="icon-btn"
+                        :class="{ active: showSettings }"
+                        @click="toggleSettings"
+                        title="设置 ⚙️"
                     >
-                        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
-                        <path
-                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-                        />
-                    </svg>
-                </button>
-                <button
-                    class="icon-btn danger"
-                    @click="handleClear"
-                    title="清空记录"
-                >
-                    <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                        <span class="btn-icon">⚙️</span>
+                    </button>
+                    <button
+                        class="icon-btn danger"
+                        @click="handleClear"
+                        title="清空记录 🗑️"
                     >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path
-                            d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
-                        />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                    </svg>
-                </button>
+                        <span class="btn-icon">🗑️</span>
+                    </button>
+                </div>
             </div>
         </header>
 
-        <!-- Settings Panel -->
+        <!-- Settings Panel - 可爱风格 -->
         <Transition name="slide-down">
-            <div v-if="showSettings" class="settings-panel">
+            <div v-if="showSettings" class="settings-panel glass-subtle">
                 <div class="settings-inner">
                     <div class="setting-item">
-                        <label class="setting-label">温度</label>
+                        <label class="setting-label font-cute">
+                            <span>🌡️</span>
+                            <span>温度</span>
+                        </label>
                         <div class="setting-control">
                             <input
                                 v-model.number="temperature"
@@ -146,11 +146,16 @@ function toggleSettings() {
                                 step="0.1"
                                 class="range-slider"
                             />
-                            <span class="setting-value">{{ temperature }}</span>
+                            <div class="setting-value-badge">
+                                {{ temperature }}
+                            </div>
                         </div>
                     </div>
                     <div class="setting-item">
-                        <label class="setting-label">最大 Token 数</label>
+                        <label class="setting-label font-cute">
+                            <span>📊</span>
+                            <span>最大 Token</span>
+                        </label>
                         <div class="setting-control">
                             <input
                                 v-model.number="maxTokens"
@@ -166,80 +171,46 @@ function toggleSettings() {
             </div>
         </Transition>
 
-        <!-- No Provider Warning -->
+        <!-- No Provider Warning - 友好提示 -->
         <div
             v-if="!providerStore.activeProvider && !chatStore.loading"
             class="warning-bar"
         >
-            <svg
-                class="warning-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <path
-                    d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <span
-                >暂无活跃的模型供应商。<router-link
-                    to="/providers"
-                    class="warning-link"
-                    >配置供应商</router-link
-                >
-                开始对话。</span
-            >
+            <span class="warning-emoji">💡</span>
+            <span>还没有配置模型供应商哦~</span>
+            <router-link to="/providers" class="warning-link">
+                <span>去配置 💖</span>
+            </router-link>
         </div>
 
         <!-- Messages Area -->
         <div ref="messagesContainer" class="messages-area">
             <div class="messages-inner">
-                <!-- Empty State -->
+                <!-- Empty State - 可爱的空状态 -->
                 <div v-if="messages.length === 0" class="empty-state">
-                    <svg
-                        class="empty-icon"
-                        viewBox="0 0 48 48"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <rect x="6" y="10" width="36" height="24" rx="4" />
-                        <path d="M6 18h36" />
-                        <circle
-                            cx="12"
-                            cy="14"
-                            r="1.5"
-                            fill="currentColor"
-                            stroke="none"
-                        />
-                        <circle
-                            cx="17"
-                            cy="14"
-                            r="1.5"
-                            fill="currentColor"
-                            stroke="none"
-                        />
-                        <circle
-                            cx="22"
-                            cy="14"
-                            r="1.5"
-                            fill="currentColor"
-                            stroke="none"
-                        />
-                        <path d="M15 28l4-4 3 3 5-5" />
-                        <path d="M24 22h3v3" />
-                    </svg>
-                    <h2 class="empty-title">Ruri 对话</h2>
+                    <div class="empty-icon-wrapper float">
+                        <span class="empty-icon">💌</span>
+                        <span class="decoration-1">✨</span>
+                        <span class="decoration-2">💫</span>
+                    </div>
+                    <h2 class="empty-title font-cute">
+                        <span>💎</span>
+                        <span>和琉璃开始对话吧</span>
+                        <span>✨</span>
+                    </h2>
                     <p class="empty-desc">
-                        开始与 AI 智能体对话。请确保已配置并激活了模型供应商。
+                        琉璃是你的 AI 助手哦~🎀
+                        先去配置个模型供应商，然后就可以开始聊天啦！
                     </p>
+                    <router-link
+                        v-if="!providerStore.activeProvider"
+                        to="/providers"
+                        class="cta-button"
+                    >
+                        <span>💖</span>
+                        <span>配置供应商</span>
+                        <span>🚀</span>
+                    </router-link>
                 </div>
 
                 <!-- Chat Messages -->
@@ -263,7 +234,8 @@ function toggleSettings() {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background-color: var(--color-bg-soft);
+    background: transparent;
+    position: relative;
 }
 
 /* ── Header ─────────────────────────────────────── */
@@ -272,32 +244,60 @@ function toggleSettings() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 1.25rem;
-    height: 52px;
-    min-height: 52px;
-    border-bottom: 1px solid var(--color-border);
-    background-color: var(--color-bg);
+    padding: 1rem 1.25rem;
+    min-height: 64px;
+    border-bottom: 2px solid rgba(249, 168, 212, 0.3);
+    position: relative;
+    z-index: 10;
+}
+
+.chat-header::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--color-accent), #a855f7, #818cf8);
+    opacity: 0.3;
 }
 
 .header-left {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1rem;
+}
+
+.header-icon {
+    font-size: 1.75rem;
 }
 
 .header-title {
-    font-size: 0.9375rem;
-    font-weight: 600;
+    font-size: 1.125rem;
+    font-weight: 700;
     color: var(--color-text);
-    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.header-title span {
+    display: inline-flex;
+    align-items: center;
 }
 
 .thinking-indicator {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     font-size: 0.75rem;
     color: var(--color-accent);
+    font-weight: 600;
+    margin-top: 0.25rem;
+}
+
+.thinking-indicator.ready {
+    color: var(--color-success);
 }
 
 .spinner-icon {
@@ -307,11 +307,14 @@ function toggleSettings() {
 }
 
 .spinner-track {
-    opacity: 0.2;
+    opacity: 0.25;
+    stroke: var(--color-accent);
 }
 
 .spinner-head {
     opacity: 0.8;
+    fill: var(--color-accent);
+    stroke: var(--color-accent);
 }
 
 @keyframes spin {
@@ -323,104 +326,155 @@ function toggleSettings() {
     }
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
 .model-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
     font-size: 0.6875rem;
-    color: var(--color-text-muted);
-    padding: 0.125rem 0.5rem;
-    background-color: var(--color-bg-mute);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    padding: 0.375rem 0.75rem;
+    background: linear-gradient(
+        135deg,
+        rgba(253, 242, 248, 0.9) 0%,
+        rgba(250, 245, 255, 0.9) 100%
+    );
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-full);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-icon {
+    font-size: 1rem;
+}
+
+.badge-divider {
+    opacity: 0.5;
 }
 
 .header-actions {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.5rem;
 }
 
 .icon-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: var(--radius-md);
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid transparent;
+    border-radius: var(--radius-full);
     background: transparent;
     color: var(--color-text-muted);
     cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.icon-btn svg {
-    width: 16px;
-    height: 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 1.125rem;
 }
 
 .icon-btn:hover {
-    background-color: var(--color-bg-mute);
+    background: linear-gradient(
+        135deg,
+        rgba(253, 242, 248, 0.8) 0%,
+        rgba(250, 245, 255, 0.8) 100%
+    );
+    border-color: var(--color-border);
     color: var(--color-text);
+    transform: scale(1.1);
 }
 
 .icon-btn.active {
-    background-color: var(--color-accent-soft);
-    color: var(--color-accent);
+    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
+    border-color: var(--color-accent);
+    color: white;
+    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
 }
 
 .icon-btn.danger:hover {
-    background-color: var(--color-danger-soft);
+    background: linear-gradient(
+        135deg,
+        rgba(252, 165, 165, 0.2) 0%,
+        rgba(248, 113, 113, 0.2) 100%
+    );
+    border-color: var(--color-danger);
     color: var(--color-danger);
 }
 
 /* ── Settings Panel ─────────────────────────────── */
 
 .settings-panel {
-    border-bottom: 1px solid var(--color-border);
-    background-color: var(--color-bg);
+    border-bottom: 2px solid rgba(249, 168, 212, 0.3);
+    position: relative;
+    z-index: 5;
 }
 
 .settings-inner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 2rem;
-    padding: 0.875rem 1.25rem;
-    max-width: 48rem;
+    padding: 1rem 1.25rem;
+    max-width: 56rem;
 }
 
 .setting-item {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: 0.75rem;
 }
 
 .setting-label {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--color-text-secondary);
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 600;
 }
 
 .setting-control {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.75rem;
 }
 
-.setting-value {
-    font-size: 0.75rem;
-    color: var(--color-text);
-    min-width: 2rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.setting-value-badge {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--color-accent);
+    background: linear-gradient(
+        135deg,
+        rgba(236, 72, 153, 0.15) 0%,
+        rgba(192, 132, 252, 0.15) 100%
+    );
+    padding: 0.25rem 0.625rem;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--color-accent);
+    min-width: 2.5rem;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.1);
 }
 
 /* Range slider */
 .range-slider {
     -webkit-appearance: none;
     appearance: none;
-    width: 120px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--color-border);
+    width: 140px;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(
+        90deg,
+        rgba(236, 72, 153, 0.2) 0%,
+        rgba(192, 132, 252, 0.2) 100%
+    );
     outline: none;
     cursor: pointer;
 }
@@ -428,46 +482,59 @@ function toggleSettings() {
 .range-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--color-accent);
-    border: 2px solid var(--color-bg);
-    box-shadow: 0 0 0 1px var(--color-accent);
+    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.4);
     cursor: pointer;
-    transition: transform var(--transition-fast);
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
 }
 
 .range-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.15);
+    transform: scale(1.2);
+    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.5);
 }
 
 .range-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--color-accent);
-    border: 2px solid var(--color-bg);
-    box-shadow: 0 0 0 1px var(--color-accent);
+    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.4);
     cursor: pointer;
 }
 
 /* Number input */
 .number-input {
-    width: 5.5rem;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
+    width: 6rem;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
     color: var(--color-text);
-    background-color: var(--color-bg-mute);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.9) 0%,
+        rgba(253, 242, 248, 0.9) 100%
+    );
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-md);
     outline: none;
     font-variant-numeric: tabular-nums;
-    transition: border-color var(--transition-fast);
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 6px rgba(168, 85, 247, 0.05);
 }
 
 .number-input:focus {
     border-color: var(--color-accent);
+    box-shadow:
+        0 0 0 3px var(--color-accent-soft),
+        0 4px 12px rgba(168, 85, 247, 0.15);
+    transform: translateY(-1px);
 }
 
 /* ── Warning Bar ─────────────────────────────────── */
@@ -475,29 +542,40 @@ function toggleSettings() {
 .warning-bar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1.25rem;
-    background-color: var(--color-warning-soft);
-    border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+    gap: 0.625rem;
+    padding: 0.75rem 1.25rem;
+    background: linear-gradient(
+        135deg,
+        rgba(252, 211, 77, 0.15) 0%,
+        rgba(251, 191, 36, 0.15) 100%
+    );
+    border-top: 2px solid rgba(251, 191, 36, 0.3);
+    border-bottom: 2px solid rgba(251, 191, 36, 0.3);
     font-size: 0.8125rem;
-    color: var(--color-warning);
+    color: #92400e;
+    font-weight: 600;
 }
 
-.warning-icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
+.warning-emoji {
+    font-size: 1.125rem;
 }
 
 .warning-link {
-    color: var(--color-warning);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    transition: opacity var(--transition-fast);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #d97706;
+    text-decoration: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    background: rgba(251, 191, 36, 0.2);
+    transition: all 0.3s ease;
 }
 
 .warning-link:hover {
-    opacity: 0.8;
+    background: rgba(251, 191, 36, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(251, 191, 36, 0.2);
 }
 
 /* ── Messages Area ───────────────────────────────── */
@@ -506,14 +584,15 @@ function toggleSettings() {
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem 1.25rem;
+    position: relative;
 }
 
 .messages-inner {
-    max-width: 48rem;
+    max-width: 56rem;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
 }
 
 /* ── Empty State ─────────────────────────────────── */
@@ -523,50 +602,155 @@ function toggleSettings() {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 50vh;
+    min-height: 60vh;
     text-align: center;
+    padding: 2rem;
+}
+
+.empty-icon-wrapper {
+    position: relative;
+    margin-bottom: 1.5rem;
 }
 
 .empty-icon {
-    width: 48px;
-    height: 48px;
-    color: var(--color-text-dim);
-    margin-bottom: 1rem;
+    font-size: 4rem;
+    display: inline-block;
+    filter: drop-shadow(0 4px 8px rgba(168, 85, 247, 0.2));
+}
+
+.decoration-1,
+.decoration-2 {
+    position: absolute;
+    font-size: 1.5rem;
+    animation: float 3s ease-in-out infinite;
+}
+
+.decoration-1 {
+    top: 0;
+    right: -1rem;
+    animation-delay: 0s;
+}
+
+.decoration-2 {
+    bottom: 0;
+    left: -1rem;
+    animation-delay: 1s;
 }
 
 .empty-title {
-    font-size: 1.125rem;
-    font-weight: 600;
+    font-size: 1.25rem;
+    font-weight: 700;
     color: var(--color-text);
-    margin-bottom: 0.375rem;
-    letter-spacing: -0.01em;
+    margin-bottom: 0.75rem;
+    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.empty-title span {
+    display: inline-flex;
+    align-items: center;
 }
 
 .empty-desc {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--color-text-muted);
-    max-width: 20rem;
-    line-height: 1.5;
+    max-width: 24rem;
+    line-height: 1.75;
+    margin-bottom: 1.5rem;
+}
+
+.cta-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: var(--radius-full);
+    font-weight: 700;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+    transition: all 0.3s ease;
+}
+
+.cta-button:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 8px 20px rgba(236, 72, 153, 0.4);
+}
+
+.cta-button span {
+    display: inline-flex;
+    align-items: center;
 }
 
 /* ── Input Area ──────────────────────────────────── */
 
 .input-area {
-    padding: 0.75rem 1.25rem 1rem;
-    border-top: 1px solid var(--color-border);
-    background-color: var(--color-bg);
+    padding: 0;
+    background: transparent;
+    position: relative;
+    z-index: 5;
 }
 
 /* ── Transitions ─────────────────────────────────── */
 
 .slide-down-enter-active,
 .slide-down-leave-active {
-    transition: all var(--transition-normal);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .slide-down-enter-from,
 .slide-down-leave-to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-12px) scale(0.95);
+}
+
+/* 动画 */
+@keyframes float {
+    0%,
+    100% {
+        transform: translateY(0) rotate(0deg);
+    }
+    50% {
+        transform: translateY(-6px) rotate(3deg);
+    }
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .header-title {
+        font-size: 0.95rem;
+    }
+
+    .header-icon {
+        font-size: 1.5rem;
+    }
+
+    .settings-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .model-badge {
+        display: none;
+    }
+
+    .empty-icon {
+        font-size: 3rem;
+    }
+
+    .empty-title {
+        font-size: 1.125rem;
+    }
+
+    .empty-desc {
+        font-size: 0.8125rem;
+        max-width: 18rem;
+    }
 }
 </style>

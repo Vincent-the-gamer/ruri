@@ -19,11 +19,11 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
-use rust_embed::Embed;
+use rust_embed::RustEmbed;
 use std::sync::Arc;
 
 /// Embedded frontend assets from the compiled Vue build.
-#[derive(Embed)]
+#[derive(RustEmbed)]
 #[folder = "src/web_dist/"]
 struct Assets;
 

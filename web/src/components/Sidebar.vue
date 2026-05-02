@@ -22,11 +22,11 @@ const isActive = (path: string) => route.path === path;
 const statusDotClass = computed(() => {
     switch (agentStore.status.status) {
         case "running":
-            return "status-dot-running";
+            return "status-dot-success";
         case "error":
-            return "status-dot-error";
+            return "status-dot-danger";
         default:
-            return "status-dot-stopped";
+            return "status-dot-muted";
     }
 });
 
@@ -35,7 +35,7 @@ const statusLabel = computed(() => {
         case "running":
             return "运行中";
         case "error":
-            return "错误";
+            return "异常";
         default:
             return "已停止";
     }
@@ -43,277 +43,548 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-    <aside
-        class="w-56 min-h-screen flex flex-col"
-        style="
-            background: var(--color-bg-soft);
-            border-right: 1px solid var(--color-border);
-        "
-    >
-        <!-- Logo -->
-        <div class="p-4 border-b" style="border-color: var(--color-border)">
-            <div class="flex items-center gap-2.5">
+    <aside class="sidebar glass">
+        <!-- Logo 区域 -->
+        <div class="sidebar-header">
+            <div class="logo-container">
+                <!-- 可爱的少女风格 Logo SVG -->
                 <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
+                    class="logo-icon"
+                    viewBox="0 0 100 100"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
-                    class="flex-shrink-0"
                 >
+                    <!-- 背景光晕 -->
+                    <defs>
+                        <radialGradient
+                            id="gradient-bg"
+                            cx="50%"
+                            cy="50%"
+                            r="50%"
+                        >
+                            <stop offset="0%" stop-color="#faf5ff" />
+                            <stop offset="100%" stop-color="#f3e8ff" />
+                        </radialGradient>
+                        <linearGradient
+                            id="gradient-pink"
+                            x1="0%"
+                            y1="0%"
+                            x2="100%"
+                            y2="100%"
+                        >
+                            <stop offset="0%" stop-color="#ec4899" />
+                            <stop offset="100%" stop-color="#8b5cf6" />
+                        </linearGradient>
+                        <filter id="glow">
+                            <feGaussianBlur
+                                stdDeviation="2"
+                                result="coloredBlur"
+                            />
+                            <feMerge>
+                                <feMergeNode in="coloredBlur" />
+                                <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <!-- 背景圆 -->
+                    <circle
+                        cx="50"
+                        cy="50"
+                        r="45"
+                        fill="url(#gradient-bg)"
+                        stroke="url(#gradient-pink)"
+                        stroke-width="2"
+                    />
+                    <!-- 水晶形状 -->
                     <path
-                        d="M13 2L4 14h7l-2 8 9-12h-7l2-8z"
-                        fill="var(--color-accent)"
-                        stroke="var(--color-accent)"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                        d="M50 15 L75 45 L50 85 L25 45 Z"
+                        fill="url(#gradient-pink)"
+                        filter="url(#glow)"
+                    />
+                    <!-- 高光 -->
+                    <path
+                        d="M50 15 L60 35 L50 25 L40 35 Z"
+                        fill="rgba(255,255,255,0.6)"
+                    />
+                    <!-- 内部光泽 -->
+                    <ellipse
+                        cx="50"
+                        cy="45"
+                        rx="12"
+                        ry="16"
+                        fill="rgba(255,255,255,0.3)"
+                    />
+                    <!-- 闪光 -->
+                    <circle
+                        cx="35"
+                        cy="35"
+                        r="3"
+                        fill="white"
+                        class="sparkle sparkle-1"
+                    />
+                    <circle
+                        cx="65"
+                        cy="55"
+                        r="2"
+                        fill="white"
+                        class="sparkle sparkle-2"
+                    />
+                    <circle
+                        cx="50"
+                        cy="70"
+                        r="2"
+                        fill="white"
+                        class="sparkle sparkle-3"
                     />
                 </svg>
-                <div>
-                    <h1
-                        class="text-base font-semibold"
-                        style="color: var(--color-text)"
-                    >
-                        Ruri
-                    </h1>
-                    <p class="text-xs" style="color: var(--color-text-muted)">
-                        AI 智能体控制台
-                    </p>
-                </div>
+            </div>
+            <div class="logo-text">
+                <h1 class="brand-name text-gradient">琉璃</h1>
+                <p class="brand-tag">Ruri AI</p>
             </div>
         </div>
 
-        <!-- Status -->
-        <div
-            class="px-4 py-2.5 border-b"
-            style="border-color: var(--color-border)"
-        >
-            <div class="flex items-center gap-2">
+        <!-- 激活状态指示器 -->
+        <div class="sidebar-status">
+            <div class="status-item">
                 <span
-                    class="status-dot w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    class="status-dot pulse-dot"
                     :class="statusDotClass"
                 ></span>
-                <span class="text-xs" style="color: var(--color-text-muted)">{{
-                    statusLabel
-                }}</span>
+                <span class="status-text">{{ statusLabel }}</span>
                 <span
                     v-if="agentStore.status.active_provider"
-                    class="text-xs ml-auto"
-                    style="color: var(--color-accent)"
+                    class="badge badge-accent"
                 >
                     {{ agentStore.status.active_provider }}
                 </span>
             </div>
         </div>
 
-        <!-- Navigation -->
-        <nav class="flex-1 py-2">
-            <button
-                v-for="item in navItems"
-                :key="item.path"
-                @click="router.push(item.path)"
-                class="w-full flex items-center gap-2.5 px-4 py-2 text-sm transition-colors relative"
-                :class="
-                    isActive(item.path)
-                        ? 'nav-item-active'
-                        : 'nav-item-inactive'
-                "
-            >
-                <span
-                    v-if="isActive(item.path)"
-                    class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r"
-                    style="background: var(--color-accent)"
-                ></span>
-
-                <!-- Dashboard Icon -->
-                <svg
-                    v-if="item.icon === 'dashboard'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
+        <!-- 导航菜单 -->
+        <nav class="sidebar-nav">
+            <div v-for="item in navItems" :key="item.path">
+                <button
+                    @click="router.push(item.path)"
+                    class="nav-item"
+                    :class="{ active: isActive(item.path) }"
+                    :title="item.label"
                 >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
+                    <!-- Dashboard Icon -->
+                    <svg
+                        v-if="item.icon === 'dashboard'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <rect x="3" y="3" width="7" height="7" rx="1" />
+                        <rect x="14" y="3" width="7" height="7" rx="1" />
+                        <rect x="3" y="14" width="7" height="7" rx="1" />
+                        <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </svg>
 
-                <!-- Server Icon -->
-                <svg
-                    v-else-if="item.icon === 'server'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-                    <circle cx="6" cy="6" r="1" fill="currentColor" />
-                    <circle cx="6" cy="18" r="1" fill="currentColor" />
-                </svg>
+                    <!-- Server Icon -->
+                    <svg
+                        v-else-if="item.icon === 'server'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <rect x="2" y="2" width="20" height="8" rx="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" />
+                        <circle cx="6" cy="6" r="1" fill="currentColor" />
+                        <circle cx="6" cy="18" r="1" fill="currentColor" />
+                    </svg>
 
-                <!-- Zap Icon -->
-                <svg
-                    v-else-if="item.icon === 'zap'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                </svg>
+                    <!-- Zap Icon -->
+                    <svg
+                        v-else-if="item.icon === 'zap'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                    >
+                        <polygon
+                            points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+                        />
+                    </svg>
 
-                <!-- Wrench Icon -->
-                <svg
-                    v-else-if="item.icon === 'wrench'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <path
-                        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-                    />
-                </svg>
+                    <!-- Wrench Icon -->
+                    <svg
+                        v-else-if="item.icon === 'wrench'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path
+                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                        />
+                    </svg>
 
-                <!-- Message Icon -->
-                <svg
-                    v-else-if="item.icon === 'message'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <path
-                        d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                    />
-                </svg>
+                    <!-- Message Icon -->
+                    <svg
+                        v-else-if="item.icon === 'message'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                    >
+                        <path
+                            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                        />
+                    </svg>
 
-                <!-- Terminal Icon -->
-                <svg
-                    v-else-if="item.icon === 'terminal'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <rect x="2" y="3" width="20" height="18" rx="2" ry="2" />
-                    <polyline points="7 10 10 13 7 16" />
-                    <line x1="13" y1="16" x2="17" y2="16" />
-                </svg>
+                    <!-- Terminal Icon -->
+                    <svg
+                        v-else-if="item.icon === 'terminal'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <rect x="2" y="3" width="20" height="18" rx="2" />
+                        <polyline points="7 10 10 13 7 16" />
+                        <line x1="13" y1="16" x2="17" y2="16" />
+                    </svg>
 
-                <!-- Flask Icon -->
-                <svg
-                    v-else-if="item.icon === 'flask'"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="flex-shrink-0"
-                >
-                    <path
-                        d="M6 2h12M8 2v6.39A4.39 4.39 0 0 1 5.82 15l-.82.52a2 2 0 0 0-1 1.74V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-.74a2 2 0 0 0-1-1.74l-.82-.52A4.39 4.39 0 0 1 16 8.39V2"
-                    />
-                    <line x1="9" y1="11" x2="15" y2="11" />
-                    <line x1="9" y1="15" x2="12" y2="15" />
-                </svg>
+                    <!-- Flask Icon -->
+                    <svg
+                        v-else-if="item.icon === 'flask'"
+                        class="nav-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path
+                            d="M6 2h12M8 2v6.39A4.39 4.39 0 0 1 5.82 15l-.82.52a2 2 0 0 0-1 1.74V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-.74a2 2 0 0 0-1-1.74l-.82-.52A4.39 4.39 0 0 1 16 8.39V2"
+                        />
+                        <line x1="9" y1="11" x2="15" y2="11" />
+                        <line x1="9" y1="15" x2="12" y2="15" />
+                    </svg>
 
-                <span>{{ item.label }}</span>
-            </button>
+                    <span class="nav-label">{{ item.label }}</span>
+
+                    <!-- 激活指示器 -->
+                    <span
+                        v-if="isActive(item.path)"
+                        class="active-indicator"
+                    ></span>
+                </button>
+            </div>
         </nav>
 
-        <!-- Footer -->
-        <div class="p-3 border-t" style="border-color: var(--color-border)">
-            <div
-                class="text-center text-xs flex items-center justify-center gap-1.5"
-                style="color: var(--color-text-dim)"
-            >
-                <span>v0.1.0</span>
-                <span style="color: var(--color-border)">·</span>
-                <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path
-                        d="M11 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-2.26C5.19 13.47 4 11.38 4 9a7 7 0 0 1 7-7z"
-                    />
-                    <path d="M9 22h6" />
-                    <path d="M10 22v-2" />
-                    <path d="M14 22v-2" />
-                </svg>
-                <span>Rust 驱动</span>
+        <!-- 页脚 -->
+        <div class="sidebar-footer">
+            <div class="footer-info">
+                <span class="version">v0.1.0</span>
+                <span class="separator">·</span>
+                <span class="tech">Rust</span>
             </div>
         </div>
     </aside>
 </template>
 
 <style scoped>
-.nav-item-active {
-    background: var(--color-accent-soft);
+.sidebar {
+    width: 240px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: sticky;
+    top: 0;
+    padding: 0;
+    z-index: 100;
+}
+
+/* Header */
+.sidebar-header {
+    padding: 1.5rem 1.25rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+}
+
+.logo-container {
+    flex-shrink: 0;
+}
+
+.logo-icon {
+    width: 44px;
+    height: 44px;
+    filter: drop-shadow(0 2px 4px rgba(139, 92, 246, 0.15));
+}
+
+.logo-icon .sparkle {
+    animation: sparkle 1.5s ease-in-out infinite;
+}
+
+.sparkle-1 {
+    animation-delay: 0s;
+}
+
+.sparkle-2 {
+    animation-delay: 0.5s;
+}
+
+.sparkle-3 {
+    animation-delay: 1s;
+}
+
+@keyframes sparkle {
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+.logo-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.brand-name {
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.01em;
+}
+
+.brand-tag {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Status */
+.sidebar-status {
+    padding: 0 1.25rem 1rem;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    background: var(--color-bg-mute);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+}
+
+.status-dot {
+    flex-shrink: 0;
+}
+
+.status-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    flex: 1;
+}
+
+/* Navigation */
+.sidebar-nav {
+    flex: 1;
+    padding: 0 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow-y: auto;
+}
+
+.nav-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    position: relative;
+    text-align: left;
+}
+
+.nav-item:hover {
+    background: var(--color-bg-mute);
+}
+
+.nav-item.active {
+    background: linear-gradient(
+        135deg,
+        var(--color-accent-soft) 0%,
+        var(--color-primary-soft) 100%
+    );
+    border: 1px solid var(--color-accent-hover);
+}
+
+.nav-item.active .nav-icon {
     color: var(--color-accent);
 }
 
-.nav-item-inactive {
+.nav-item.active .nav-label {
+    color: var(--color-accent);
+    font-weight: 700;
+}
+
+.nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+    transition: color var(--transition-fast);
+}
+
+.nav-label {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
     color: var(--color-text-secondary);
-    background: transparent;
+    transition: color var(--transition-fast);
 }
 
-.nav-item-inactive:hover {
-    color: var(--color-text);
-    background: var(--color-accent-soft);
+.active-indicator {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: linear-gradient(
+        135deg,
+        var(--color-accent) 0%,
+        var(--color-primary) 100%
+    );
+    box-shadow: 0 0 6px rgba(236, 72, 153, 0.5);
 }
 
-.status-dot-running {
+/* Footer */
+.sidebar-footer {
+    padding: 1rem 1.25rem 1.5rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.footer-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+}
+
+.version {
+    font-weight: 600;
+}
+
+.separator {
+    opacity: 0.4;
+}
+
+.tech {
+    font-weight: 500;
+}
+
+/* Status dot colors */
+.status-dot-success {
     background: var(--color-success);
 }
 
-.status-dot-error {
+.status-dot-danger {
     background: var(--color-danger);
 }
 
-.status-dot-stopped {
+.status-dot-muted {
     background: var(--color-text-muted);
+}
+
+/* Scrollbar */
+.sidebar-nav::-webkit-scrollbar {
+    width: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-hover);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 64px;
+    }
+
+    .sidebar-header {
+        padding: 1rem 0.5rem;
+        justify-content: center;
+    }
+
+    .logo-text {
+        display: none;
+    }
+
+    .sidebar-status {
+        padding: 0 0.5rem 1rem;
+    }
+
+    .status-item {
+        padding: 0.5rem;
+    }
+
+    .status-text,
+    .badge {
+        display: none;
+    }
+
+    .sidebar-nav {
+        padding: 0 0.5rem;
+    }
+
+    .nav-label {
+        display: none;
+    }
+
+    .nav-item {
+        justify-content: center;
+        padding: 0.75rem;
+    }
+
+    .active-indicator {
+        display: none;
+    }
+
+    .sidebar-footer {
+        padding: 1rem 0.5rem 1.5rem;
+        justify-content: center;
+        display: flex;
+    }
+
+    .separator,
+    .tech {
+        display: none;
+    }
+
+    .version {
+        margin: 0 auto;
+    }
 }
 </style>

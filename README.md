@@ -69,3 +69,7 @@ Ruri implements the following ACP methods:
 - **File System**: `fs/read_text_file`, `fs/write_text_file`
 - **Terminal**: `terminal/create`, `terminal/output`, `terminal/release`, `terminal/wait_for_exit`, `terminal/kill`
 - **Notifications**: `session/update` (agent messages, tool calls)
+
+## License
+
+[MIT License](./LICENSE) © 2026-PRESENT Vincent-the-gamer
