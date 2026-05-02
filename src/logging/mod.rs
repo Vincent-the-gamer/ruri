@@ -206,7 +206,7 @@ pub fn init_logging(max_logs: usize) -> Arc<LogManager> {
 
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::sink))
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
         .with(log_layer)
         .init();
 

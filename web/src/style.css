@@ -1,35 +1,39 @@
 @import "tailwindcss";
 
 :root {
-    /* 优化的配色方案 - 精致优雅的色调 */
-    /* 背景颜色 - 更加温暖柔和 */
-    --color-bg: #fdf2f8;
-    --color-bg-soft: #ffffff;
-    --color-bg-mute: #f5f3ff;
-    --color-bg-card: #ffffff;
-    --color-bg-hover: #fce7f3;
+    /* 优化的配色方案 - 精致优雅的少女风 + Raycast 高端质感 */
+    /* 背景颜色 - 更加温暖柔和，带微妙渐变 */
+    --color-bg: #faf5ff;
+    --color-bg-soft: rgba(255, 255, 255, 0.85);
+    --color-bg-mute: rgba(243, 232, 255, 0.6);
+    --color-bg-card: rgba(255, 255, 255, 0.9);
+    --color-bg-hover: rgba(253, 242, 248, 0.8);
+    --color-bg-elevated: rgba(255, 255, 255, 0.95);
 
-    /* 边框颜色 - 更加清晰但不突兀 */
-    --color-border: #e9d5ff;
-    --color-border-hover: #d8b4fe;
-    --color-border-accent: rgba(168, 85, 247, 0.3);
+    /* 边框颜色 - Raycast 风格的半透明边框 */
+    --color-border: rgba(216, 180, 254, 0.35);
+    --color-border-hover: rgba(192, 132, 252, 0.5);
+    --color-border-accent: rgba(168, 85, 247, 0.25);
+    --color-border-strong: rgba(147, 51, 234, 0.3);
 
     /* 文字颜色 - 更加清晰，确保可读性 */
-    --color-text: #6b21a8;
-    --color-text-secondary: #9333ea;
+    --color-text: #581c87;
+    --color-text-secondary: #7e22ce;
     --color-text-muted: #a855f7;
     --color-text-dim: #c4b5fd;
     --color-text-light: #8b5cf6;
 
-    /* 强调色 - 精致的紫粉色 */
+    /* 强调色 - 精致的紫粉色，带发光效果 */
     --color-accent: #ec4899;
-    --color-accent-soft: rgba(236, 72, 153, 0.1);
+    --color-accent-soft: rgba(236, 72, 153, 0.12);
     --color-accent-hover: #db2777;
+    --color-accent-glow: rgba(236, 72, 153, 0.25);
 
     /* 辅助强调色 - 柔和的蓝紫色 */
     --color-primary: #8b5cf6;
-    --color-primary-soft: rgba(139, 92, 246, 0.1);
+    --color-primary-soft: rgba(139, 92, 246, 0.12);
     --color-primary-hover: #7c3aed;
+    --color-primary-glow: rgba(139, 92, 246, 0.25);
 
     /* 语义颜色 - 更加柔和但清晰 */
     --color-success: #10b981;
@@ -45,6 +49,18 @@
     --color-info-soft: rgba(59, 130, 246, 0.15);
     --color-info-text: #1e40af;
 
+    /* 阴影 - Raycast 风格的多层阴影 */
+    --shadow-sm:
+        0 1px 2px rgba(139, 92, 246, 0.04), 0 1px 3px rgba(236, 72, 153, 0.03);
+    --shadow-md:
+        0 2px 8px rgba(139, 92, 246, 0.06), 0 4px 12px rgba(236, 72, 153, 0.04);
+    --shadow-lg:
+        0 4px 16px rgba(139, 92, 246, 0.08), 0 8px 24px rgba(236, 72, 153, 0.06);
+    --shadow-xl:
+        0 8px 32px rgba(139, 92, 246, 0.1), 0 16px 48px rgba(236, 72, 153, 0.08);
+    --shadow-glow:
+        0 0 20px rgba(139, 92, 246, 0.15), 0 0 40px rgba(236, 72, 153, 0.1);
+
     /* 圆角 - 精致的圆角 */
     --radius-sm: 8px;
     --radius-md: 12px;
@@ -53,10 +69,11 @@
     --radius-2xl: 24px;
     --radius-full: 9999px;
 
-    /* 过渡效果 - 流畅的动画 */
-    --transition-fast: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+    /* 过渡效果 - 流畅的动画，使用自定义贝塞尔曲线 */
+    --transition-fast: 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition-normal: 250ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition-slow: 350ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition-spring: 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 * {
@@ -81,11 +98,30 @@ body {
         "Hiragino Sans GB",
         "Microsoft YaHei",
         sans-serif;
-    background: var(--color-bg);
+    background:
+        linear-gradient(
+            135deg,
+            rgba(250, 245, 255, 1) 0%,
+            rgba(253, 242, 248, 0.8) 50%,
+            rgba(245, 243, 255, 0.9) 100%
+        ),
+        radial-gradient(
+            ellipse at 20% 50%,
+            rgba(236, 72, 153, 0.04) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse at 80% 20%,
+            rgba(139, 92, 246, 0.04) 0%,
+            transparent 50%
+        );
+    background-color: var(--color-bg);
     color: var(--color-text);
     min-height: 100vh;
     line-height: 1.6;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
@@ -105,33 +141,40 @@ body {
     border-radius: 4px;
 }
 
-/* 滚动条样式 - 精致的滚动条 */
+/* 滚动条样式 - Raycast 风格半透明滚动条 */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--color-bg-mute);
-    border-radius: 8px;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
     background: linear-gradient(
         180deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
+        rgba(236, 72, 153, 0.35) 0%,
+        rgba(139, 92, 246, 0.35) 100%
     );
-    border-radius: 8px;
-    border: 2px solid var(--color-bg-mute);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background var(--transition-fast);
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(
         180deg,
-        var(--color-accent-hover) 0%,
-        var(--color-primary-hover) 100%
+        rgba(236, 72, 153, 0.5) 0%,
+        rgba(139, 92, 246, 0.5) 100%
     );
+    background-clip: padding-box;
+}
+
+/* 滚动条角落 */
+::-webkit-scrollbar-corner {
+    background: transparent;
 }
 
 /* Firefox 滚动条 */
@@ -142,47 +185,56 @@ body {
 
 /* 动画 */
 
-/* 淡入动画 */
+/* ═══════════════════════════════════════════════════════════════
+ * 高级动画系统 - Raycast 风格
+ * 弹簧动画 + 微妙发光 + 流畅过渡
+ * ═══════════════════════════════════════════════════════════════ */
+
+/* 淡入动画 - 带微妙弹性 */
 @keyframes fadeIn {
     from {
         opacity: 0;
-        transform: translateY(8px);
+        transform: translateY(10px) scale(0.98);
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
     }
 }
 
 .fade-in {
-    animation: fadeIn var(--transition-normal) ease-out;
+    animation: fadeIn var(--transition-normal) cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-/* 心跳动画 - 更柔和 */
+/* 心跳动画 - 更柔和的呼吸感 */
 @keyframes heartBeat {
     0%,
     100% {
         transform: scale(1);
+        opacity: 1;
     }
     50% {
-        transform: scale(1.03);
+        transform: scale(1.04);
+        opacity: 0.9;
     }
 }
 
 .pulse-dot {
-    animation: heartBeat 2s ease-in-out infinite;
+    animation: heartBeat 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* 闪烁效果 */
+/* 闪烁效果 - 星光般的光芒 */
 @keyframes sparkle {
     0%,
     100% {
-        opacity: 0.4;
-        transform: scale(1);
+        opacity: 0.3;
+        transform: scale(0.95);
+        filter: brightness(0.9);
     }
     50% {
-        opacity: 0.8;
-        transform: scale(1.1);
+        opacity: 0.9;
+        transform: scale(1.08);
+        filter: brightness(1.1);
     }
 }
 
@@ -190,44 +242,56 @@ body {
     background: linear-gradient(
         90deg,
         transparent 0%,
-        var(--color-accent-soft) 50%,
+        rgba(236, 72, 153, 0.15) 50%,
         transparent 100%
     );
     background-size: 200% 100%;
-    animation: sparkle 2s ease-in-out infinite;
+    animation: shimmerSlide 3s ease-in-out infinite;
 }
 
-/* 漂浮动画 - 更优雅 */
+@keyframes shimmerSlide {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* 漂浮动画 - 更优雅，带微妙旋转 */
 @keyframes float {
     0%,
     100% {
-        transform: translateY(0);
+        transform: translateY(0) rotate(0deg);
     }
-    50% {
-        transform: translateY(-2px);
+    25% {
+        transform: translateY(-3px) rotate(0.5deg);
+    }
+    75% {
+        transform: translateY(1px) rotate(-0.5deg);
     }
 }
 
 .float {
-    animation: float 3s ease-in-out infinite;
+    animation: float 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* 弹跳动画 */
+/* 弹跳动画 - 弹簧效果 */
 @keyframes bounce {
     0%,
     100% {
         transform: translateY(0) scale(1);
     }
     50% {
-        transform: translateY(-4px) scale(1.02);
+        transform: translateY(-5px) scale(1.02);
     }
 }
 
 .bounce {
-    animation: bounce 2s ease-in-out infinite;
+    animation: bounce 2.5s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
 }
 
-/* 旋转动画 */
+/* 旋转动画 - 带加速/减速 */
 @keyframes spin {
     from {
         transform: rotate(0deg);
@@ -241,9 +305,46 @@ body {
     animation: spin 3s linear infinite;
 }
 
+/* 发光脉冲 - Raycast 风格 */
+@keyframes glowPulse {
+    0%,
+    100% {
+        box-shadow:
+            0 0 5px rgba(236, 72, 153, 0.1),
+            0 0 10px rgba(139, 92, 246, 0.08);
+    }
+    50% {
+        box-shadow:
+            0 0 15px rgba(236, 72, 153, 0.2),
+            0 0 30px rgba(139, 92, 246, 0.15);
+    }
+}
+
+.glow-pulse {
+    animation: glowPulse 3s ease-in-out infinite;
+}
+
+/* 渐变流动 - 用于背景装饰 */
+@keyframes gradientFlow {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.gradient-flow {
+    background-size: 200% 200%;
+    animation: gradientFlow 8s ease infinite;
+}
+
 /* 工具类 */
 
-/* 文字渐变 */
+/* 文字渐变 - 带微妙发光 */
 .text-gradient {
     background: linear-gradient(
         135deg,
@@ -255,23 +356,85 @@ body {
     background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 700;
+    filter: drop-shadow(0 1px 2px rgba(139, 92, 246, 0.15));
 }
 
-/* 玻璃效果 - 更精致的毛玻璃 */
+/* 文字发光效果 */
+.text-glow {
+    text-shadow:
+        0 0 10px rgba(236, 72, 153, 0.3),
+        0 0 20px rgba(139, 92, 246, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Raycast-inspired 高级毛玻璃系统
+ * 多层 backdrop-filter + 半透明边框 + 微妙阴影
+ * ═══════════════════════════════════════════════════════════════ */
+
+/* 主玻璃效果 - 用于侧边栏、模态框等 */
 .glass {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--color-border);
-    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.06);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.82) 0%,
+        rgba(250, 245, 255, 0.78) 100%
+    );
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-right: 1px solid rgba(216, 180, 254, 0.2);
+    border-bottom: 1px solid rgba(216, 180, 254, 0.2);
+    box-shadow:
+        0 8px 32px rgba(139, 92, 246, 0.08),
+        0 2px 8px rgba(236, 72, 153, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* 微妙玻璃 - 用于卡片、面板 */
 .glass-subtle {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(233, 213, 255, 0.6);
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.04);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.65) 0%,
+        rgba(250, 245, 255, 0.6) 100%
+    );
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-right: 1px solid rgba(216, 180, 254, 0.15);
+    border-bottom: 1px solid rgba(216, 180, 254, 0.15);
+    box-shadow:
+        0 4px 16px rgba(139, 92, 246, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* 深色玻璃 - 用于悬浮层、遮罩 */
+.glass-dark {
+    background: linear-gradient(
+        135deg,
+        rgba(88, 28, 135, 0.75) 0%,
+        rgba(126, 34, 206, 0.7) 100%
+    );
+    backdrop-filter: blur(24px) saturate(200%);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow:
+        0 8px 32px rgba(88, 28, 135, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* 发光玻璃 - 用于强调元素 */
+.glass-glow {
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.85) 0%,
+        rgba(253, 242, 248, 0.8) 100%
+    );
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    border: 1px solid rgba(236, 72, 153, 0.25);
+    box-shadow:
+        0 0 20px rgba(236, 72, 153, 0.12),
+        0 4px 16px rgba(139, 92, 246, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 /* 边框强调 */
@@ -288,17 +451,30 @@ body {
     box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
-/* 卡片样式 - 精致的卡片 */
+/* ═══════════════════════════════════════════════════════════════
+ * 高级卡片系统 - Raycast 风格
+ * 悬浮阴影 + 微妙边框 + 渐变顶线
+ * ═══════════════════════════════════════════════════════════════ */
+
 .card {
-    background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%);
-    border: 1px solid var(--color-border);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(250, 245, 255, 0.88) 100%
+    );
+    backdrop-filter: blur(8px) saturate(140%);
+    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-right: 1px solid rgba(216, 180, 254, 0.2);
+    border-bottom: 1px solid rgba(216, 180, 254, 0.2);
     border-radius: var(--radius-lg);
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.04);
+    box-shadow: var(--shadow-sm);
     transition: all var(--transition-normal);
     position: relative;
     overflow: hidden;
 }
 
+/* 卡片顶部渐变线 - 悬浮时显现 */
 .card::before {
     content: "";
     position: absolute;
@@ -316,10 +492,28 @@ body {
     transition: opacity var(--transition-fast);
 }
 
+/* 卡片内部高光 */
+.card::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.8),
+        transparent
+    );
+}
+
 .card:hover {
-    border-color: var(--color-border-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.1);
+    border-color: rgba(216, 180, 254, 0.4);
+    transform: translateY(-3px);
+    box-shadow:
+        var(--shadow-lg),
+        0 0 0 1px rgba(139, 92, 246, 0.08);
 }
 
 .card:hover::before {
@@ -327,10 +521,18 @@ body {
 }
 
 .card-interactive:hover {
-    background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%);
+    background: linear-gradient(
+        135deg,
+        rgba(250, 245, 255, 0.95) 0%,
+        rgba(245, 243, 255, 0.92) 100%
+    );
 }
 
-/* 按钮样式 - 精致的按钮 */
+/* ═══════════════════════════════════════════════════════════════
+ * 高级按钮系统 - Raycast 风格
+ * 多层阴影 + 微妙发光 + 弹簧动画
+ * ═══════════════════════════════════════════════════════════════ */
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -340,27 +542,65 @@ body {
     font-size: 0.875rem;
     font-weight: 600;
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
-    background: #ffffff;
+    border: 1px solid rgba(216, 180, 254, 0.3);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(250, 245, 255, 0.9) 100%
+    );
     color: var(--color-text);
     cursor: pointer;
     transition: all var(--transition-normal);
-    box-shadow: 0 1px 3px rgba(139, 92, 246, 0.08);
+    box-shadow:
+        0 1px 2px rgba(139, 92, 246, 0.06),
+        0 1px 3px rgba(236, 72, 153, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
     position: relative;
     overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* 按钮悬浮光泽效果 */
+.btn::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.4),
+        transparent
+    );
+    transition: left 0.5s ease;
+}
+
+.btn:hover::before {
+    left: 100%;
 }
 
 .btn:hover {
-    background: var(--color-bg-hover);
-    border-color: var(--color-border-hover);
+    background: linear-gradient(
+        135deg,
+        rgba(253, 242, 248, 0.95) 0%,
+        rgba(250, 245, 255, 0.92) 100%
+    );
+    border-color: rgba(192, 132, 252, 0.4);
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.12);
+    box-shadow:
+        0 4px 12px rgba(139, 92, 246, 0.1),
+        0 2px 6px rgba(236, 72, 153, 0.08);
 }
 
 .btn:active {
-    transform: translateY(0) scale(0.98);
+    transform: translateY(0) scale(0.97);
+    transition-duration: 100ms;
 }
 
+/* 强调按钮 - 带发光效果 */
 .btn-accent {
     background: linear-gradient(
         135deg,
@@ -369,7 +609,10 @@ body {
     );
     color: white;
     border: none;
-    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.24);
+    box-shadow:
+        0 2px 8px rgba(236, 72, 153, 0.2),
+        0 4px 16px rgba(139, 92, 246, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .btn-accent:hover {
@@ -378,15 +621,26 @@ body {
         var(--color-accent-hover) 0%,
         var(--color-primary-hover) 100%
     );
-    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.32);
-    transform: translateY(-1px) scale(1.02);
+    box-shadow:
+        0 4px 16px rgba(236, 72, 153, 0.28),
+        0 8px 24px rgba(139, 92, 246, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
 }
 
+.btn-accent:active {
+    transform: translateY(0) scale(0.97);
+}
+
+/* 主按钮 */
 .btn-primary {
     background: linear-gradient(135deg, var(--color-primary) 0%, #7c3aed 100%);
     color: white;
     border: none;
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.24);
+    box-shadow:
+        0 2px 8px rgba(139, 92, 246, 0.2),
+        0 4px 16px rgba(139, 92, 246, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .btn-primary:hover {
@@ -395,10 +649,14 @@ body {
         var(--color-primary-hover) 0%,
         #6d28d9 100%
     );
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.32);
-    transform: translateY(-1px) scale(1.02);
+    box-shadow:
+        0 4px 16px rgba(139, 92, 246, 0.28),
+        0 8px 24px rgba(139, 92, 246, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
 }
 
+/* 幽灵按钮 */
 .btn-ghost {
     background: transparent;
     border-color: transparent;
@@ -406,7 +664,7 @@ body {
 }
 
 .btn-ghost:hover {
-    background: var(--color-bg-mute);
+    background: rgba(243, 232, 255, 0.6);
     border-color: transparent;
 }
 
@@ -530,58 +788,75 @@ body {
     box-shadow: 0 0 8px rgba(236, 72, 153, 0.4);
 }
 
-/* 悬浮提升效果 */
+/* 悬浮提升效果 - 带阴影变化 */
 .hover-lift {
     transition: all var(--transition-normal);
 }
 
 .hover-lift:hover {
-    transform: translateY(-2px);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
 }
 
-/* Vue 过渡效果 */
+/* 悬浮发光效果 */
+.hover-glow:hover {
+    box-shadow:
+        0 0 15px rgba(236, 72, 153, 0.15),
+        0 0 30px rgba(139, 92, 246, 0.1),
+        var(--shadow-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * Vue 过渡效果 - Raycast 风格
+ * 弹簧动画 + 微妙模糊
+ * ═══════════════════════════════════════════════════════════════ */
+
 .fade-enter-active,
 .fade-leave-active {
-    transition: all var(--transition-normal);
+    transition: all var(--transition-normal) cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .fade-enter-from,
 .fade-leave-to {
     opacity: 0;
-    transform: scale(0.98);
+    transform: scale(0.97);
+    filter: blur(2px);
 }
 
 .slide-up-enter-active,
 .slide-up-leave-active {
-    transition: all var(--transition-normal);
+    transition: all var(--transition-normal) cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .slide-up-enter-from,
 .slide-up-leave-to {
     opacity: 0;
-    transform: translateY(12px) scale(0.98);
+    transform: translateY(16px) scale(0.97);
+    filter: blur(1px);
 }
 
 .slide-down-enter-active,
 .slide-down-leave-active {
-    transition: all var(--transition-normal);
+    transition: all var(--transition-normal) cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .slide-down-enter-from,
 .slide-down-leave-to {
     opacity: 0;
-    transform: translateY(-12px) scale(0.98);
+    transform: translateY(-16px) scale(0.97);
+    filter: blur(1px);
 }
 
 .scale-enter-active,
 .scale-leave-active {
-    transition: all var(--transition-normal);
+    transition: all var(--transition-normal) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .scale-enter-from,
 .scale-leave-to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.92);
+    filter: blur(2px);
 }
 
 /* 可选中元素 */
@@ -607,6 +882,351 @@ html {
         -apple-system,
         BlinkMacSystemFont,
         "Segoe UI",
+        "Noto Sans JP",
+        "ZCOOL KuaiLe",
         sans-serif;
     font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ *  ✨ 二次元风格动画 - Anime Style Animations
+ *  参考 airi.moeru.ai 的可爱风格
+ * ═══════════════════════════════════════════════════════════════ */
+
+/* 心跳动画 - 用于强调重要元素 */
+@keyframes heartBeat {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    10% {
+        transform: scale(1.1);
+    }
+    20% {
+        transform: scale(1);
+    }
+    30% {
+        transform: scale(1.1);
+    }
+    40% {
+        transform: scale(1);
+    }
+}
+
+/* 闪烁动画 - 用于星星和装饰元素 */
+@keyframes twinkle {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+    }
+    50% {
+        opacity: 0.3;
+        transform: scale(0.8) rotate(180deg);
+    }
+}
+
+/* 彩虹渐变流动 - 用于标题和强调文字 */
+@keyframes rainbowFlow {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+/* 呼吸光晕 - 用于角色和重要UI元素 */
+@keyframes breatheGlow {
+    0%,
+    100% {
+        box-shadow:
+            0 0 10px rgba(236, 72, 153, 0.2),
+            0 0 20px rgba(168, 85, 247, 0.1);
+    }
+    50% {
+        box-shadow:
+            0 0 20px rgba(236, 72, 153, 0.4),
+            0 0 40px rgba(168, 85, 247, 0.2);
+    }
+}
+
+/* 弹跳进入 - 用于卡片和弹窗 */
+@keyframes bounceIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.3);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+    70% {
+        transform: scale(0.9);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* 旋转进入 - 用于图标和装饰 */
+@keyframes spinIn {
+    0% {
+        opacity: 0;
+        transform: rotate(-180deg) scale(0);
+    }
+    100% {
+        opacity: 1;
+        transform: rotate(0deg) scale(1);
+    }
+}
+
+/* 果冻效果 - 用于按钮点击 */
+@keyframes jelly {
+    0%,
+    100% {
+        transform: scale(1, 1);
+    }
+    25% {
+        transform: scale(0.9, 1.1);
+    }
+    50% {
+        transform: scale(1.1, 0.9);
+    }
+    75% {
+        transform: scale(0.95, 1.05);
+    }
+}
+
+/* 弹跳效果 - 用于通知和提示 */
+@keyframes pop {
+    0% {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* 彩虹文字效果 */
+.rainbow-text {
+    background: linear-gradient(
+        90deg,
+        #ec4899,
+        #a855f7,
+        #8b5cf6,
+        #3b82f6,
+        #10b981,
+        #f59e0b,
+        #ec4899
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: rainbowFlow 3s linear infinite;
+}
+
+/* 光晕边框效果 */
+.glow-border {
+    position: relative;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.glow-border::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 2px;
+    background: linear-gradient(
+        135deg,
+        rgba(236, 72, 153, 0.5),
+        rgba(168, 85, 247, 0.5)
+    );
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: breatheGlow 2s ease-in-out infinite;
+}
+
+/* 可爱装饰元素 - 星星 */
+.cute-star {
+    display: inline-block;
+    animation: twinkle 2s ease-in-out infinite;
+}
+
+/* 可爱装饰元素 - 爱心 */
+.cute-heart {
+    display: inline-block;
+    animation: heartBeat 1.5s ease-in-out infinite;
+}
+
+/* 可爱装饰元素 - 弹跳 */
+.cute-bounce {
+    display: inline-block;
+    animation: pop 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* 加载旋转器 - 二次元风格 */
+.anime-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(236, 72, 153, 0.2);
+    border-top-color: #ec4899;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 打字机效果 - 用于AI回复 */
+.typewriter {
+    overflow: hidden;
+    white-space: nowrap;
+    animation: typing 2s steps(40, end);
+}
+
+@keyframes typing {
+    from {
+        width: 0;
+    }
+    to {
+        width: 100%;
+    }
+}
+
+/* 光标闪烁 - 配合打字机效果 */
+.cursor-blink {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: currentColor;
+    animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+    50% {
+        opacity: 0;
+    }
+}
+
+/* 悬浮动画 - 用于装饰元素 */
+@keyframes floatAnime {
+    0%,
+    100% {
+        transform: translateY(0) translateX(0);
+    }
+    25% {
+        transform: translateY(-5px) translateX(2px);
+    }
+    50% {
+        transform: translateY(-10px) translateX(0);
+    }
+    75% {
+        transform: translateY(-5px) translateX(-2px);
+    }
+}
+
+/* 波浪动画 - 用于装饰线条 */
+@keyframes wave {
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(20deg);
+    }
+    75% {
+        transform: rotate(-20deg);
+    }
+}
+
+/* 脉冲环 - 用于状态指示器 */
+@keyframes pulseRing {
+    0% {
+        transform: scale(0.8);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1.5);
+        opacity: 0;
+    }
+}
+
+/* 缩放弹跳 - 用于图标点击 */
+@keyframes scaleBounce {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(0.9);
+    }
+}
+
+/* 渐变背景流动 - 用于卡片背景 */
+@keyframes gradientShift {
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+/* 粒子上升动画 - 用于背景特效 */
+@keyframes particleRise {
+    0% {
+        transform: translateY(100vh) scale(0);
+        opacity: 0;
+    }
+    10% {
+        opacity: 1;
+    }
+    90% {
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-100vh) scale(1);
+        opacity: 0;
+    }
+}
+
+/* 响应式动画调整 */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* 移动端动画优化 */
+@media (max-width: 768px) {
+    .rainbow-text {
+        background-size: 100% auto;
+        animation-duration: 5s;
+    }
 }

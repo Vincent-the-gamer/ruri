@@ -4,15 +4,159 @@
         <meta charset="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="Ruri - 琉璃 AI 智能体控制台 ✨ 与二次元少女琉璃一起探索AI的奇妙世界"
+        />
+        <meta name="theme-color" content="#ec4899" />
+
+        <!-- Google Fonts: Inter + Anime-style Japanese font -->
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
-            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=ZCOOL+KuaiLe&display=swap"
             rel="stylesheet"
         />
-        <title>Ruri - AI 智能体控制台</title>
+
+        <title>✨ 琉璃 Ruri - AI 智能体控制台 ✨</title>
+
+        <style>
+            /* Loading screen styles */
+            #loading-screen {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(
+                    135deg,
+                    #faf5ff 0%,
+                    #fdf2f8 50%,
+                    #f5f3ff 100%
+                );
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+                transition:
+                    opacity 0.5s ease,
+                    visibility 0.5s ease;
+            }
+
+            #loading-screen.hidden {
+                opacity: 0;
+                visibility: hidden;
+            }
+
+            .loading-content {
+                text-align: center;
+                animation: fadeInUp 0.6s ease-out;
+            }
+
+            .loading-logo {
+                font-size: 2.5rem;
+                font-weight: 700;
+                margin-bottom: 2rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.5rem;
+            }
+
+            .loading-emoji {
+                animation: bounce 1s ease-in-out infinite;
+            }
+
+            .loading-emoji:nth-child(3) {
+                animation-delay: 0.2s;
+            }
+
+            .loading-text {
+                background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+
+            .loading-bar {
+                width: 200px;
+                height: 4px;
+                background: rgba(236, 72, 153, 0.2);
+                border-radius: 2px;
+                overflow: hidden;
+                margin: 0 auto 1rem;
+            }
+
+            .loading-progress {
+                width: 0%;
+                height: 100%;
+                background: linear-gradient(90deg, #ec4899, #8b5cf6, #ec4899);
+                background-size: 200% 100%;
+                border-radius: 2px;
+                animation:
+                    loadingProgress 1.5s ease-out forwards,
+                    gradientFlow 2s linear infinite;
+            }
+
+            .loading-message {
+                color: #a855f7;
+                font-size: 0.9rem;
+                font-style: italic;
+            }
+
+            @keyframes fadeInUp {
+                from {
+                    opacity: 0;
+                    transform: translateY(20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @keyframes bounce {
+                0%,
+                100% {
+                    transform: translateY(0);
+                }
+                50% {
+                    transform: translateY(-10px);
+                }
+            }
+
+            @keyframes loadingProgress {
+                to {
+                    width: 100%;
+                }
+            }
+
+            @keyframes gradientFlow {
+                0% {
+                    background-position: 0% 50%;
+                }
+                100% {
+                    background-position: 200% 50%;
+                }
+            }
+        </style>
     </head>
     <body>
+        <!-- Loading screen with anime-style animation -->
+        <div id="loading-screen">
+            <div class="loading-content">
+                <div class="loading-logo">
+                    <span class="loading-emoji">🌸</span>
+                    <span class="loading-text">琉璃</span>
+                    <span class="loading-emoji">✨</span>
+                </div>
+                <div class="loading-bar">
+                    <div class="loading-progress"></div>
+                </div>
+                <p class="loading-message">正在唤醒琉璃...</p>
+            </div>
+        </div>
+
         <div id="app"></div>
         <script type="module" src="/src/main.ts"></script>
     </body>

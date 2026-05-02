@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, nextTick, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
 import * as api from "../api";
 import type { LogEntry, LogLevel } from "../types";
 
@@ -16,7 +16,6 @@ const logContainer = ref<HTMLElement | null>(null);
 const filteredLogs = computed(() => {
     const levels: LogLevel[] = ["error", "warn", "info", "debug", "trace"];
     return logs.value.filter((log) => {
-        // Filter by level
         if (filterLevel.value !== "all") {
             const currentLevelIndex = levels.indexOf(log.level);
             const filterLevelIndex = levels.indexOf(
@@ -30,18 +29,9 @@ const filteredLogs = computed(() => {
             }
         }
 
-        // Filter by target
         if (
             filterTarget.value &&
             !log.target.toLowerCase().includes(filterTarget.value.toLowerCase())
-        ) {
-            return false;
-        }
-
-        // Filter by search query
-        if (
-            searchQuery.value &&
-            !log.message.toLowerCase().includes(searchQuery.value.toLowerCase())
         ) {
             return false;
         }
@@ -56,9 +46,7 @@ async function fetchLogs() {
     try {
         logs.value = await api.getLogs();
         await nextTick();
-        if (autoScroll.value) {
-            scrollToBottom();
-        }
+        if (autoScroll.value) scrollToBottom();
     } catch (e: unknown) {
         error.value = e instanceof Error ? e.message : "Failed to fetch logs";
     } finally {
@@ -91,9 +79,7 @@ function handleScroll() {
 }
 
 function openLogsStream() {
-    if (ws.value) {
-        return;
-    }
+    if (ws.value) return;
 
     try {
         ws.value = api.openLogsStream();
@@ -101,9 +87,7 @@ function openLogsStream() {
             try {
                 const logEntry: LogEntry = JSON.parse(event.data);
                 logs.value.push(logEntry);
-                if (autoScroll.value) {
-                    nextTick(() => scrollToBottom());
-                }
+                if (autoScroll.value) nextTick(() => scrollToBottom());
             } catch (e) {
                 console.error("Failed to parse log entry:", e);
             }
@@ -129,18 +113,47 @@ function closeLogsStream() {
     }
 }
 
+// Highlight search query in text - search in original, highlight in escaped
+function highlightText(text: string): string {
+    const query = searchQuery.value;
+    if (!query) return escapeHtml(text);
+    // Escape the query for regex special characters
+    const regexSafeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Build regex to find the original query in the original text
+    const regex = new RegExp(regexSafeQuery, "gi");
+    // Split by matches, escape each part, then wrap matches in highlight
+    const parts = text.split(regex);
+    const result = parts.map((part, i) => {
+        const escaped = escapeHtml(part);
+        // Even indices are non-matches, odd indices are matches
+        return i % 2 === 1
+            ? `<mark class="search-highlight">${escaped}</mark>`
+            : escaped;
+    });
+    return result.join("");
+}
+
+// Format a log line exactly like a terminal would
+function formatLogLine(log: LogEntry): string {
+    const ts = formatTimestamp(log.timestamp);
+    const level = log.level.toUpperCase().padStart(5);
+    const target = log.target;
+    const msg = highlightText(log.message);
+    return `${ts} ${level} ${target}: ${msg}`;
+}
+
 function getLevelClass(level: LogLevel): string {
     switch (level) {
         case "error":
-            return "level-error";
+            return "lvl-error";
         case "warn":
-            return "level-warn";
+            return "lvl-warn";
         case "info":
-            return "level-info";
+            return "lvl-info";
         case "debug":
-            return "level-debug";
+            return "lvl-debug";
         case "trace":
-            return "level-trace";
+            return "lvl-trace";
         default:
             return "";
     }
@@ -148,11 +161,22 @@ function getLevelClass(level: LogLevel): string {
 
 function formatTimestamp(timestamp: number): string {
     const date = new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, "0");
-    const minutes = date.getMinutes().toString().padStart(2, "0");
-    const seconds = date.getSeconds().toString().padStart(2, "0");
-    const ms = date.getMilliseconds().toString().padStart(3, "0");
-    return `${hours}:${minutes}:${seconds}.${ms}`;
+    const pad = (n: number, len: number) => n.toString().padStart(len, "0");
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1, 2);
+    const day = pad(date.getDate(), 2);
+    const hours = pad(date.getHours(), 2);
+    const minutes = pad(date.getMinutes(), 2);
+    const seconds = pad(date.getSeconds(), 2);
+    const ms = pad(date.getMilliseconds(), 3);
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${ms}Z`;
+}
+
+function escapeHtml(text: string): string {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 }
 
 onMounted(() => {
@@ -166,16 +190,60 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="logs-page">
-        <div class="page-header">
-            <div class="header-content">
-                <div>
-                    <h1 class="page-title">系统日志</h1>
-                    <p class="page-subtitle">查看和管理系统运行日志</p>
-                </div>
-                <button class="btn btn-danger" @click="clearLogs">
+    <div class="terminal-page">
+        <!-- Terminal Toolbar -->
+        <div class="terminal-toolbar">
+            <div class="toolbar-left">
+                <svg
+                    class="toolbar-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                >
+                    <polyline points="4 17 10 11 4 5" />
+                    <line x1="12" y1="18" x2="20" y2="18" />
+                </svg>
+                <span class="toolbar-title">终端日志</span>
+                <span
+                    class="toolbar-dot"
+                    :class="{ online: ws !== null }"
+                ></span>
+            </div>
+
+            <div class="toolbar-center">
+                <select v-model="filterLevel" class="toolbar-select">
+                    <option value="all">全部级别</option>
+                    <option value="error">错误</option>
+                    <option value="warn">警告</option>
+                    <option value="info">信息</option>
+                    <option value="debug">调试</option>
+                    <option value="trace">追踪</option>
+                </select>
+                <input
+                    v-model="filterTarget"
+                    type="text"
+                    class="toolbar-input"
+                    placeholder="筛选模块..."
+                />
+                <input
+                    v-model="searchQuery"
+                    type="text"
+                    class="toolbar-input"
+                    placeholder="搜索日志..."
+                />
+            </div>
+
+            <div class="toolbar-right">
+                <label class="toolbar-toggle">
+                    <input v-model="autoScroll" type="checkbox" />
+                    <span class="toggle-track"
+                        ><span class="toggle-thumb"></span
+                    ></span>
+                    <span class="toggle-label">自动滚动</span>
+                </label>
+                <button class="toolbar-btn" @click="clearLogs" title="清空日志">
                     <svg
-                        class="btn-icon"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -186,540 +254,391 @@ onUnmounted(() => {
                             d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
                         />
                     </svg>
-                    清空日志
+                </button>
+                <button class="toolbar-btn" @click="fetchLogs" title="刷新日志">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
                 </button>
             </div>
         </div>
 
-        <div class="logs-container">
-            <div class="logs-sidebar">
-                <div class="filter-section">
-                    <h3 class="filter-title">筛选</h3>
-
-                    <!-- Level Filter -->
-                    <div class="filter-group">
-                        <label class="filter-label">日志级别</label>
-                        <select v-model="filterLevel" class="filter-select">
-                            <option value="all">全部级别</option>
-                            <option value="error">Error</option>
-                            <option value="warn">Warn</option>
-                            <option value="info">Info</option>
-                            <option value="debug">Debug</option>
-                            <option value="trace">Trace</option>
-                        </select>
-                    </div>
-
-                    <!-- Target Filter -->
-                    <div class="filter-group">
-                        <label class="filter-label">目标模块</label>
-                        <input
-                            v-model="filterTarget"
-                            type="text"
-                            class="filter-input"
-                            placeholder="输入模块名称..."
-                        />
-                    </div>
-
-                    <!-- Search Filter -->
-                    <div class="filter-group">
-                        <label class="filter-label">搜索</label>
-                        <input
-                            v-model="searchQuery"
-                            type="text"
-                            class="filter-input"
-                            placeholder="搜索日志内容..."
-                        />
-                    </div>
-
-                    <!-- Auto Scroll Toggle -->
-                    <div class="filter-group">
-                        <label class="checkbox-label">
-                            <input
-                                v-model="autoScroll"
-                                type="checkbox"
-                                class="checkbox-input"
-                            />
-                            <span>自动滚动到底部</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Statistics -->
-                <div class="stats-section">
-                    <h3 class="filter-title">统计</h3>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <span class="stat-value">{{
-                                filteredLogs.length
-                            }}</span>
-                            <span class="stat-label">总日志数</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-value">{{
-                                logs.filter((l) => l.level === "error").length
-                            }}</span>
-                            <span class="stat-label stat-label-error"
-                                >错误</span
-                            >
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-value">{{
-                                logs.filter((l) => l.level === "warn").length
-                            }}</span>
-                            <span class="stat-label stat-label-warn">警告</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-value">{{
-                                logs.filter((l) => l.level === "info").length
-                            }}</span>
-                            <span class="stat-label stat-label-info">信息</span>
-                        </div>
-                    </div>
-                    <div class="websocket-status">
-                        <span
-                            class="status-indicator"
-                            :class="{ connected: ws !== null }"
-                        ></span>
-                        <span>实时日志流</span>
-                    </div>
-                </div>
+        <!-- Terminal Output - Pure text lines -->
+        <div ref="logContainer" class="terminal-output" @scroll="handleScroll">
+            <!-- Error state -->
+            <div v-if="error" class="term-line">
+                <span class="term-text term-error">{{ error }}</span>
             </div>
 
-            <!-- Logs Display -->
-            <div class="logs-main">
+            <!-- Loading state -->
+            <div
+                v-else-if="loading && filteredLogs.length === 0"
+                class="term-line"
+            >
+                <span class="term-text term-dim">加载中...</span>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="filteredLogs.length === 0" class="term-line">
+                <span class="term-text term-dim">没有匹配的日志</span>
+            </div>
+
+            <!-- Log lines - pure text -->
+            <template v-else>
                 <div
-                    ref="logContainer"
-                    class="logs-display"
-                    @scroll="handleScroll"
+                    v-for="(log, index) in filteredLogs"
+                    :key="index"
+                    class="term-line"
                 >
-                    <div v-if="error" class="logs-error">
-                        {{ error }}
-                    </div>
-
-                    <div
-                        v-else-if="loading && filteredLogs.length === 0"
-                        class="logs-loading"
-                    >
-                        加载中...
-                    </div>
-
-                    <div
-                        v-else-if="filteredLogs.length === 0"
-                        class="logs-empty"
-                    >
-                        没有符合条件的日志
-                    </div>
-
-                    <div v-else class="logs-list">
-                        <div
-                            v-for="(log, index) in filteredLogs"
-                            :key="index"
-                            class="log-entry"
-                            :class="getLevelClass(log.level)"
-                        >
-                            <div class="log-header">
-                                <span class="log-timestamp">{{
-                                    formatTimestamp(log.timestamp)
-                                }}</span>
-                                <span
-                                    class="log-level level-badge"
-                                    :class="getLevelClass(log.level)"
-                                >
-                                    {{ log.level.toUpperCase() }}
-                                </span>
-                                <span class="log-target">{{ log.target }}</span>
-                                <span v-if="log.file" class="log-location">
-                                    {{ log.file }}:{{ log.line }}
-                                </span>
-                            </div>
-                            <div class="log-message">{{ log.message }}</div>
-                        </div>
-                    </div>
+                    <span
+                        class="term-text"
+                        :class="getLevelClass(log.level)"
+                        v-html="formatLogLine(log)"
+                    ></span>
                 </div>
-            </div>
+            </template>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="terminal-status">
+            <span class="status-chunk">Ln {{ filteredLogs.length }}</span>
+            <span class="status-chunk status-error"
+                >E:{{ logs.filter((l) => l.level === "error").length }}</span
+            >
+            <span class="status-chunk status-warn"
+                >W:{{ logs.filter((l) => l.level === "warn").length }}</span
+            >
+            <span class="status-chunk status-info"
+                >I:{{ logs.filter((l) => l.level === "info").length }}</span
+            >
+            <span class="status-chunk status-debug"
+                >D:{{ logs.filter((l) => l.level === "debug").length }}</span
+            >
+            <span class="status-chunk status-trace"
+                >T:{{ logs.filter((l) => l.level === "trace").length }}</span
+            >
+            <span class="status-spacer"></span>
+            <span class="status-chunk">{{
+                ws !== null ? "● 实时连接" : "○ 已断开"
+            }}</span>
         </div>
     </div>
 </template>
 
 <style scoped>
-.logs-page {
-    padding: 0;
-}
-
-.page-header {
-    padding: 1.5rem 2rem;
-    background: var(--color-bg-mute);
-    border-bottom: 1px solid var(--color-border);
-}
-
-.header-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-}
-
-.page-title {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0 0 0.25rem 0;
-    background: linear-gradient(
-        135deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
-    );
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.page-subtitle {
-    font-size: 0.875rem;
-    color: var(--color-text-muted);
-    margin: 0;
-}
-
-.logs-container {
-    display: flex;
-    height: calc(100vh - 100px);
-    min-height: 600px;
-}
-
-.logs-sidebar {
-    width: 280px;
-    padding: 1.5rem;
-    background: var(--color-bg-mute);
-    border-right: 1px solid var(--color-border);
+.terminal-page {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    overflow-y: auto;
+    height: 100vh;
+    background: #0c0c0c;
+    font-family:
+        "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", "Monaco",
+        "Menlo", "Courier New", monospace;
+}
+
+/* ── Toolbar ── */
+.terminal-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    gap: 8px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
 
-.filter-section,
-.stats-section {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-.filter-title {
-    font-size: 0.875rem;
-    font-weight: 700;
-    color: var(--color-text-secondary);
-    margin: 0;
-}
-
-.filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.filter-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-text-muted);
-}
-
-.filter-select,
-.filter-input {
-    padding: 0.625rem 0.875rem;
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-    transition: all var(--transition-fast);
-}
-
-.filter-select:hover,
-.filter-input:hover {
-    border-color: var(--color-border-hover);
-}
-
-.filter-select:focus,
-.filter-input:focus {
-    outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-}
-
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-}
-
-.checkbox-input {
-    cursor: pointer;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
-}
-
-.stat-item {
-    background: var(--color-bg);
-    padding: 0.75rem;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.stat-value {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--color-text-primary);
-}
-
-.stat-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--color-text-muted);
-}
-
-.stat-label-error {
-    color: var(--color-danger);
-}
-
-.stat-label-warn {
-    color: #f59e0b;
-}
-
-.stat-label-info {
-    color: var(--color-success);
-}
-
-.websocket-status {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.75rem;
-    background: var(--color-bg);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-}
-
-.status-indicator {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--color-text-muted);
-    transition: all var(--transition-fast);
-}
-
-.status-indicator.connected {
-    background: var(--color-success);
-    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
-}
-
-.logs-main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.logs-display {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1rem;
-    background: var(--color-bg);
-}
-
-.logs-error,
-.logs-loading,
-.logs-empty {
-    padding: 3rem;
-    text-align: center;
-    color: var(--color-text-muted);
-}
-
-.logs-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.log-entry {
-    padding: 0.875rem 1rem;
-    background: var(--color-bg-mute);
-    border-radius: var(--radius-md);
-    border-left: 4px solid var(--color-border);
-    transition: all var(--transition-fast);
-}
-
-.log-entry:hover {
-    border-color: var(--color-border-hover);
-}
-
-.log-entry.level-error {
-    border-left-color: var(--color-danger);
-    background: rgba(239, 68, 68, 0.05);
-}
-
-.log-entry.level-warn {
-    border-left-color: #f59e0b;
-    background: rgba(245, 158, 11, 0.05);
-}
-
-.log-entry.level-info {
-    border-left-color: var(--color-success);
-}
-
-.log-entry.level-debug {
-    border-left-color: var(--color-primary);
-}
-
-.log-entry.level-trace {
-    border-left-color: var(--color-text-muted);
-}
-
-.log-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.75rem;
-}
-
-.log-timestamp {
-    font-family: "Monaco", "Menlo", monospace;
-    color: var(--color-text-muted);
-    font-weight: 600;
-}
-
-.level-badge {
-    padding: 0.125rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 700;
-    font-size: 0.625rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.level-badge.level-error {
-    background: var(--color-danger);
-    color: white;
-}
-
-.level-badge.level-warn {
-    background: #f59e0b;
-    color: white;
-}
-
-.level-badge.level-info {
-    background: var(--color-success);
-    color: white;
-}
-
-.level-badge.level-debug {
-    background: var(--color-primary);
-    color: white;
-}
-
-.level-badge.level-trace {
-    background: var(--color-text-muted);
-    color: white;
-}
-
-.log-target {
-    color: var(--color-text-secondary);
-    font-weight: 600;
-}
-
-.log-location {
-    color: var(--color-text-muted);
-    font-family: "Monaco", "Menlo", monospace;
-}
-
-.log-message {
-    margin: 0;
-    color: var(--color-text-primary);
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 0.875rem;
-    line-height: 1.5;
-}
-
-.btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.625rem 1.25rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    border-radius: var(--radius-md);
-    border: none;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.btn-danger {
-    background: var(--color-danger);
-    color: white;
-}
-
-.btn-danger:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-}
-
-.btn-icon {
+.toolbar-icon {
     width: 16px;
     height: 16px;
+    color: #888;
 }
 
-/* Scrollbar */
-.logs-display::-webkit-scrollbar,
-.logs-sidebar::-webkit-scrollbar {
+.toolbar-title {
+    font-size: 13px;
+    color: #ccc;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.toolbar-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.2s;
+}
+
+.toolbar-dot.online {
+    background: #4ec9b0;
+    box-shadow: 0 0 6px rgba(78, 201, 176, 0.4);
+}
+
+.toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    max-width: 560px;
+}
+
+.toolbar-select,
+.toolbar-input {
+    padding: 4px 8px;
+    background: #0c0c0c;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #ccc;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.toolbar-select {
+    min-width: 70px;
+}
+
+.toolbar-input {
+    flex: 1;
+    min-width: 100px;
+}
+
+.toolbar-select:focus,
+.toolbar-input:focus {
+    border-color: #007acc;
+}
+
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* Toggle */
+.toolbar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toolbar-toggle input {
+    display: none;
+}
+
+.toggle-track {
+    width: 28px;
+    height: 14px;
+    background: #333;
+    border-radius: 7px;
+    position: relative;
+    transition: background 0.2s;
+}
+
+.toggle-thumb {
+    width: 10px;
+    height: 10px;
+    background: #888;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s;
+}
+
+.toolbar-toggle input:checked + .toggle-track {
+    background: #007acc;
+}
+
+.toolbar-toggle input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(14px);
+}
+
+.toggle-label {
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 0.3px;
+}
+
+/* Buttons */
+.toolbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #888;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+
+.toolbar-btn:hover {
+    background: #2a2a2a;
+    color: #ccc;
+}
+
+.toolbar-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ── Terminal Output ── */
+.terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 12px;
+    background: #0c0c0c;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* Each line is pure text with preserved whitespace */
+.term-line {
+    white-space: pre;
+    line-height: 1.6;
+}
+
+.term-text {
+    color: #cccccc;
+}
+
+/* Level colors */
+.term-text.lvl-error {
+    color: #f44747;
+}
+
+.term-text.lvl-warn {
+    color: #cca700;
+}
+
+.term-text.lvl-info {
+    color: #4ec9b0;
+}
+
+.term-text.lvl-debug {
+    color: #569cd6;
+}
+
+.term-text.lvl-trace {
+    color: #6a9955;
+}
+
+/* Special states */
+.term-error {
+    color: #f44747;
+}
+
+.term-dim {
+    color: #555;
+}
+
+/* Search highlight */
+.search-highlight {
+    background: #613a0b;
+    color: #ffa657;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+/* ── Status Bar ── */
+.terminal-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 3px 12px;
+    background: #007acc;
+    color: #fff;
+    font-size: 12px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.status-chunk {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.status-spacer {
+    flex: 1;
+}
+
+.status-error {
+    color: #ffd7d7;
+}
+
+.status-warn {
+    color: #fff5cc;
+}
+
+.status-info {
+    color: #ccffd8;
+}
+
+.status-debug {
+    color: #cce5ff;
+}
+
+.status-trace {
+    color: #e0ffe0;
+}
+
+/* ── Scrollbar ── */
+.terminal-output::-webkit-scrollbar {
     width: 8px;
 }
 
-.logs-display::-webkit-scrollbar-track,
-.logs-sidebar::-webkit-scrollbar-track {
-    background: var(--color-bg-mute);
+.terminal-output::-webkit-scrollbar-track {
+    background: #0c0c0c;
 }
 
-.logs-display::-webkit-scrollbar-thumb,
-.logs-sidebar::-webkit-scrollbar-thumb {
-    background: var(--color-border);
+.terminal-output::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
     border-radius: 4px;
+    border: 1px solid #0c0c0c;
 }
 
-.logs-display::-webkit-scrollbar-thumb:hover,
-.logs-sidebar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-border-hover);
+.terminal-output::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
 }
 
-/* Responsive */
-@media (max-width: 1024px) {
-    .logs-container {
-        flex-direction: column;
-        height: auto;
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    .toolbar-center {
+        display: none;
     }
 
-    .logs-sidebar {
-        width: 100%;
-        border-right: none;
-        border-bottom: 1px solid var(--color-border);
+    .terminal-output {
+        font-size: 11px;
     }
 
-    .logs-display {
-        min-height: 600px;
+    .terminal-status {
+        gap: 8px;
+        font-size: 11px;
     }
 }
 </style>

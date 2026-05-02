@@ -310,6 +310,10 @@ const statusLabel = computed(() => {
 </template>
 
 <style scoped>
+/* ═══════════════════════════════════════════════════════════════
+ * Raycast-inspired Sidebar
+ * 多层毛玻璃 + 微妙边框 + 悬浮阴影
+ * ═══════════════════════════════════════════════════════════════ */
 .sidebar {
     width: 240px;
     height: 100vh;
@@ -320,14 +324,43 @@ const statusLabel = computed(() => {
     top: 0;
     padding: 0;
     z-index: 100;
+    /* 增强毛玻璃效果 */
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.88) 0%,
+        rgba(250, 245, 255, 0.82) 50%,
+        rgba(255, 255, 255, 0.85) 100%
+    );
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-right: 1px solid rgba(216, 180, 254, 0.25);
+    box-shadow:
+        4px 0 24px rgba(139, 92, 246, 0.06),
+        2px 0 12px rgba(236, 72, 153, 0.04),
+        inset -1px 0 0 rgba(255, 255, 255, 0.5);
 }
 
-/* Header */
+/* Header - 带微妙分隔线 */
 .sidebar-header {
     padding: 1.5rem 1.25rem 1rem;
     display: flex;
     align-items: center;
     gap: 0.875rem;
+    position: relative;
+}
+.sidebar-header::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 1.25rem;
+    right: 1.25rem;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(216, 180, 254, 0.3),
+        transparent
+    );
 }
 
 .logo-container {
@@ -337,7 +370,11 @@ const statusLabel = computed(() => {
 .logo-icon {
     width: 44px;
     height: 44px;
-    filter: drop-shadow(0 2px 4px rgba(139, 92, 246, 0.15));
+    filter: drop-shadow(0 2px 6px rgba(139, 92, 246, 0.2));
+    transition: transform var(--transition-spring);
+}
+.logo-container:hover .logo-icon {
+    transform: scale(1.05) rotate(-2deg);
 }
 
 .logo-icon .sparkle {
@@ -370,6 +407,7 @@ const statusLabel = computed(() => {
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
+    transition: opacity var(--transition-fast);
 }
 
 .brand-name {
@@ -377,6 +415,8 @@ const statusLabel = computed(() => {
     font-weight: 700;
     line-height: 1;
     letter-spacing: -0.01em;
+    /* 文字发光效果 */
+    text-shadow: 0 1px 3px rgba(139, 92, 246, 0.15);
 }
 
 .brand-tag {
@@ -387,7 +427,7 @@ const statusLabel = computed(() => {
     letter-spacing: 0.05em;
 }
 
-/* Status */
+/* Status - 带玻璃效果 */
 .sidebar-status {
     padding: 0 1.25rem 1rem;
 }
@@ -396,10 +436,19 @@ const statusLabel = computed(() => {
     display: flex;
     align-items: center;
     gap: 0.625rem;
-    background: var(--color-bg-mute);
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border);
+    border: 1px solid rgba(216, 180, 254, 0.2);
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.04);
+    transition: all var(--transition-fast);
+}
+.status-item:hover {
+    background: rgba(255, 255, 255, 0.75);
+    border-color: rgba(216, 180, 254, 0.35);
+    box-shadow: 0 2px 12px rgba(139, 92, 246, 0.08);
 }
 
 .status-dot {
@@ -411,15 +460,16 @@ const statusLabel = computed(() => {
     font-weight: 600;
     color: var(--color-text-secondary);
     flex: 1;
+    letter-spacing: 0.01em;
 }
 
-/* Navigation */
+/* Navigation - Raycast 风格导航项 */
 .sidebar-nav {
     flex: 1;
-    padding: 0 0.75rem;
+    padding: 0.5rem 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.5rem;
     overflow-y: auto;
 }
 
@@ -427,37 +477,67 @@ const statusLabel = computed(() => {
     width: 100%;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0.75rem;
+    gap: 0.875rem;
+    padding: 0.75rem 1rem;
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
     position: relative;
     text-align: left;
+    /* 微妙的光泽效果 */
+    overflow: hidden;
+}
+.nav-item::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.5) 0%,
+        rgba(250, 245, 255, 0.3) 100%
+    );
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    border-radius: inherit;
 }
 
 .nav-item:hover {
-    background: var(--color-bg-mute);
+    background: rgba(255, 255, 255, 0.5);
+    border-color: rgba(216, 180, 254, 0.2);
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.06);
+}
+.nav-item:hover::before {
+    opacity: 1;
 }
 
 .nav-item.active {
     background: linear-gradient(
         135deg,
-        var(--color-accent-soft) 0%,
-        var(--color-primary-soft) 100%
+        rgba(236, 72, 153, 0.1) 0%,
+        rgba(139, 92, 246, 0.08) 50%,
+        rgba(168, 85, 247, 0.06) 100%
     );
-    border: 1px solid var(--color-accent-hover);
+    border: 1px solid rgba(236, 72, 153, 0.25);
+    box-shadow:
+        0 2px 12px rgba(236, 72, 153, 0.1),
+        0 4px 16px rgba(139, 92, 246, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.nav-item.active::before {
+    opacity: 1;
 }
 
 .nav-item.active .nav-icon {
     color: var(--color-accent);
+    filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.3));
 }
 
 .nav-item.active .nav-label {
     color: var(--color-accent);
     font-weight: 700;
+    text-shadow: 0 1px 2px rgba(236, 72, 153, 0.15);
 }
 
 .nav-icon {
@@ -465,7 +545,11 @@ const statusLabel = computed(() => {
     height: 18px;
     flex-shrink: 0;
     color: var(--color-text-muted);
-    transition: color var(--transition-fast);
+    transition: all var(--transition-fast);
+}
+.nav-item:hover .nav-icon {
+    color: var(--color-text-secondary);
+    transform: scale(1.05);
 }
 
 .nav-label {
@@ -473,7 +557,10 @@ const statusLabel = computed(() => {
     font-size: 0.875rem;
     font-weight: 500;
     color: var(--color-text-secondary);
-    transition: color var(--transition-fast);
+    transition: all var(--transition-fast);
+}
+.nav-item:hover .nav-label {
+    color: var(--color-text);
 }
 
 .active-indicator {
@@ -486,13 +573,40 @@ const statusLabel = computed(() => {
         var(--color-accent) 0%,
         var(--color-primary) 100%
     );
-    box-shadow: 0 0 6px rgba(236, 72, 153, 0.5);
+    box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);
+    animation: activePulse 2s ease-in-out infinite;
+}
+@keyframes activePulse {
+    0%,
+    100% {
+        box-shadow: 0 0 6px rgba(236, 72, 153, 0.4);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 10px rgba(236, 72, 153, 0.7);
+        transform: scale(1.1);
+    }
 }
 
-/* Footer */
+/* Footer - 带微妙分隔线 */
 .sidebar-footer {
     padding: 1rem 1.25rem 1.5rem;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid rgba(216, 180, 254, 0.2);
+    position: relative;
+}
+.sidebar-footer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 1.25rem;
+    right: 1.25rem;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(216, 180, 254, 0.3),
+        transparent
+    );
 }
 
 .footer-info {
@@ -501,6 +615,10 @@ const statusLabel = computed(() => {
     gap: 0.5rem;
     font-size: 0.6875rem;
     color: var(--color-text-muted);
+    background: rgba(255, 255, 255, 0.4);
+    padding: 0.375rem 0.625rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(216, 180, 254, 0.15);
 }
 
 .version {
