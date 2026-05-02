@@ -5,12 +5,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use agent_client_protocol::schema::{ReadTextFileResponse, WriteTextFileResponse};
-use agent_client_protocol::{Client, ConnectionTo};
 use tokio::sync::{RwLock, oneshot};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 /// Manages pending ACP requests and their responses.
 #[derive(Clone)]
@@ -62,7 +60,11 @@ impl RequestManager {
     }
 
     /// Handle a write file response.
-    pub async fn handle_write_response(&self, request_id: String, response: WriteTextFileResponse) {
+    pub async fn handle_write_response(
+        &self,
+        request_id: String,
+        _response: WriteTextFileResponse,
+    ) {
         let mut pending = self.pending_writes.write().await;
         if let Some(sender) = pending.remove(&request_id) {
             let result = Ok(());
@@ -95,7 +97,11 @@ impl Default for RequestManager {
 mod read_file;
 mod write_file;
 
+// Re-export for potential use in the future (ACP tools)
+// TODO: Use these tools once ACP protocol integration is complete
+#[allow(unused_imports)]
 pub use read_file::AcpReadFileTool;
+#[allow(unused_imports)]
 pub use write_file::AcpWriteFileTool;
 
 // TODO: Add more ACP tools as needed:

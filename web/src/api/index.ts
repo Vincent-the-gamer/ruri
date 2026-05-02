@@ -11,14 +11,16 @@ import type {
   Skill,
   Tool,
   UpdateAcpConfigRequest,
+  UploadSkillPackageResponse,
 } from '../types'
 
 const client = axios.create({
   baseURL: '',
   timeout: 60000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Remove default Content-Type to allow FormData multipart uploads to work correctly
+  // headers: {
+  //   'Content-Type': 'application/json',
+  // },
 })
 
 // Response interceptor for error handling
@@ -71,6 +73,13 @@ export async function getSkills(): Promise<Skill[]> {
 
 export async function addSkill(data: CreateSkillRequest): Promise<Skill> {
   const res = await client.post('/api/skills', data)
+  return res.data
+}
+
+export async function uploadSkillPackage(file: File): Promise<UploadSkillPackageResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await client.post('/api/skills/upload', formData)
   return res.data
 }
 

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_client_protocol::schema::WriteTextFileRequest;
 use async_trait::async_trait;
 
 use crate::acp::session::SessionManager;
@@ -69,15 +68,15 @@ impl Tool for AcpWriteFileTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
 
-        let contents = parsed
+        let _contents = parsed
             .get("contents")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'contents' parameter".into()))?;
 
-        let path = PathBuf::from(path_str);
+        let _path = PathBuf::from(path_str);
 
         // Get client connection
-        let connection = self
+        let _connection = self
             .session_manager
             .get_connection(&self.session_id)
             .await

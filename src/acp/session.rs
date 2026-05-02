@@ -6,7 +6,7 @@ use agent_client_protocol::ConnectionTo;
 use agent_client_protocol::schema::ContentBlock;
 use tokio::sync::RwLock;
 
-use crate::agent::acp_tools::{AcpReadFileTool, AcpWriteFileTool, RequestManager};
+use crate::agent::acp_tools::RequestManager;
 use crate::agent::runner::{Agent, AgentConfig};
 use crate::agent::skill::Skill;
 use crate::provider::Provider;
@@ -67,8 +67,8 @@ impl AcpSession {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
-        session_id: String,
-        request_manager: Arc<RequestManager>,
+        _session_id: String,
+        _request_manager: Arc<RequestManager>,
     ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)

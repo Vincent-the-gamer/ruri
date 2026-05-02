@@ -81,6 +81,44 @@ pub struct CreateProviderRequest {
 
 // ─── Skill Models ────────────────────────────────────────────────
 
+/// Skill Package Manifest - defines a skill package structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillPackageManifest {
+    /// Unique identifier for the skill
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Version of the skill package (e.g., "1.0.0")
+    pub version: String,
+    /// Author information
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Configuration schema for this skill
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<serde_json::Value>,
+    /// Default configuration values
+    #[serde(default)]
+    pub default_config: serde_json::Value,
+    /// Type identifier for the skill
+    #[serde(default = "default_skill_type")]
+    pub skill_type: String,
+}
+
+fn default_skill_type() -> String {
+    "custom".to_string()
+}
+
+/// Parsed skill from a package
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParsedSkill {
+    pub name: String,
+    pub description: String,
+    pub skill_type: String,
+    pub config: serde_json::Value,
+    pub version: String,
+    pub author: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDto {
     pub name: String,
@@ -94,6 +132,13 @@ pub struct SkillDto {
 pub struct CreateSkillRequest {
     pub skill_type: String,
     pub config: serde_json::Value,
+}
+
+/// Response for skill package upload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadSkillPackageResponse {
+    pub skill: SkillDto,
+    pub parsed: ParsedSkill,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

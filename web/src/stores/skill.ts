@@ -67,6 +67,21 @@ export const useSkillStore = defineStore('skill', () => {
     }
   }
 
+  async function uploadSkillPackage(file: File) {
+    loading.value = true
+    error.value = null
+    try {
+      const response = await api.uploadSkillPackage(file)
+      skills.value.push(response.skill)
+      return response
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Failed to upload skill package'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     skills,
     loading,
@@ -75,5 +90,6 @@ export const useSkillStore = defineStore('skill', () => {
     addSkill,
     removeSkill,
     toggleSkill,
+    uploadSkillPackage,
   }
 })

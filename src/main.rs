@@ -155,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
     println!("  POST   /api/providers/:id/activate  Set active provider");
     println!("  GET    /api/skills             List skills");
     println!("  POST   /api/skills             Add skill");
+    println!("  POST   /api/skills/upload     Upload skill package (ZIP)");
     println!("  DELETE /api/skills/:name       Remove skill");
     println!("  PATCH  /api/skills/:name       Toggle skill");
     println!("  GET    /api/tools              List tools");

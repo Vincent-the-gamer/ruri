@@ -6,6 +6,7 @@ import type { CreateSkillRequest } from "../types";
 
 const skillStore = useSkillStore();
 const showForm = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
     skillStore.fetchSkills();
@@ -49,6 +50,35 @@ const skillIcon = (type: string) => {
             return "⚡";
     }
 };
+
+function triggerFileUpload() {
+    fileInputRef.value?.click();
+}
+
+async function handleFileUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+
+    // Check if it's a ZIP file
+    if (!file.name.endsWith(".zip")) {
+        alert("请上传 ZIP 格式的技能包文件");
+        return;
+    }
+
+    try {
+        await skillStore.uploadSkillPackage(file);
+        alert("技能包上传成功！");
+    } catch (e) {
+        console.error("Upload failed:", e);
+        alert(`上传失败：${skillStore.error || "未知错误"}`);
+    } finally {
+        // Reset input
+        if (target) {
+            target.value = "";
+        }
+    }
+}
 </script>
 
 <template>
@@ -59,23 +89,50 @@ const skillIcon = (type: string) => {
                 <h1 class="header-title">技能</h1>
                 <p class="header-desc">管理智能体的能力和行为</p>
             </div>
-            <button class="btn btn-accent" @click="showForm = true">
-                <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path
-                        d="M7 1v12M1 7h12"
+            <div class="header-actions">
+                <button class="btn btn-outline" @click="triggerFileUpload">
+                    <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
                         stroke="currentColor"
                         stroke-width="2"
                         stroke-linecap="round"
-                    />
-                </svg>
-                添加技能
-            </button>
+                        stroke-linejoin="round"
+                    >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    上传技能包
+                </button>
+                <button class="btn btn-accent" @click="showForm = true">
+                    <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <path
+                            d="M7 1v12M1 7h12"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                        />
+                    </svg>
+                    添加技能
+                </button>
+            </div>
+            <!-- Hidden file input -->
+            <input
+                type="file"
+                ref="fileInputRef"
+                accept=".zip"
+                style="display: none"
+                @change="handleFileUpload"
+            />
         </div>
 
         <!-- Error -->
@@ -386,6 +443,12 @@ const skillIcon = (type: string) => {
     margin-top: 0.25rem;
 }
 
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
 /* Buttons */
 .btn {
     display: inline-flex;
@@ -439,6 +502,18 @@ const skillIcon = (type: string) => {
 
 .btn-danger-ghost {
     color: var(--color-danger);
+}
+
+.btn-outline {
+    background-color: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text-secondary);
+}
+
+.btn-outline:hover {
+    background-color: var(--color-bg-mute);
+    border-color: var(--color-border-hover);
+    color: var(--color-text);
 }
 
 .btn-danger-ghost:hover {

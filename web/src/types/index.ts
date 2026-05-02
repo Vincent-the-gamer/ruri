@@ -67,6 +67,30 @@ export interface CreateSkillRequest {
   config: Record<string, unknown>
 }
 
+export interface SkillPackageManifest {
+  name: string
+  description: string
+  version: string
+  author?: string
+  config_schema?: Record<string, unknown>
+  default_config: Record<string, unknown>
+  skill_type: string
+}
+
+export interface ParsedSkill {
+  name: string
+  description: string
+  skill_type: string
+  config: Record<string, unknown>
+  version: string
+  author?: string
+}
+
+export interface UploadSkillPackageResponse {
+  skill: Skill
+  parsed: ParsedSkill
+}
+
 // ─── Tool Types ──────────────────────────────────────────────────
 
 export interface ToolParameter {
