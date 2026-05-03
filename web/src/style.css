@@ -43,6 +43,53 @@
 
     /* Radius */
     --radius: 0.5rem;
+    --radius-sm: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --radius-full: 9999px;
+
+    /* Transitions */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.3s ease;
+    --transition-spring: 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md:
+        0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg:
+        0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+    /* Text colors for compatibility */
+    --color-text: hsl(var(--foreground));
+    --color-text-soft: hsl(var(--muted-foreground));
+    --color-text-muted: hsl(var(--muted-foreground));
+    --color-text-secondary: hsl(var(--muted-foreground));
+    --color-accent: hsl(var(--primary));
+    --color-accent-soft: hsl(var(--primary) / 0.1);
+    --color-accent-hover: hsl(var(--primary) / 0.8);
+    --color-primary: hsl(var(--primary));
+    --color-primary-hover: hsl(var(--primary) / 0.9);
+    --color-bg: hsl(var(--background));
+    --color-bg-soft: hsl(var(--card));
+    --color-bg-mute: hsl(var(--muted));
+    --color-bg-hover: hsl(var(--accent));
+    --color-border: hsl(var(--border));
+    --color-border-hover: hsl(var(--primary) / 0.3);
+    --color-danger: hsl(var(--destructive));
+    --color-danger-soft: hsl(var(--destructive) / 0.1);
+    --color-warning: hsl(38 92% 50%);
+    --color-warning-soft: hsl(38 92% 50% / 0.1);
+    --color-warning-text: hsl(38 92% 30%);
+    --color-info: hsl(200 80% 50%);
+    --color-info-soft: hsl(200 80% 50% / 0.1);
+    --color-info-text: hsl(200 80% 40%);
+    --color-success: hsl(142 76% 36%);
+    --color-success-soft: hsl(142 76% 36% / 0.1);
+    --color-success-text: hsl(142 76% 30%);
+    --color-text-dim: hsl(var(--muted-foreground) / 0.7);
 }
 
 /* Dark Theme - Beautiful dark mode inspired by airi */
@@ -74,6 +121,35 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 142.4 71.8% 29.2%;
+
+    /* Text colors for compatibility - Dark mode overrides */
+    --color-text: hsl(var(--foreground));
+    --color-text-soft: hsl(var(--muted-foreground));
+    --color-text-muted: hsl(var(--muted-foreground));
+    --color-text-secondary: hsl(var(--muted-foreground));
+    --color-accent: hsl(var(--primary));
+    --color-accent-soft: hsl(var(--primary) / 0.15);
+    --color-accent-hover: hsl(var(--primary) / 0.9);
+    --color-primary: hsl(var(--primary));
+    --color-primary-hover: hsl(var(--primary) / 0.9);
+    --color-bg: hsl(var(--background));
+    --color-bg-soft: hsl(var(--card));
+    --color-bg-mute: hsl(var(--muted));
+    --color-bg-hover: hsl(var(--accent));
+    --color-border: hsl(var(--border));
+    --color-border-hover: hsl(var(--primary) / 0.4);
+    --color-danger: hsl(var(--destructive));
+    --color-danger-soft: hsl(var(--destructive) / 0.15);
+    --color-warning: hsl(38 92% 60%);
+    --color-warning-soft: hsl(38 92% 50% / 0.15);
+    --color-warning-text: hsl(38 92% 70%);
+    --color-info: hsl(200 80% 60%);
+    --color-info-soft: hsl(200 80% 50% / 0.15);
+    --color-info-text: hsl(200 80% 70%);
+    --color-success: hsl(142 76% 50%);
+    --color-success-soft: hsl(142 76% 36% / 0.15);
+    --color-success-text: hsl(142 76% 70%);
+    --color-text-dim: hsl(var(--muted-foreground) / 0.6);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -227,7 +303,10 @@ pre code {
     box-shadow: 0 0 0 1px hsl(var(--primary) / 0.1);
 }
 
-/* Button styles */
+/* ═══════════════════════════════════════════════════════════════
+ *  🎯 Button Styles - Enhanced for better visibility
+ * ═══════════════════════════════════════════════════════════════ */
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -237,9 +316,28 @@ pre code {
     border-radius: 0.5rem;
     font-size: 0.875rem;
     font-weight: 600;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
     outline: none;
+    border: 1px solid hsl(var(--border));
+    background-color: hsl(var(--secondary));
+    color: hsl(var(--secondary-foreground));
+    padding: 0.625rem 1.25rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.btn:hover::before {
+    opacity: 1;
 }
 
 .btn:focus-visible {
@@ -247,16 +345,47 @@ pre code {
     outline-offset: 2px;
 }
 
+.btn:hover {
+    border-color: hsl(var(--primary) / 0.5);
+    background-color: hsl(var(--accent));
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Primary button - Clear and bold */
 .btn-primary {
-    background-color: hsl(var(--primary));
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)),
+        hsl(var(--primary) / 0.9)
+    );
     color: hsl(var(--primary-foreground));
+    border: none;
     padding: 0.625rem 1.25rem;
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
 }
 
 .btn-primary:hover {
-    background-color: hsl(var(--primary) / 0.9);
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.95),
+        hsl(var(--primary) / 0.85)
+    );
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.4);
+    transform: translateY(-2px);
 }
 
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
+}
+
+/* Secondary button */
 .btn-secondary {
     background-color: hsl(var(--secondary));
     color: hsl(var(--secondary-foreground));
@@ -265,17 +394,83 @@ pre code {
 
 .btn-secondary:hover {
     background-color: hsl(var(--secondary) / 0.8);
+    border-color: hsl(var(--primary) / 0.3);
 }
 
+/* Accent button - Vibrant and eye-catching */
+.btn-accent {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(207 70% 55%));
+    color: white;
+    border: none;
+    padding: 0.625rem 1.25rem;
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
+}
+
+.btn-accent:hover {
+    background: linear-gradient(135deg, hsl(207 70% 55%), hsl(var(--primary)));
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-accent svg {
+    transition: transform 0.2s ease;
+}
+
+.btn-accent:hover svg {
+    transform: scale(1.1);
+}
+
+/* Ghost button - More visible with border */
 .btn-ghost {
     background-color: transparent;
     color: hsl(var(--muted-foreground));
     padding: 0.5rem;
+    border: 1px solid transparent;
 }
 
 .btn-ghost:hover {
-    background-color: hsl(var(--accent));
-    color: hsl(var(--accent-foreground));
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / 0.3);
+}
+
+/* Outline button */
+.btn-outline {
+    background-color: transparent;
+    color: hsl(var(--primary));
+    border: 2px solid hsl(var(--primary) / 0.5);
+    padding: 0.625rem 1.25rem;
+}
+
+.btn-outline:hover {
+    background-color: hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+}
+
+/* Danger button */
+.btn-danger-ghost {
+    background-color: transparent;
+    color: hsl(var(--destructive));
+    border: 1px solid transparent;
+}
+
+.btn-danger-ghost:hover {
+    background-color: hsl(var(--destructive) / 0.1);
+    border-color: hsl(var(--destructive) / 0.5);
+}
+
+/* Small button size */
+.btn-sm {
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
+}
+
+/* Disabled state */
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 
 /* Badge styles */

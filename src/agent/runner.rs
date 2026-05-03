@@ -109,6 +109,11 @@ impl Agent {
         &self.history
     }
 
+    /// Set the conversation history (for restoring from persistence).
+    pub fn set_history(&mut self, history: Vec<ChatMessage>) {
+        self.history = history;
+    }
+
     /// Run a single turn of the conversation.
     ///
     /// This method:

@@ -23,6 +23,7 @@ export default {
 
   // 导航
   nav: {
+    home: '首页',
     dashboard: '仪表盘',
     chat: '对话',
     skills: '技能',
@@ -33,10 +34,28 @@ export default {
     apiTest: 'API 测试',
   },
 
+  // 首页
+  home: {
+    welcome: '欢迎来到 Ruri',
+    tagline: '你的 AI 智能伙伴',
+    description: 'Ruri 是一个高度可定制的 AI Agent，支持多种模型供应商、工具执行框架和模块化技能系统。无论是开发调试还是日常使用，Ruri 都能成为你得力的 AI 助手。',
+    features: {
+      multiProvider: '多模型供应商支持',
+      toolFramework: '工具执行框架',
+      skillSystem: '模块化技能系统',
+      acpSupport: 'ACP 协议支持',
+    },
+    startChat: '开始对话',
+    exploreFeatures: '探索功能',
+    scrollHint: '向下滚动了解更多',
+  },
+
   // 仪表盘
   dashboard: {
     title: '仪表盘',
     subtitle: 'Ruri AI 智能体总览',
+    overviewTitle: '功能总览',
+    overviewSubtitle: '探索 Ruri Agent 的强大功能',
     status: {
       running: '运行中',
       error: '错误',
@@ -48,6 +67,30 @@ export default {
       providers: '模型供应商',
       skills: '技能',
       tools: '工具',
+    },
+    featuresSection: '核心功能',
+    features: {
+      multiProvider: {
+        title: '多模型供应商',
+        description: '支持 OpenAI、Anthropic 和自定义模型供应商，灵活配置切换。',
+        linkText: '管理供应商',
+      },
+      toolFramework: {
+        title: '工具执行框架',
+        description: '内置多种工具，支持自定义扩展，让 AI 能力更强大。',
+        linkText: '查看工具',
+      },
+      skillSystem: {
+        title: '模块化技能系统',
+        description: '通过技能包扩展 AI 能力，支持 ZIP 包上传和动态加载。',
+        linkText: '管理技能',
+      },
+      acpProtocol: {
+        title: 'ACP 协议支持',
+        description: '支持 ACP 协议，可在 Zed、JetBrains 等 IDE 中无缝使用。',
+        linkText: '配置 ACP',
+        stats: '已就绪',
+      },
     },
     recentMessages: '最近消息',
     noProvider: '暂无激活的供应商',
@@ -62,6 +105,8 @@ export default {
     noConfiguredProviders: '暂未配置供应商',
     openChat: '打开对话',
     apiTest: '接口测试',
+    activeProvider: '当前供应商',
+    quickActions: '快捷操作',
   },
 
   // 对话

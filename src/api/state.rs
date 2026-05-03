@@ -512,15 +512,19 @@ impl AppState {
         agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
 
-        // Initialize skills
-        agent.initialize_skills().await;
-
-        // Restore chat history
+        // Restore chat history first
         let history = self.chat_history.read().await;
-        for _msg in history.iter() {
-            // We need to set history on the agent; use a workaround via chat
+        let has_history = !history.is_empty();
+        if has_history {
+            agent.set_history(history.clone());
         }
         drop(history);
+
+        // Initialize skills only if no history exists (new conversation)
+        // For existing conversations, system messages from skills are already in history
+        if !has_history {
+            agent.initialize_skills().await;
+        }
 
         Ok(agent)
     }

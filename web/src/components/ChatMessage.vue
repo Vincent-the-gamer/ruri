@@ -26,15 +26,15 @@ function formatArgs(args: string): string {
 </script>
 
 <template>
-    <div class="message-wrapper fade-in">
+    <div class="message-wrapper">
         <!-- User Message -->
         <div v-if="isUser" class="message message-user">
             <div class="message-avatar">
                 <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="8" r="4" fill="var(--color-accent)" />
+                    <circle cx="12" cy="8" r="4" fill="hsl(var(--primary))" />
                     <path
                         d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8"
-                        stroke="var(--color-accent)"
+                        stroke="hsl(var(--primary))"
                         stroke-width="2"
                         stroke-linecap="round"
                     />
@@ -51,7 +51,7 @@ function formatArgs(args: string): string {
         <!-- Assistant Message -->
         <div v-else-if="isAssistant" class="message message-assistant">
             <div class="message-avatar assistant-avatar">
-                <svg class="avatar-icon bounce" viewBox="0 0 24 24" fill="none">
+                <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
                     <defs>
                         <linearGradient
                             id="crystal-gradient"
@@ -60,8 +60,11 @@ function formatArgs(args: string): string {
                             x2="100%"
                             y2="100%"
                         >
-                            <stop offset="0%" stop-color="#ec4899" />
-                            <stop offset="100%" stop-color="#8b5cf6" />
+                            <stop
+                                offset="0%"
+                                stop-color="hsl(var(--primary))"
+                            />
+                            <stop offset="100%" stop-color="hsl(280 70% 60%)" />
                         </linearGradient>
                     </defs>
                     <path
@@ -143,7 +146,7 @@ function formatArgs(args: string): string {
                 <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
                     <path
                         d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
-                        stroke="var(--color-warning)"
+                        stroke="hsl(38 92% 50%)"
                         stroke-width="1.5"
                     />
                 </svg>
@@ -174,7 +177,7 @@ function formatArgs(args: string): string {
 .message-wrapper {
     display: flex;
     width: 100%;
-    margin-bottom: 1.25rem;
+    margin-bottom: 1rem;
     animation: fadeIn 0.3s ease-out;
 }
 
@@ -191,21 +194,21 @@ function formatArgs(args: string): string {
 
 .message {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.625rem;
     max-width: 85%;
 }
 
 /* Avatar Styles */
 .message-avatar {
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-md);
+    width: 32px;
+    height: 32px;
+    border-radius: 0.625rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-bg-mute);
-    border: 1px solid var(--color-border);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
 }
 
 .message-user .message-avatar {
@@ -218,22 +221,22 @@ function formatArgs(args: string): string {
 
 .message-tool .message-avatar {
     order: 1;
-    background: var(--color-warning-soft);
-    border-color: var(--color-warning);
+    background: hsl(38 92% 50% / 0.1);
+    border-color: hsl(38 92% 50% / 0.3);
 }
 
 .avatar-icon {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
 }
 
 .assistant-avatar {
-    border: 2px solid var(--color-accent);
+    border: 2px solid hsl(var(--primary));
 }
 
 .tool-avatar .avatar-icon {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
 }
 
 .avatar-icon .sparkle {
@@ -262,7 +265,7 @@ function formatArgs(args: string): string {
 .message-content-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.25rem;
     flex: 1;
     order: 2;
 }
@@ -273,25 +276,25 @@ function formatArgs(args: string): string {
 
 /* Message Label */
 .message-label {
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     font-weight: 600;
-    color: var(--color-text-muted);
+    color: hsl(var(--muted-foreground));
     text-transform: uppercase;
     letter-spacing: 0.05em;
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.25rem;
 }
 
 .assistant-label {
-    color: var(--color-accent);
+    color: hsl(var(--primary));
 }
 
 .label-dot {
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: var(--color-accent);
+    background: hsl(var(--primary));
     animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
@@ -309,9 +312,9 @@ function formatArgs(args: string): string {
 
 /* Message Content */
 .message-content {
-    padding: 0.875rem 1rem;
+    padding: 0.75rem 1rem;
     font-size: 0.875rem;
-    line-height: 1.6;
+    line-height: 1.5;
     word-break: break-word;
     white-space: pre-wrap;
 }
@@ -319,40 +322,45 @@ function formatArgs(args: string): string {
 .user-content {
     background: linear-gradient(
         135deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
+        hsl(var(--primary)) 0%,
+        hsl(280 70% 60%) 100%
     );
     color: white;
-    border-radius: var(--radius-md) var(--radius-md) var(--radius-sm)
-        var(--radius-md);
-    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.2);
+    border-radius: 1rem 1rem 0.25rem 1rem;
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.2);
 }
 
 .assistant-content {
-    background: var(--color-bg-soft);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md) var(--radius-md) var(--radius-md)
-        var(--radius-sm);
-    color: var(--color-text);
-    box-shadow: 0 1px 4px rgba(139, 92, 246, 0.04);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem 1rem 1rem 0.25rem;
+    color: hsl(var(--foreground));
+    box-shadow: 0 1px 3px hsl(var(--primary) / 0.05);
 }
 
 .tool-content {
-    background: var(--color-warning-soft);
-    border: 1px solid var(--color-warning);
-    border-radius: var(--radius-md) var(--radius-md) var(--radius-md)
-        var(--radius-sm);
-    color: var(--color-warning-text);
+    background: hsl(38 92% 50% / 0.1);
+    border: 1px solid hsl(38 92% 50% / 0.3);
+    border-radius: 1rem 1rem 1rem 0.25rem;
+    color: hsl(38 92% 30%);
     font-size: 0.8125rem;
+}
+
+.dark .tool-content {
+    color: hsl(38 92% 70%);
 }
 
 .tool-id {
     font-family: monospace;
-    font-size: 0.625rem;
-    background: rgba(245, 158, 11, 0.2);
-    padding: 0.125rem 0.4375rem;
-    border-radius: var(--radius-sm);
-    color: var(--color-warning-text);
+    font-size: 0.5625rem;
+    background: hsl(38 92% 50% / 0.2);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    color: hsl(38 92% 30%);
+}
+
+.dark .tool-id {
+    color: hsl(38 92% 70%);
 }
 
 /* System Message */
@@ -362,49 +370,55 @@ function formatArgs(args: string): string {
 }
 
 .message-system .message-content {
-    background: var(--color-info-soft);
-    border: 1px dashed var(--color-info);
-    border-radius: var(--radius-md);
-    color: var(--color-info-text);
+    background: hsl(200 80% 50% / 0.1);
+    border: 1px dashed hsl(200 80% 50% / 0.4);
+    border-radius: 0.625rem;
+    color: hsl(200 80% 40%);
     font-size: 0.75rem;
-    padding: 0.5rem 0.875rem;
+    padding: 0.5rem 0.75rem;
     text-align: center;
     max-width: 400px;
     opacity: 0.9;
 }
 
+.dark .message-system .message-content {
+    color: hsl(200 80% 70%);
+    border-color: hsl(200 80% 50% / 0.5);
+}
+
 /* Tool Calls */
 .tool-calls {
-    margin-top: 0.5rem;
-    border-top: 1px solid var(--color-border);
-    padding-top: 0.5rem;
+    margin-top: 0.375rem;
+    border-top: 1px solid hsl(var(--border));
+    padding-top: 0.375rem;
 }
 
 .tool-toggle {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: var(--color-bg-mute);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 0.5rem 0.625rem;
-    font-size: 0.75rem;
+    gap: 0.375rem;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.375rem;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.6875rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: hsl(var(--muted-foreground));
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s ease;
 }
 
 .tool-toggle:hover {
-    background: var(--color-bg-hover);
-    border-color: var(--color-border-hover);
+    background: hsl(var(--accent));
+    border-color: hsl(var(--primary) / 0.3);
+    color: hsl(var(--foreground));
 }
 
 .tool-toggle .toggle-icon {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     flex-shrink: 0;
-    transition: transform var(--transition-fast);
+    transition: transform 0.2s ease;
 }
 
 .tool-toggle.expanded .toggle-icon {
@@ -412,44 +426,45 @@ function formatArgs(args: string): string {
 }
 
 .tool-list {
-    margin-top: 0.5rem;
+    margin-top: 0.375rem;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.375rem;
 }
 
 .tool-item {
-    background: var(--color-bg-soft);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 0.5rem 0.625rem;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.375rem;
+    padding: 0.375rem 0.5rem;
 }
 
 .tool-header {
-    margin-bottom: 0.375rem;
+    margin-bottom: 0.25rem;
 }
 
 .tool-badge {
     font-family: monospace;
-    font-size: 0.71875rem;
+    font-size: 0.625rem;
     font-weight: 600;
-    color: var(--color-accent);
-    background: var(--color-accent-soft);
-    padding: 0.125rem 0.4375rem;
-    border-radius: var(--radius-sm);
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
 }
 
 .tool-args {
     font-family: monospace;
-    font-size: 0.6875rem;
-    color: var(--color-text-muted);
+    font-size: 0.625rem;
+    color: hsl(var(--muted-foreground));
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 150px;
+    max-height: 120px;
     overflow-y: auto;
-    padding: 0.375rem;
-    background: var(--color-bg-mute);
-    border-radius: var(--radius-sm);
+    padding: 0.25rem;
+    background: hsl(var(--background));
+    border-radius: 0.25rem;
+    border: 1px solid hsl(var(--border));
 }
 </style>

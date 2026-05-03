@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useAgentStore } from "../stores/agent";
@@ -54,158 +54,140 @@ const recentMessages = computed(() => {
     return msgs.slice(-5).reverse();
 });
 
-const providerTypeStyle = (type: string) => {
-    switch (type) {
-        case "openai":
-            return { class: "type-openai", label: t("providers.type.openai") };
-        case "anthropic":
-            return {
-                class: "type-anthropic",
-                label: t("providers.type.anthropic"),
-            };
-        case "custom":
-            return { class: "type-custom", label: t("providers.type.custom") };
-        default:
-            return { class: "type-default", label: t("providers.type.other") };
-    }
+const activeProvider = computed(() => {
+    return providerStore.providers.find((p) => p.is_active);
+});
+
+// Feature cards data
+const features = computed(() => [
+    {
+        id: "multi-provider",
+        icon: "server",
+        title: t("dashboard.features.multiProvider.title"),
+        description: t("dashboard.features.multiProvider.description"),
+        link: "/providers",
+        linkText: t("dashboard.features.multiProvider.linkText"),
+        color: "primary",
+        stats: `${providerStore.providers.length} ${t("dashboard.stats.providers")}`,
+    },
+    {
+        id: "tool-framework",
+        icon: "wrench",
+        title: t("dashboard.features.toolFramework.title"),
+        description: t("dashboard.features.toolFramework.description"),
+        link: "/tools",
+        linkText: t("dashboard.features.toolFramework.linkText"),
+        color: "accent",
+        stats: `${toolStore.tools.length} ${t("dashboard.stats.tools")}`,
+    },
+    {
+        id: "skill-system",
+        icon: "sparkles",
+        title: t("dashboard.features.skillSystem.title"),
+        description: t("dashboard.features.skillSystem.description"),
+        link: "/skills",
+        linkText: t("dashboard.features.skillSystem.linkText"),
+        color: "purple",
+        stats: `${skillStore.skills.length} ${t("dashboard.stats.skills")}`,
+    },
+    {
+        id: "acp-protocol",
+        icon: "plug",
+        title: t("dashboard.features.acpProtocol.title"),
+        description: t("dashboard.features.acpProtocol.description"),
+        link: "/acp-config",
+        linkText: t("dashboard.features.acpProtocol.linkText"),
+        color: "cyan",
+        stats: t("dashboard.features.acpProtocol.stats"),
+    },
+]);
+
+const getIconSvg = (icon: string) => {
+    const icons: Record<string, string> = {
+        server: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M6 12h.01M6 16h.01M6 8h.01"/><path d="M10 16h8M10 12h8M10 8h8"/>',
+        wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+        sparkles:
+            '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>',
+        plug: '<path d="M12 22v-5"/><path d="M9 7V2"/><path d="M15 7V2"/><path d="M6 13H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2"/><path d="M6 13v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-6"/>',
+    };
+    return icons[icon] || "";
 };
 </script>
 
 <template>
-    <div class="dashboard">
-        <!-- Header -->
+    <div class="dashboard-container">
+        <!-- Header section -->
         <header class="dashboard-header">
-            <h1 class="title">{{ t("dashboard.title") }}</h1>
-            <p class="subtitle">{{ t("dashboard.subtitle") }}</p>
-        </header>
-
-        <!-- Status Card -->
-        <div class="status-card" :class="statusClass">
-            <div class="status-content">
-                <div class="status-info">
-                    <div class="status-indicator">
-                        <svg
-                            v-if="agentStore.status.status === 'running'"
-                            class="status-icon"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                        >
-                            <circle cx="12" cy="12" r="8" />
-                        </svg>
-                        <svg
-                            v-else-if="agentStore.status.status === 'error'"
-                            class="status-icon"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                        >
-                            <circle cx="12" cy="12" r="8" />
-                        </svg>
-                        <svg
-                            v-else
-                            class="status-icon"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                        >
-                            <circle cx="12" cy="12" r="8" />
-                        </svg>
-                    </div>
-                    <div class="status-text">
-                        <h2 class="status-title">{{ statusText }}</h2>
-                        <StatusBar />
-                    </div>
+            <div class="header-content">
+                <div class="title-section">
+                    <h1 class="page-title">
+                        {{ t("dashboard.overviewTitle") }}
+                    </h1>
+                    <p class="page-subtitle">
+                        {{ t("dashboard.overviewSubtitle") }}
+                    </p>
                 </div>
-                <div class="status-meta">
-                    <div class="meta-item">
-                        <span class="meta-label">{{
-                            t("dashboard.uptime")
-                        }}</span>
-                        <span class="meta-value">{{
-                            agentStore.formatUptime(
-                                agentStore.status.uptime_secs,
-                            )
-                        }}</span>
-                    </div>
-                    <div class="meta-item">
-                        <span class="meta-label">{{
-                            t("dashboard.messageCount")
-                        }}</span>
-                        <span class="meta-value">{{
-                            agentStore.status.message_count
-                        }}</span>
-                    </div>
+
+                <!-- Status indicator -->
+                <div class="status-badge" :class="statusClass">
+                    <span class="status-dot"></span>
+                    <span class="status-label">{{ statusText }}</span>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-            <!-- Providers -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">{{
-                        t("dashboard.stats.providers")
-                    }}</span>
+        <!-- Quick stats bar -->
+        <div class="quick-stats">
+            <div class="quick-stat">
+                <div class="stat-icon providers">
                     <svg
-                        class="stat-icon"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         stroke-width="2"
                     >
-                        <path
-                            d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                        />
+                        <rect x="2" y="2" width="20" height="8" rx="2" />
+                        <rect x="2" y="14" width="20" height="8" rx="2" />
+                        <line x1="6" y1="6" x2="6.01" y2="6" />
+                        <line x1="6" y1="18" x2="6.01" y2="18" />
                     </svg>
                 </div>
-                <div class="stat-value">
-                    {{ providerStore.providers.length }}
-                </div>
-                <div
-                    v-if="providerStore.activeProvider"
-                    class="stat-detail accent"
-                >
-                    {{ t("common.active") }}：{{
-                        providerStore.activeProvider.name
-                    }}
-                </div>
-                <div v-else class="stat-detail warning">
-                    {{ t("dashboard.noProvider") }}
+                <div class="stat-info">
+                    <span class="stat-value">{{
+                        providerStore.providers.length
+                    }}</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.providers")
+                    }}</span>
                 </div>
             </div>
 
-            <!-- Skills -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">{{
-                        t("dashboard.stats.skills")
-                    }}</span>
+            <div class="quick-stat">
+                <div class="stat-icon skills">
                     <svg
-                        class="stat-icon"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         stroke-width="2"
                     >
                         <polygon
-                            points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+                            points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
                         />
                     </svg>
                 </div>
-                <div class="stat-value">{{ skillStore.skills.length }}</div>
-                <div class="stat-detail success">
-                    {{ skillStore.skills.filter((s) => s.is_active).length }}
-                    {{ t("common.enabled") }}
+                <div class="stat-info">
+                    <span class="stat-value">{{
+                        skillStore.skills.length
+                    }}</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.skills")
+                    }}</span>
                 </div>
             </div>
 
-            <!-- Tools -->
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">{{
-                        t("dashboard.stats.tools")
-                    }}</span>
+            <div class="quick-stat">
+                <div class="stat-icon tools">
                     <svg
-                        class="stat-icon"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -216,18 +198,85 @@ const providerTypeStyle = (type: string) => {
                         />
                     </svg>
                 </div>
-                <div class="stat-value">{{ toolStore.tools.length }}</div>
-                <div class="stat-detail">{{ t("dashboard.stats.tools") }}</div>
+                <div class="stat-info">
+                    <span class="stat-value">{{ toolStore.tools.length }}</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.tools")
+                    }}</span>
+                </div>
+            </div>
+
+            <div class="quick-stat">
+                <div class="stat-icon messages">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path
+                            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                        />
+                    </svg>
+                </div>
+                <div class="stat-info">
+                    <span class="stat-value">{{
+                        chatStore.messages.length
+                    }}</span>
+                    <span class="stat-label">{{
+                        t("dashboard.messageCount")
+                    }}</span>
+                </div>
             </div>
         </div>
 
-        <!-- Two Column Layout -->
-        <div class="two-column">
-            <!-- Providers List -->
-            <section class="panel">
+        <!-- Feature cards -->
+        <section class="features-section">
+            <h2 class="section-title">{{ t("dashboard.featuresSection") }}</h2>
+            <div class="features-grid">
+                <div
+                    v-for="feature in features"
+                    :key="feature.id"
+                    class="feature-card"
+                    :class="`feature-${feature.color}`"
+                    @click="router.push(feature.link)"
+                >
+                    <div class="feature-header">
+                        <div class="feature-icon">
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                v-html="getIconSvg(feature.icon)"
+                            />
+                        </div>
+                        <span class="feature-stats">{{ feature.stats }}</span>
+                    </div>
+                    <h3 class="feature-title">{{ feature.title }}</h3>
+                    <p class="feature-description">{{ feature.description }}</p>
+                    <div class="feature-link">
+                        <span>{{ feature.linkText }}</span>
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Two column section: Active Provider & Recent Messages -->
+        <section class="two-column-section">
+            <!-- Active Provider Panel -->
+            <div class="panel">
                 <div class="panel-header">
                     <h3 class="panel-title">
-                        {{ t("dashboard.configuredProviders") }}
+                        {{ t("dashboard.activeProvider") }}
                     </h3>
                     <button class="link-btn" @click="router.push('/providers')">
                         {{ t("dashboard.manage") }}
@@ -241,44 +290,63 @@ const providerTypeStyle = (type: string) => {
                         </svg>
                     </button>
                 </div>
-                <div
-                    v-if="providerStore.providers.length === 0"
-                    class="empty-state"
-                >
-                    {{ t("dashboard.noConfiguredProviders") }}
-                </div>
-                <div v-else class="provider-list">
-                    <div
-                        v-for="p in providerStore.providers"
-                        :key="p.id"
-                        class="provider-item"
-                        :class="{ active: p.is_active }"
-                    >
-                        <span
-                            class="provider-dot"
-                            :class="providerTypeStyle(p.provider_type).class"
-                        />
-                        <div class="provider-info">
-                            <div class="provider-name">{{ p.name }}</div>
-                            <div class="provider-model">
-                                {{ (p.config as any).default_model }}
-                            </div>
-                        </div>
-                        <span v-if="p.is_active" class="active-badge">{{
-                            t("common.enabled")
+
+                <div v-if="activeProvider" class="provider-card">
+                    <div class="provider-status">
+                        <span class="status-indicator active"></span>
+                        <span class="provider-name">{{
+                            activeProvider.name
                         }}</span>
                     </div>
+                    <div class="provider-details">
+                        <div class="detail-item">
+                            <span class="detail-label">{{
+                                t(
+                                    "providers.type." +
+                                        activeProvider.provider_type,
+                                )
+                            }}</span>
+                        </div>
+                        <div
+                            v-if="activeProvider.default_model"
+                            class="detail-item"
+                        >
+                            <span class="detail-label">{{
+                                activeProvider.default_model
+                            }}</span>
+                        </div>
+                    </div>
                 </div>
-            </section>
 
-            <!-- Recent Messages -->
-            <section class="panel">
+                <div v-else class="empty-state">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <p>{{ t("dashboard.noActiveProvider") }}</p>
+                    <button
+                        class="btn btn-primary"
+                        @click="router.push('/providers')"
+                    >
+                        {{ t("providers.addFirstProvider") }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Recent Messages Panel -->
+            <div class="panel">
                 <div class="panel-header">
                     <h3 class="panel-title">
                         {{ t("dashboard.recentMessages") }}
                     </h3>
                     <button class="link-btn" @click="router.push('/chat')">
-                        {{ t("dashboard.openChat") }}
+                        {{ t("dashboard.viewAll") }}
                         <svg
                             viewBox="0 0 24 24"
                             fill="none"
@@ -289,627 +357,706 @@ const providerTypeStyle = (type: string) => {
                         </svg>
                     </button>
                 </div>
-                <div v-if="recentMessages.length === 0" class="empty-state">
-                    {{ t("dashboard.noMessages") }}
-                </div>
-                <div v-else class="message-list">
+
+                <div v-if="recentMessages.length > 0" class="messages-list">
                     <div
-                        v-for="(msg, i) in recentMessages"
-                        :key="i"
+                        v-for="(msg, index) in recentMessages"
+                        :key="index"
                         class="message-item"
                     >
-                        <div class="message-header">
-                            <svg
-                                v-if="msg.role === 'user'"
-                                class="message-icon user"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path
-                                    d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
-                                />
-                                <circle cx="12" cy="7" r="4" />
-                            </svg>
-                            <svg
-                                v-else
-                                class="message-icon assistant"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <rect
-                                    x="3"
-                                    y="11"
-                                    width="18"
-                                    height="10"
-                                    rx="2"
-                                />
-                                <circle cx="12" cy="5" r="2" />
-                                <path d="M12 7v4" />
-                                <circle cx="8" cy="16" r="1" />
-                                <circle cx="16" cy="16" r="1" />
-                            </svg>
-                            <span class="message-role" :class="msg.role">
-                                {{
-                                    msg.role === "user"
-                                        ? t("chat.userMessage")
-                                        : t("chat.assistantMessage")
-                                }}
-                            </span>
+                        <div class="message-role" :class="msg.role">
+                            {{
+                                msg.role === "user"
+                                    ? t("chat.userMessage")
+                                    : t("chat.assistantMessage")
+                            }}
                         </div>
-                        <div class="message-content">{{ msg.content }}</div>
+                        <div class="message-preview">
+                            {{ msg.content.substring(0, 100)
+                            }}{{ msg.content.length > 100 ? "..." : "" }}
+                        </div>
                     </div>
                 </div>
-            </section>
-        </div>
+
+                <div v-else class="empty-state">
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path
+                            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                        />
+                    </svg>
+                    <p>{{ t("dashboard.noMessages") }}</p>
+                    <button
+                        class="btn btn-primary"
+                        @click="router.push('/chat')"
+                    >
+                        {{ t("dashboard.startChat") }}
+                    </button>
+                </div>
+            </div>
+        </section>
 
         <!-- Quick Actions -->
-        <div class="actions">
-            <button class="btn btn-accent" @click="router.push('/chat')">
-                <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path
-                        d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                    />
-                </svg>
-                {{ t("dashboard.startChat") }}
-            </button>
-            <button class="btn" @click="router.push('/providers')">
-                <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path
-                        d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                    />
-                </svg>
-                {{ t("dashboard.configureProvider") }}
-            </button>
-            <button class="btn btn-ghost" @click="router.push('/api-test')">
-                <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path
-                        d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"
-                    />
-                    <polyline points="14 2 14 8 20 8" />
-                    <path d="M12 18v-6" />
-                    <path d="M9 15l3 3 3-3" />
-                </svg>
-                {{ t("dashboard.apiTest") }}
-            </button>
-        </div>
+        <section class="actions-section">
+            <h2 class="section-title">{{ t("dashboard.quickActions") }}</h2>
+            <div class="actions-grid">
+                <button class="action-card" @click="router.push('/chat')">
+                    <div class="action-icon chat">
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path
+                                d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                            />
+                        </svg>
+                    </div>
+                    <span class="action-label">{{
+                        t("dashboard.startChat")
+                    }}</span>
+                </button>
+
+                <button class="action-card" @click="router.push('/providers')">
+                    <div class="action-icon providers">
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <rect x="2" y="2" width="20" height="8" rx="2" />
+                            <rect x="2" y="14" width="20" height="8" rx="2" />
+                            <line x1="6" y1="6" x2="6.01" y2="6" />
+                            <line x1="6" y1="18" x2="6.01" y2="18" />
+                        </svg>
+                    </div>
+                    <span class="action-label">{{
+                        t("dashboard.configureProvider")
+                    }}</span>
+                </button>
+
+                <button class="action-card" @click="router.push('/skills')">
+                    <div class="action-icon skills">
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <polygon
+                                points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                            />
+                        </svg>
+                    </div>
+                    <span class="action-label">{{ t("skills.addSkill") }}</span>
+                </button>
+
+                <button class="action-card" @click="router.push('/api-test')">
+                    <div class="action-icon api">
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="M16 18l6-6-6-6" />
+                            <path d="M8 6l-6 6 6 6" />
+                        </svg>
+                    </div>
+                    <span class="action-label">{{
+                        t("dashboard.apiTest")
+                    }}</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- StatusBar at bottom -->
+        <StatusBar class="status-bar-container" />
     </div>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════
- * Dashboard - Raycast-inspired frosted glass design
- * ═══════════════════════════════════════════════════════════════ */
-.dashboard {
+.dashboard-container {
+    min-height: 100%;
     padding: 1.5rem;
-    max-width: 72rem;
+    max-width: 1400px;
     margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    animation: fadeIn var(--transition-normal) cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 /* Header */
 .dashboard-header {
-    margin-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
 }
 
-.title {
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.page-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin-bottom: 0.25rem;
+}
+
+.page-subtitle {
+    color: hsl(var(--muted-foreground));
+    font-size: 1rem;
+}
+
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(var(--muted-foreground));
+}
+
+.status-badge.status-running .status-dot {
+    background: #10b981;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.status-badge.status-error .status-dot {
+    background: #ef4444;
+}
+
+.status-badge.status-stopped .status-dot {
+    background: hsl(var(--muted-foreground));
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Quick Stats */
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.quick-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.quick-stat:hover {
+    border-color: hsl(var(--primary) / 0.5);
+    transform: translateY(-2px);
+}
+
+.stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stat-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.stat-icon.providers {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
+.stat-icon.skills {
+    background: hsl(280 70% 60% / 0.1);
+    color: hsl(280 70% 60%);
+}
+
+.stat-icon.tools {
+    background: hsl(150 70% 50% / 0.1);
+    color: hsl(150 70% 50%);
+}
+
+.stat-icon.messages {
+    background: hsl(200 70% 60% / 0.1);
+    color: hsl(200 70% 60%);
+}
+
+.stat-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-value {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--color-text);
-    line-height: 1.3;
-    text-shadow: 0 1px 3px rgba(139, 92, 246, 0.1);
+    color: hsl(var(--foreground));
 }
 
-.subtitle {
-    font-size: 0.875rem;
-    color: var(--color-text-muted);
-    margin-top: 0.25rem;
+.quick-stat .stat-label {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
 }
 
-/* Status Card - Glass effect */
-.status-card {
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.9) 0%,
-        rgba(250, 245, 255, 0.85) 100%
-    );
-    backdrop-filter: blur(16px) saturate(160%);
-    -webkit-backdrop-filter: blur(16px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-right: 1px solid rgba(216, 180, 254, 0.2);
-    border-bottom: 1px solid rgba(216, 180, 254, 0.2);
-    border-radius: var(--radius-lg);
+/* Section Title */
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin-bottom: 1rem;
+}
+
+/* Feature Cards */
+.features-section {
+    margin-bottom: 2rem;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.feature-card {
     padding: 1.25rem;
-    transition: all var(--transition-fast);
-    box-shadow: var(--shadow-sm);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
     position: relative;
     overflow: hidden;
 }
-.status-card::before {
+
+.feature-card::before {
     content: "";
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 2px;
-    background: linear-gradient(
-        90deg,
-        var(--color-accent),
-        var(--color-primary)
-    );
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-}
-.status-card:hover::before {
-    opacity: 1;
+    height: 3px;
+    background: transparent;
+    transition: background 0.2s ease;
 }
 
-.status-card.status-running {
-    border-color: rgba(34, 197, 94, 0.35);
-    box-shadow:
-        0 2px 12px rgba(16, 185, 129, 0.1),
-        var(--shadow-sm);
-}
-.status-card.status-running::before {
-    background: linear-gradient(90deg, #10b981, #34d399);
-    opacity: 1;
+.feature-card:hover {
+    border-color: hsl(var(--primary) / 0.5);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.1);
 }
 
-.status-card.status-error {
-    border-color: rgba(239, 68, 68, 0.35);
-    box-shadow:
-        0 2px 12px rgba(239, 68, 68, 0.1),
-        var(--shadow-sm);
-}
-.status-card.status-error::before {
-    background: linear-gradient(90deg, #ef4444, #f87171);
-    opacity: 1;
+.feature-card:hover::before {
+    background: hsl(var(--primary));
 }
 
-.status-card.status-stopped {
-    border-color: rgba(216, 180, 254, 0.25);
-}
-
-.status-content {
+.feature-header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-}
-
-.status-info {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.status-indicator {
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--color-bg-mute);
-}
-
-.status-card.status-running .status-indicator {
-    background-color: var(--color-success-soft);
-}
-
-.status-card.status-error .status-indicator {
-    background-color: var(--color-danger-soft);
-}
-
-.status-icon {
-    width: 0.625rem;
-    height: 0.625rem;
-}
-
-.status-card.status-running .status-icon {
-    color: var(--color-success);
-}
-
-.status-card.status-error .status-icon {
-    color: var(--color-danger);
-}
-
-.status-card.status-stopped .status-icon {
-    color: var(--color-text-muted);
-}
-
-.status-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.status-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: var(--color-text);
-    text-transform: capitalize;
-}
-
-.status-meta {
-    display: flex;
-    gap: 1.5rem;
-    text-align: right;
-}
-
-.meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-}
-
-.meta-label {
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
-}
-
-.meta-value {
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-}
-
-/* Stats Grid */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-}
-
-/* Stat Card - Glass effect */
-.stat-card {
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.88) 0%,
-        rgba(250, 245, 255, 0.82) 100%
-    );
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    border-right: 1px solid rgba(216, 180, 254, 0.18);
-    border-bottom: 1px solid rgba(216, 180, 254, 0.18);
-    border-radius: var(--radius-lg);
-    padding: 1.25rem;
-    transition: all var(--transition-fast);
-    box-shadow: var(--shadow-sm);
-    position: relative;
-    overflow: hidden;
-}
-
-.stat-card:hover {
-    border-color: rgba(216, 180, 254, 0.35);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.stat-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    align-items: flex-start;
     margin-bottom: 0.75rem;
 }
 
-.stat-label {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--color-text-secondary);
+.feature-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease;
 }
 
-.stat-icon {
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--color-text-muted);
+.feature-card:hover .feature-icon {
+    transform: scale(1.1);
 }
 
-.stat-value {
-    font-size: 2rem;
-    font-weight: 600;
-    color: var(--color-text);
-    line-height: 1.2;
+.feature-icon svg {
+    width: 24px;
+    height: 24px;
 }
 
-.stat-detail {
+.feature-primary .feature-icon {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
+.feature-accent .feature-icon {
+    background: hsl(150 70% 50% / 0.1);
+    color: hsl(150 70% 50%);
+}
+
+.feature-purple .feature-icon {
+    background: hsl(280 70% 60% / 0.1);
+    color: hsl(280 70% 60%);
+}
+
+.feature-cyan .feature-icon {
+    background: hsl(190 70% 55% / 0.1);
+    color: hsl(190 70% 55%);
+}
+
+.feature-stats {
     font-size: 0.75rem;
-    color: var(--color-text-muted);
-    margin-top: 0.5rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+    padding: 0.25rem 0.5rem;
+    background: hsl(var(--secondary));
+    border-radius: 9999px;
 }
 
-.stat-detail.accent {
-    color: var(--color-accent);
+.feature-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin-bottom: 0.375rem;
 }
 
-.stat-detail.success {
-    color: var(--color-success);
+.feature-description {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
 }
 
-.stat-detail.warning {
-    color: var(--color-warning);
+.feature-link {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: hsl(var(--primary));
+    transition: gap 0.2s ease;
 }
 
-/* Two Column Layout */
-.two-column {
+.feature-card:hover .feature-link {
+    gap: 0.5rem;
+}
+
+.feature-link svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Two Column Section */
+.two-column-section {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+    margin-bottom: 2rem;
 }
 
-/* Panel - Glass effect */
 .panel {
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.85) 0%,
-        rgba(250, 245, 255, 0.8) 100%
-    );
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-right: 1px solid rgba(216, 180, 254, 0.18);
-    border-bottom: 1px solid rgba(216, 180, 254, 0.18);
-    border-radius: var(--radius-lg);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 16px;
     padding: 1.25rem;
-    box-shadow: var(--shadow-sm);
-    transition: all var(--transition-fast);
-}
-.panel:hover {
-    box-shadow: var(--shadow-md);
 }
 
 .panel-header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 1rem;
 }
 
 .panel-title {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--color-text);
+    font-size: 1rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
 }
 
 .link-btn {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: hsl(var(--primary));
     background: none;
     border: none;
     cursor: pointer;
     padding: 0;
-    transition: color var(--transition-fast);
+    transition: gap 0.2s ease;
 }
 
 .link-btn:hover {
-    color: var(--color-accent);
+    gap: 0.5rem;
 }
 
 .link-btn svg {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: 16px;
+    height: 16px;
 }
 
-.empty-state {
-    font-size: 0.875rem;
-    color: var(--color-text-muted);
-    text-align: center;
-    padding: 2rem 0;
+/* Provider Card */
+.provider-card {
+    background: hsl(var(--secondary) / 0.5);
+    border-radius: 12px;
+    padding: 1rem;
 }
 
-/* Provider List */
-.provider-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-/* Provider Item - Glass effect */
-.provider-item {
+.provider-status {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0.75rem;
-    background: rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: var(--radius-md);
-    transition: all var(--transition-fast);
-}
-.provider-item:hover {
-    background: rgba(255, 255, 255, 0.7);
-    border-color: rgba(216, 180, 254, 0.25);
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.06);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 
-.provider-item.active {
-    background: linear-gradient(
-        135deg,
-        rgba(236, 72, 153, 0.08) 0%,
-        rgba(139, 92, 246, 0.06) 100%
-    );
-    border-color: rgba(236, 72, 153, 0.25);
-    box-shadow: 0 2px 10px rgba(236, 72, 153, 0.08);
-}
-
-.provider-dot {
-    width: 0.5rem;
-    height: 0.5rem;
+.status-indicator {
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    flex-shrink: 0;
+    background: hsl(var(--muted-foreground));
 }
 
-.provider-dot.type-openai {
-    background-color: #22c55e;
-}
-
-.provider-dot.type-anthropic {
-    background-color: #f59e0b;
-}
-
-.provider-dot.type-custom {
-    background-color: var(--color-accent);
-}
-
-.provider-dot.type-default {
-    background-color: var(--color-text-muted);
-}
-
-.provider-info {
-    flex: 1;
-    min-width: 0;
+.status-indicator.active {
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
 }
 
 .provider-name {
-    font-size: 0.875rem;
-    color: var(--color-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-weight: 600;
+    color: hsl(var(--foreground));
 }
 
-.provider-model {
+.provider-details {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.detail-item {
+    padding: 0.25rem 0.5rem;
+    background: hsl(var(--background));
+    border-radius: 6px;
     font-size: 0.75rem;
-    color: var(--color-text-muted);
+    color: hsl(var(--muted-foreground));
 }
 
-.active-badge {
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--color-accent);
-    padding: 0.125rem 0.5rem;
-    background-color: var(--color-accent-soft);
-    border-radius: var(--radius-sm);
-}
-
-/* Message List */
-.message-list {
+/* Messages List */
+.messages-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
 }
 
-/* Message Item - Glass effect */
 .message-item {
-    padding: 0.625rem 0.75rem;
-    background: rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: var(--radius-md);
-    transition: all var(--transition-fast);
+    padding: 0.75rem;
+    background: hsl(var(--secondary) / 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s ease;
 }
+
 .message-item:hover {
-    background: rgba(255, 255, 255, 0.65);
-    border-color: rgba(216, 180, 254, 0.2);
-}
-
-.message-header {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    margin-bottom: 0.25rem;
-}
-
-.message-icon {
-    width: 0.875rem;
-    height: 0.875rem;
-}
-
-.message-icon.user {
-    color: var(--color-info);
-}
-
-.message-icon.assistant {
-    color: var(--color-accent);
+    background: hsl(var(--secondary));
 }
 
 .message-role {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
+    margin-bottom: 0.25rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
 .message-role.user {
-    color: var(--color-info);
+    color: hsl(var(--primary));
 }
 
 .message-role.assistant {
-    color: var(--color-accent);
+    color: hsl(280 70% 60%);
 }
 
-.message-content {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+.message-preview {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Actions */
-.actions {
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+}
+
+.empty-state svg {
+    width: 48px;
+    height: 48px;
+    color: hsl(var(--muted-foreground) / 0.5);
+    margin-bottom: 1rem;
+}
+
+.empty-state p {
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 1rem;
+}
+
+/* Actions Section */
+.actions-section {
+    margin-bottom: 2rem;
+}
+
+.actions-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
 }
 
-.actions .btn {
-    padding: 0.75rem 1rem;
+.action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
-.actions .btn svg {
-    width: 1rem;
-    height: 1rem;
+.action-card:hover {
+    border-color: hsl(var(--primary) / 0.5);
+    transform: translateY(-2px);
+}
+
+.action-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.action-icon.chat {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
+.action-icon.providers {
+    background: hsl(200 70% 60% / 0.1);
+    color: hsl(200 70% 60%);
+}
+
+.action-icon.skills {
+    background: hsl(280 70% 60% / 0.1);
+    color: hsl(280 70% 60%);
+}
+
+.action-icon.api {
+    background: hsl(150 70% 50% / 0.1);
+    color: hsl(150 70% 50%);
+}
+
+.action-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+}
+
+/* Status Bar Container */
+.status-bar-container {
+    position: fixed;
+    bottom: 0;
+    left: 256px;
+    right: 0;
+    z-index: 100;
 }
 
 /* Responsive */
+@media (max-width: 1280px) {
+    .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .actions-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 1024px) {
+    .quick-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .two-column-section {
+        grid-template-columns: 1fr;
+    }
+
+    .status-bar-container {
+        left: 0;
+    }
+}
+
 @media (max-width: 768px) {
-    .stats-grid {
+    .dashboard-container {
+        padding: 1rem;
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+    }
+
+    .features-grid {
         grid-template-columns: 1fr;
     }
 
-    .two-column {
+    .actions-grid {
         grid-template-columns: 1fr;
     }
 
-    .actions {
+    .quick-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .quick-stats {
         grid-template-columns: 1fr;
-    }
-
-    .status-content {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-    }
-
-    .status-meta {
-        text-align: left;
     }
 }
 </style>

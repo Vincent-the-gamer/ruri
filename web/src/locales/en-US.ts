@@ -23,6 +23,7 @@ export default {
 
   // Navigation
   nav: {
+    home: 'Home',
     dashboard: 'Dashboard',
     chat: 'Chat',
     skills: 'Skills',
@@ -33,10 +34,28 @@ export default {
     apiTest: 'API Test',
   },
 
+  // Home
+  home: {
+    welcome: 'Welcome to Ruri',
+    tagline: 'Your AI Assistant Partner',
+    description: 'Ruri is a highly customizable AI Agent with multi-provider support, tool execution framework, and modular skill system. Whether for development debugging or daily use, Ruri is your capable AI assistant.',
+    features: {
+      multiProvider: 'Multi-Provider Support',
+      toolFramework: 'Tool Execution Framework',
+      skillSystem: 'Modular Skill System',
+      acpSupport: 'ACP Protocol Support',
+    },
+    startChat: 'Start Chat',
+    exploreFeatures: 'Explore Features',
+    scrollHint: 'Scroll down to learn more',
+  },
+
   // Dashboard
   dashboard: {
     title: 'Dashboard',
     subtitle: 'Ruri AI Agent Overview',
+    overviewTitle: 'Feature Overview',
+    overviewSubtitle: 'Explore the powerful capabilities of Ruri Agent',
     status: {
       running: 'Running',
       error: 'Error',
@@ -48,6 +67,30 @@ export default {
       providers: 'Model Providers',
       skills: 'Skills',
       tools: 'Tools',
+    },
+    featuresSection: 'Core Features',
+    features: {
+      multiProvider: {
+        title: 'Multi-Provider Support',
+        description: 'Support for OpenAI, Anthropic, and custom providers with flexible configuration.',
+        linkText: 'Manage Providers',
+      },
+      toolFramework: {
+        title: 'Tool Execution Framework',
+        description: 'Built-in tools with custom extension support for enhanced AI capabilities.',
+        linkText: 'View Tools',
+      },
+      skillSystem: {
+        title: 'Modular Skill System',
+        description: 'Extend AI capabilities through skill packages with ZIP upload support.',
+        linkText: 'Manage Skills',
+      },
+      acpProtocol: {
+        title: 'ACP Protocol Support',
+        description: 'ACP protocol support for seamless integration with Zed, JetBrains and more.',
+        linkText: 'Configure ACP',
+        stats: 'Ready',
+      },
     },
     recentMessages: 'Recent Messages',
     noProvider: 'No active provider',
@@ -62,6 +105,8 @@ export default {
     noConfiguredProviders: 'No providers configured',
     openChat: 'Open Chat',
     apiTest: 'API Test',
+    activeProvider: 'Active Provider',
+    quickActions: 'Quick Actions',
   },
 
   // Chat

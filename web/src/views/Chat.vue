@@ -338,14 +338,10 @@ function toggleSettings() {
     align-items: center;
     gap: 0.375rem;
     font-size: 0.6875rem;
-    color: var(--color-text-secondary);
+    color: hsl(var(--muted-foreground));
     padding: 0.375rem 0.75rem;
-    background: linear-gradient(
-        135deg,
-        rgba(253, 242, 248, 0.9) 0%,
-        rgba(250, 245, 255, 0.9) 100%
-    );
-    border: 2px solid var(--color-border);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius-full);
     font-weight: 600;
     white-space: nowrap;
@@ -381,13 +377,9 @@ function toggleSettings() {
 }
 
 .icon-btn:hover {
-    background: linear-gradient(
-        135deg,
-        rgba(253, 242, 248, 0.8) 0%,
-        rgba(250, 245, 255, 0.8) 100%
-    );
-    border-color: var(--color-border);
-    color: var(--color-text);
+    background: hsl(var(--secondary));
+    border-color: hsl(var(--border));
+    color: hsl(var(--foreground));
     transform: scale(1.1);
 }
 
@@ -486,9 +478,13 @@ function toggleSettings() {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
-    border: 3px solid white;
-    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.4);
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)) 0%,
+        hsl(280 70% 60%) 100%
+    );
+    border: 2px solid hsl(var(--background));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.4);
     cursor: pointer;
     transition:
         transform 0.2s ease,
@@ -497,16 +493,20 @@ function toggleSettings() {
 
 .range-slider::-webkit-slider-thumb:hover {
     transform: scale(1.2);
-    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.5);
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.5);
 }
 
 .range-slider::-moz-range-thumb {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%);
-    border: 3px solid white;
-    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.4);
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)) 0%,
+        hsl(280 70% 60%) 100%
+    );
+    border: 2px solid hsl(var(--background));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.4);
     cursor: pointer;
 }
 
@@ -516,26 +516,19 @@ function toggleSettings() {
     padding: 0.375rem 0.625rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text);
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.9) 0%,
-        rgba(253, 242, 248, 0.9) 100%
-    );
-    border: 2px solid var(--color-border);
+    color: hsl(var(--foreground));
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius-md);
     outline: none;
     font-variant-numeric: tabular-nums;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 6px rgba(168, 85, 247, 0.05);
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
 }
 
 .number-input:focus {
-    border-color: var(--color-accent);
-    box-shadow:
-        0 0 0 3px var(--color-accent-soft),
-        0 4px 12px rgba(168, 85, 247, 0.15);
-    transform: translateY(-1px);
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
 }
 
 /* ── Warning Bar ─────────────────────────────────── */

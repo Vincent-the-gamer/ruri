@@ -26,7 +26,9 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="min-h-screen flex flex-col bg-background font-sans-rounded">
+    <div
+        class="app-container min-h-screen flex flex-col bg-background font-sans-rounded"
+    >
         <!-- Header - Inspired by airi's elegant navigation -->
         <header
             class="sticky top-0 z-20 h-[68px] w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-all duration-300"
@@ -71,6 +73,64 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* App Container with gradient background */
+.app-container {
+    position: relative;
+    min-height: 100vh;
+}
+
+.app-container::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+        radial-gradient(
+            ellipse 80% 50% at 20% -10%,
+            hsl(var(--primary) / 0.08) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse 60% 40% at 80% 100%,
+            hsl(280 70% 60% / 0.06) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse 40% 30% at 50% 50%,
+            hsl(var(--primary) / 0.03) 0%,
+            transparent 70%
+        );
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Dark mode gradient */
+:global(.dark) .app-container::before {
+    background:
+        radial-gradient(
+            ellipse 80% 50% at 20% -10%,
+            hsl(var(--primary) / 0.12) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse 60% 40% at 80% 100%,
+            hsl(280 70% 60% / 0.08) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse 40% 30% at 50% 50%,
+            hsl(var(--primary) / 0.05) 0%,
+            transparent 70%
+        );
+}
+
+.app-container > * {
+    position: relative;
+    z-index: 1;
+}
+
 /* Page transition */
 .fade-enter-active,
 .fade-leave-active {

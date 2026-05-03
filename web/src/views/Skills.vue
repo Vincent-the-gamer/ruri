@@ -522,18 +522,10 @@ async function handleFileUpload(event: Event) {
     justify-content: space-between;
     margin-bottom: 1.5rem;
     padding: 1.25rem 1.5rem;
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.7) 0%,
-        rgba(250, 245, 255, 0.6) 100%
-    );
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    background: hsl(var(--card));
     border-radius: var(--radius-xl);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow:
-        0 4px 16px rgba(139, 92, 246, 0.06),
-        0 2px 8px rgba(236, 72, 153, 0.04);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-sm);
 }
 
 .header-content {
@@ -548,16 +540,10 @@ async function handleFileUpload(event: Event) {
     justify-content: center;
     width: 3rem;
     height: 3rem;
-    border-radius: var(--radius-md);
-    background: linear-gradient(
-        135deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
-    );
-    color: white;
-    box-shadow:
-        0 4px 12px rgba(236, 72, 153, 0.25),
-        0 2px 8px rgba(139, 92, 246, 0.15);
+    border-radius: var(--radius);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.2);
     flex-shrink: 0;
 }
 
@@ -588,7 +574,7 @@ async function handleFileUpload(event: Event) {
     align-items: center;
 }
 
-/* Buttons - Enhanced with shimmer effect */
+/* Buttons - Clear and vibrant */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -596,118 +582,89 @@ async function handleFileUpload(event: Event) {
     gap: 0.5rem;
     padding: 0.625rem 1.25rem;
     font-size: 0.875rem;
-    font-weight: 500;
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(216, 180, 254, 0.3);
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(250, 245, 255, 0.9) 100%
-    );
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    color: var(--color-text);
+    font-weight: 600;
+    border-radius: 0.5rem;
+    border: 2px solid hsl(var(--border));
+    background-color: hsl(var(--secondary));
+    color: hsl(var(--secondary-foreground));
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.08);
     position: relative;
     overflow: hidden;
 }
+
 .btn::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.6),
-        transparent
-    );
-    transition: left 0.6s ease;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
 }
+
 .btn:hover::before {
-    left: 100%;
+    opacity: 1;
 }
 
 .btn:hover {
-    background: linear-gradient(
-        135deg,
-        rgba(253, 242, 248, 0.98) 0%,
-        rgba(250, 245, 255, 0.95) 100%
-    );
-    border-color: rgba(192, 132, 252, 0.5);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(139, 92, 246, 0.15);
+    border-color: hsl(var(--primary) / 0.5);
+    background-color: hsl(var(--accent));
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .btn-sm {
-    padding: 0.375rem 0.75rem;
-    font-size: 0.75rem;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
 }
 
 .btn-accent {
-    background: linear-gradient(
-        135deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
-    );
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(207 70% 55%));
     color: white;
     border: none;
-    box-shadow:
-        0 4px 12px rgba(236, 72, 153, 0.3),
-        0 2px 8px rgba(139, 92, 246, 0.2);
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
 }
 
 .btn-accent:hover {
-    background: linear-gradient(
-        135deg,
-        var(--color-accent-hover) 0%,
-        var(--color-primary-hover) 100%
-    );
-    box-shadow:
-        0 6px 20px rgba(236, 72, 153, 0.35),
-        0 4px 12px rgba(139, 92, 246, 0.25);
+    background: linear-gradient(135deg, hsl(207 70% 55%), hsl(var(--primary)));
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.4);
     transform: translateY(-2px);
 }
 
 .btn-ghost {
     background-color: transparent;
-    border-color: transparent;
-    color: var(--color-text-secondary);
-    box-shadow: none;
+    color: hsl(var(--muted-foreground));
+    border: 1px solid transparent;
 }
 
 .btn-ghost:hover {
-    background-color: rgba(243, 232, 255, 0.5);
-    border-color: transparent;
-    color: var(--color-text);
-    box-shadow: none;
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / 0.3);
 }
 
 .btn-danger-ghost {
-    color: var(--color-danger);
+    color: hsl(var(--destructive));
+    border: 1px solid transparent;
+}
+
+.btn-danger-ghost:hover {
+    background-color: hsl(var(--destructive) / 0.1);
+    border-color: hsl(var(--destructive) / 0.5);
+    color: hsl(var(--destructive));
 }
 
 .btn-outline {
     background-color: transparent;
-    border-color: var(--color-border);
-    color: var(--color-text-secondary);
+    color: hsl(var(--primary));
+    border: 2px solid hsl(var(--primary) / 0.5);
 }
 
 .btn-outline:hover {
-    background-color: rgba(243, 232, 255, 0.4);
-    border-color: var(--color-border-hover);
-    color: var(--color-text);
-}
-
-.btn-danger-ghost:hover {
-    background-color: var(--color-danger-soft);
-    border-color: transparent;
-    color: var(--color-danger);
+    background-color: hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
 }
 
 /* Status Badge with animated dot */
@@ -827,15 +784,11 @@ async function handleFileUpload(event: Event) {
     align-items: center;
     justify-content: center;
     padding: 4rem 2rem;
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.6) 0%,
-        rgba(250, 245, 255, 0.5) 100%
-    );
+    background: hsl(var(--card));
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-xl);
-    border: 1px dashed rgba(216, 180, 254, 0.4);
+    border: 1px dashed hsl(var(--primary) / 0.3);
     position: relative;
     overflow: hidden;
 }
@@ -852,18 +805,10 @@ async function handleFileUpload(event: Event) {
     width: 5rem;
     height: 5rem;
     border-radius: var(--radius-lg);
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(250, 245, 255, 0.9) 100%
-    );
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    box-shadow:
-        0 8px 24px rgba(139, 92, 246, 0.1),
-        0 4px 12px rgba(236, 72, 153, 0.06);
-    color: var(--color-accent);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-md);
+    color: hsl(var(--primary));
 }
 
 .empty-decoration {
@@ -931,14 +876,8 @@ async function handleFileUpload(event: Event) {
 
 /* Skill Card - Enhanced with glow effect */
 .skill-card {
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(250, 245, 255, 0.9) 100%
-    );
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
     border-radius: var(--radius-xl);
     padding: 1.25rem;
     transition: all var(--transition-fast);
@@ -1000,17 +939,11 @@ async function handleFileUpload(event: Event) {
 }
 
 .skill-card--active {
-    background: linear-gradient(
-        135deg,
-        rgba(236, 72, 153, 0.06) 0%,
-        rgba(139, 92, 246, 0.05) 50%,
-        rgba(168, 85, 247, 0.04) 100%
-    );
-    border: 1px solid rgba(236, 72, 153, 0.3);
+    background: hsl(var(--primary) / 0.05);
+    border: 1px solid hsl(var(--primary) / 0.3);
     box-shadow:
-        0 4px 16px rgba(236, 72, 153, 0.1),
-        0 2px 8px rgba(139, 92, 246, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+        0 4px 16px hsl(var(--primary) / 0.1),
+        var(--shadow-sm);
 }
 
 .skill-card--active:hover {
@@ -1046,15 +979,9 @@ async function handleFileUpload(event: Event) {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: var(--radius-md);
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.9) 0%,
-        rgba(250, 245, 255, 0.8) 100%
-    );
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    color: var(--color-text-secondary);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
     flex-shrink: 0;
     transition: all var(--transition-fast);
 }
@@ -1134,11 +1061,11 @@ async function handleFileUpload(event: Event) {
     align-items: flex-start;
     gap: 0.375rem;
     padding: 0.5rem 0.75rem;
-    background: rgba(255, 255, 255, 0.6);
+    background: hsl(var(--secondary));
     border-radius: var(--radius-md);
-    border: 1px solid rgba(216, 180, 254, 0.15);
+    border: 1px solid hsl(var(--border));
     font-size: 0.75rem;
-    color: var(--color-text-muted);
+    color: hsl(var(--muted-foreground));
     line-height: 1.5;
 }
 
@@ -1223,10 +1150,9 @@ async function handleFileUpload(event: Event) {
     width: calc(1.375rem - 4px);
     height: calc(1.375rem - 4px);
     border-radius: 50%;
-    background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%);
-    box-shadow:
-        0 2px 6px rgba(0, 0, 0, 0.12),
-        0 0 0 1px rgba(255, 255, 255, 0.9);
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-sm);
     transition: all var(--transition-spring);
     display: block;
 }
