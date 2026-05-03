@@ -2,19 +2,14 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSkillStore } from "../stores/skill";
-// SkillForm removed - only skill package upload is supported
-// CreateSkillRequest type removed - only skill package upload is supported
 
 const { t } = useI18n();
 const skillStore = useSkillStore();
-// showForm removed - skill form modal no longer available
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
     skillStore.fetchSkills();
 });
-
-// handleSave removed - skill form is no longer available
 
 async function handleRemove(name: string) {
     if (!confirm(t("skills.deleteConfirm"))) return;
@@ -45,6 +40,33 @@ const skillIcon = (type: string) => {
             return "⚡";
     }
 };
+
+function hasConfigContent(skill: {
+    skill_type: string;
+    config: Record<string, unknown>;
+}): boolean {
+    if (!skill.config) return false;
+
+    switch (skill.skill_type) {
+        case "system_prompt":
+            return (
+                !!skill.config.prompt &&
+                String(skill.config.prompt).trim() !== ""
+            );
+        case "memory":
+            return (
+                skill.config.max_messages !== undefined &&
+                skill.config.max_messages !== null
+            );
+        case "context_prefix":
+            return (
+                !!skill.config.prefix &&
+                String(skill.config.prefix).trim() !== ""
+            );
+        default:
+            return false;
+    }
+}
 
 function triggerFileUpload() {
     fileInputRef.value?.click();
@@ -374,7 +396,10 @@ async function handleFileUpload(event: Event) {
                                 {{ skill.description }}
                             </div>
                             <!-- Config details -->
-                            <div class="card-config" v-if="skill.config">
+                            <div
+                                class="card-config"
+                                v-if="hasConfigContent(skill)"
+                            >
                                 <div class="config-row">
                                     <span class="config-label">
                                         <svg
@@ -499,8 +524,6 @@ async function handleFileUpload(event: Event) {
                 </div>
             </div>
         </div>
-
-        <!-- SkillForm removed - only skill package upload is supported -->
     </div>
 </template>
 

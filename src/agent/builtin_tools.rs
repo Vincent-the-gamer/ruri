@@ -648,3 +648,95 @@ fn matches_glob_inner(text: &[char], pattern: &[char]) -> bool {
         }
     }
 }
+
+// ─── BashTool ───────────────────────────────────────────────────────
+
+/// Execute a bash/shell command and return the output.
+pub struct BashTool;
+
+#[async_trait]
+impl Tool for BashTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::function("bash")
+            .description(
+                "Execute a shell command and return the output (cross-platform support). \
+                 On Linux/macOS, uses bash. On Windows, uses PowerShell. \
+                 Use this tool to run shell commands like curl, git, npm, etc. \
+                 Returns both stdout and stderr. \
+                 Be careful with commands that may take a long time or require user input.",
+            )
+            .parameter_with_description(
+                "command",
+                ParameterType::String,
+                true,
+                Some("The bash command to execute (e.g., 'curl https://example.com', 'ls -la')."),
+            )
+            .parameter_with_description(
+                "timeout",
+                ParameterType::Integer,
+                false,
+                Some("Optional timeout in seconds (default: 30)."),
+            )
+            .build()
+    }
+
+    async fn execute(&self, args: &str) -> Result<String, ToolError> {
+        let parsed = parse_args(args)?;
+        let command = parsed["command"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'command' parameter".into()))?;
+
+        let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
+
+        // Choose shell based on operating system for cross-platform support
+        #[cfg(target_os = "windows")]
+        let shell_command = async {
+            // On Windows, try PowerShell first, then fall back to cmd
+            tokio::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", command])
+                .output()
+                .await
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let shell_command = async {
+            // On Unix-like systems (Linux, macOS), use bash
+            tokio::process::Command::new("bash")
+                .arg("-c")
+                .arg(command)
+                .output()
+                .await
+        };
+
+        // Execute the command with timeout
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_command)
+                .await
+                .map_err(|_| {
+                    ToolError::ExecutionError(format!(
+                        "Command timed out after {} seconds",
+                        timeout_secs
+                    ))
+                })?
+                .map_err(|e| {
+                    ToolError::ExecutionError(format!("Failed to execute command: {}", e))
+                })?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if output.status.success() {
+            if stderr.is_empty() {
+                Ok(stdout)
+            } else {
+                Ok(format!("{}\n[stderr]\n{}", stdout, stderr))
+            }
+        } else {
+            Err(ToolError::ExecutionError(format!(
+                "Command failed with exit code {}: {}",
+                output.status.code().unwrap_or(-1),
+                stderr
+            )))
+        }
+    }
+}

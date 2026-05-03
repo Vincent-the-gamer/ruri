@@ -39,6 +39,11 @@ const router = createRouter({
       component: () => import('../views/AcpConfig.vue'),
     },
     {
+      path: '/computer-use-config',
+      name: 'Computer Use Config',
+      component: () => import('../views/ComputerUseConfig.vue'),
+    },
+    {
       path: '/api-test',
       name: 'API Test',
       component: () => import('../views/APITest.vue'),

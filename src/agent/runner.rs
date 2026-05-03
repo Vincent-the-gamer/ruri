@@ -231,6 +231,11 @@ impl Agent {
     pub async fn initialize_skills(&mut self) {
         for skill in &self.skills {
             let system_messages = skill.on_attach().await;
+            tracing::info!(
+                skill = %skill.name(),
+                num_system_messages = system_messages.len(),
+                "Initializing skill with on_attach"
+            );
             for msg in system_messages {
                 // Insert system messages at the beginning of history
                 self.history.insert(0, msg);
@@ -242,6 +247,11 @@ impl Agent {
     async fn run_skills_on_user_message(&mut self) {
         for skill in &self.skills {
             if skill.is_active() {
+                tracing::info!(
+                    skill = %skill.name(),
+                    history_len = self.history.len(),
+                    "Running skill on_user_message"
+                );
                 skill.on_user_message(&mut self.history).await;
             }
         }
@@ -254,6 +264,10 @@ impl Agent {
         {
             for skill in &self.skills {
                 if skill.is_active() {
+                    tracing::info!(
+                        skill = %skill.name(),
+                        "Running skill on_response"
+                    );
                     skill.on_response(last).await;
                 }
             }

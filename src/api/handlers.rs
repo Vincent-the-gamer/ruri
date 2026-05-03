@@ -131,6 +131,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/acp/config",
             get(get_acp_config).put(update_acp_config),
         )
+        // Computer use config
+        .route(
+            "/api/computer-use/config",
+            get(get_computer_use_config).put(update_computer_use_config),
+        )
         // Logs
         .route("/api/logs", get(get_logs).delete(clear_logs))
         .route("/api/logs/stream", get(ws_logs_upgrade))
@@ -771,8 +776,10 @@ async fn send_chat_message(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequestDto>,
 ) -> Result<Json<ChatResponseDto>, (StatusCode, Json<serde_json::Value>)> {
-    // Build agent from current state
-    let agent_result = state.build_agent().await;
+    // Build agent from current state with user context
+    let agent_result = state
+        .build_agent_with_context(req.user_id.as_deref(), req.session_id.as_deref())
+        .await;
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
 
@@ -1022,6 +1029,70 @@ async fn clear_logs(State(state): State<Arc<AppState>>) -> StatusCode {
 /// WebSocket日志推送handler
 async fn ws_logs_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
     ws.on_upgrade(move |socket| ws_logs_handler(socket, state))
+}
+
+// ─── Computer Use Config Handlers ───────────────────────────────
+
+async fn get_computer_use_config(State(state): State<Arc<AppState>>) -> Json<ComputerUseConfigDto> {
+    let computer_use_config = state.computer_use_config.read().await;
+    Json(ComputerUseConfigDto::from(&*computer_use_config))
+}
+
+async fn update_computer_use_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateComputerUseConfigRequest>,
+) -> Result<Json<ComputerUseConfigDto>, (StatusCode, Json<serde_json::Value>)> {
+    let mut computer_use_config = state.computer_use_config.write().await;
+
+    // Update runtime if provided
+    if let Some(runtime) = req.runtime {
+        computer_use_config.runtime = match runtime.as_str() {
+            "none" => crate::computer_use::ComputerUseRuntime::None,
+            "local" => crate::computer_use::ComputerUseRuntime::Local,
+            "sandbox" => crate::computer_use::ComputerUseRuntime::Sandbox,
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Invalid runtime: {}. Must be 'none', 'local', or 'sandbox'", runtime)
+                    })),
+                ));
+            }
+        };
+    }
+
+    // Update require_admin if provided
+    if let Some(require_admin) = req.require_admin {
+        computer_use_config.require_admin = require_admin;
+    }
+
+    // Update admin_ids if provided
+    if let Some(admin_ids) = req.admin_ids {
+        computer_use_config.admin_ids = admin_ids;
+    }
+
+    // Update allowed_paths if provided
+    if let Some(allowed_paths) = req.allowed_paths {
+        computer_use_config.allowed_paths = allowed_paths;
+    }
+
+    // Update sandbox_config if provided
+    if let Some(sandbox_config_dto) = req.sandbox_config {
+        computer_use_config.sandbox_config = Some(crate::computer_use::SandboxConfig {
+            driver: sandbox_config_dto.driver,
+            endpoint: sandbox_config_dto.endpoint,
+            profile: sandbox_config_dto.profile,
+            ttl_secs: sandbox_config_dto.ttl_secs,
+            enable_browser: sandbox_config_dto.enable_browser,
+        });
+    }
+
+    let dto = ComputerUseConfigDto::from(&*computer_use_config);
+    drop(computer_use_config);
+
+    state.auto_save().await;
+
+    Ok(Json(dto))
 }
 
 /// WebSocket日志推送处理器

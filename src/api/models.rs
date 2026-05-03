@@ -170,6 +170,10 @@ pub struct ToolParameterDto {
 pub struct ChatRequestDto {
     pub message: String,
     pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u64>,
 }
@@ -267,6 +271,43 @@ pub struct UpdateAcpConfigRequest {
     pub active_skill_names: Option<Vec<String>>,
 }
 
+// ─── Computer Use Config Models ─────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerUseConfigDto {
+    pub runtime: String,
+    pub require_admin: bool,
+    pub admin_ids: Vec<String>,
+    pub allowed_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_config: Option<SandboxConfigDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfigDto {
+    pub driver: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    pub ttl_secs: u64,
+    pub enable_browser: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateComputerUseConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub require_admin: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_config: Option<SandboxConfigDto>,
+}
+
 // ─── Conversions ─────────────────────────────────────────────────
 
 impl From<&types::ChatMessage> for ChatMessageDto {
@@ -342,5 +383,56 @@ impl From<&types::ToolDefinition> for ToolDto {
                 })
                 .unwrap_or_default(),
         }
+    }
+}
+
+impl From<&crate::computer_use::ComputerUseConfig> for ComputerUseConfigDto {
+    fn from(config: &crate::computer_use::ComputerUseConfig) -> Self {
+        Self {
+            runtime: match config.runtime {
+                crate::computer_use::ComputerUseRuntime::None => "none",
+                crate::computer_use::ComputerUseRuntime::Local => "local",
+                crate::computer_use::ComputerUseRuntime::Sandbox => "sandbox",
+            }
+            .to_string(),
+            require_admin: config.require_admin,
+            admin_ids: config.admin_ids.clone(),
+            allowed_paths: config.allowed_paths.clone(),
+            sandbox_config: config.sandbox_config.as_ref().map(|s| SandboxConfigDto {
+                driver: s.driver.clone(),
+                endpoint: s.endpoint.clone(),
+                profile: s.profile.clone(),
+                ttl_secs: s.ttl_secs,
+                enable_browser: s.enable_browser,
+            }),
+        }
+    }
+}
+
+impl ComputerUseConfigDto {
+    /// Convert to ComputerUseConfig
+    pub fn to_config(&self) -> Result<crate::computer_use::ComputerUseConfig, String> {
+        let runtime = match self.runtime.as_str() {
+            "none" => crate::computer_use::ComputerUseRuntime::None,
+            "local" => crate::computer_use::ComputerUseRuntime::Local,
+            "sandbox" => crate::computer_use::ComputerUseRuntime::Sandbox,
+            _ => return Err(format!("Invalid runtime: {}", self.runtime)),
+        };
+
+        Ok(crate::computer_use::ComputerUseConfig {
+            runtime,
+            require_admin: self.require_admin,
+            admin_ids: self.admin_ids.clone(),
+            allowed_paths: self.allowed_paths.clone(),
+            sandbox_config: self.sandbox_config.as_ref().map(|s| {
+                crate::computer_use::SandboxConfig {
+                    driver: s.driver.clone(),
+                    endpoint: s.endpoint.clone(),
+                    profile: s.profile.clone(),
+                    ttl_secs: s.ttl_secs,
+                    enable_browser: s.enable_browser,
+                }
+            }),
+        })
     }
 }

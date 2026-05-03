@@ -200,6 +200,34 @@ export interface LogEntry {
   line?: number
 }
 
+// ─── Computer Use Types ────────────────────────────────────────────
+
+export type ComputerUseRuntime = 'none' | 'local' | 'sandbox'
+
+export interface SandboxConfig {
+  driver: string
+  endpoint?: string
+  profile?: string
+  ttl_secs: number
+  enable_browser: boolean
+}
+
+export interface ComputerUseConfig {
+  runtime: ComputerUseRuntime
+  require_admin: boolean
+  admin_ids: string[]
+  allowed_paths: string[]
+  sandbox_config?: SandboxConfig
+}
+
+export interface UpdateComputerUseConfigRequest {
+  runtime?: ComputerUseRuntime
+  require_admin?: boolean
+  admin_ids?: string[]
+  allowed_paths?: string[]
+  sandbox_config?: SandboxConfig
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

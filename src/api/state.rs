@@ -53,6 +53,8 @@ pub struct PersistedConfig {
     pub skills: HashMap<String, PersistedSkill>,
     #[serde(default)]
     pub acp_config: AcpConfig,
+    #[serde(default)]
+    pub computer_use_config: crate::computer_use::ComputerUseConfig,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
@@ -124,6 +126,10 @@ pub struct AppState {
     pub skills: RwLock<HashMap<String, StoredSkill>>,
     /// ACP-specific configuration.
     pub acp_config: RwLock<AcpConfig>,
+    /// Computer use configuration.
+    pub computer_use_config: RwLock<crate::computer_use::ComputerUseConfig>,
+    /// Workspace manager for computer use.
+    pub workspace_manager: std::sync::Arc<crate::computer_use::WorkspaceManager>,
     /// Tool definitions (read-only, set at startup).
     pub tool_definitions: Vec<crate::types::ToolDefinition>,
     /// Chat history.
@@ -157,7 +163,7 @@ impl AppState {
     /// Create a new AppState with a specific config file path,
     /// attempting to load persisted config from that path.
     pub fn with_config_path(config_path: &Path) -> Self {
-        let (providers, active_provider_id, skills, acp_config) =
+        let (providers, active_provider_id, skills, acp_config, computer_use_config) =
             match Self::load_from_file_sync(config_path) {
                 Ok(config) => {
                     tracing::info!("Loaded config from {}", config_path.display());
@@ -204,6 +210,7 @@ impl AppState {
                         config.active_provider_id,
                         skills,
                         config.acp_config,
+                        config.computer_use_config,
                     )
                 }
                 Err(e) => {
@@ -212,7 +219,13 @@ impl AppState {
                         config_path.display(),
                         e
                     );
-                    (HashMap::new(), None, HashMap::new(), AcpConfig::default())
+                    (
+                        HashMap::new(),
+                        None,
+                        HashMap::new(),
+                        AcpConfig::default(),
+                        crate::computer_use::ComputerUseConfig::default(),
+                    )
                 }
             };
 
@@ -237,11 +250,18 @@ impl AppState {
             }
         };
 
+        // Create workspace manager with data directory
+        let data_dir = crate::computer_use::workspace::default_data_dir();
+        let workspace_manager =
+            std::sync::Arc::new(crate::computer_use::WorkspaceManager::new(data_dir));
+
         Self {
             providers: RwLock::new(providers),
             active_provider_id: RwLock::new(active_provider_id),
             skills: RwLock::new(skills),
             acp_config: RwLock::new(acp_config),
+            computer_use_config: RwLock::new(computer_use_config),
+            workspace_manager,
             tool_definitions: Vec::new(),
             chat_history: RwLock::new(chat_history),
             start_time: Utc::now(),
@@ -337,6 +357,7 @@ impl AppState {
         let active_provider_id = self.active_provider_id.read().await;
         let skills = self.skills.read().await;
         let acp_config = self.acp_config.read().await;
+        let computer_use_config = self.computer_use_config.read().await;
 
         let persisted_providers: HashMap<String, PersistedProvider> = providers
             .iter()
@@ -376,6 +397,7 @@ impl AppState {
             active_provider_id: active_provider_id.clone(),
             skills: persisted_skills,
             acp_config: acp_config.clone(),
+            computer_use_config: computer_use_config.clone(),
         }
     }
 
@@ -469,7 +491,36 @@ impl AppState {
                     let prefix = skill.config["prefix"].as_str().unwrap_or("").to_string();
                     result.push(Arc::new(ContextPrefixSkill::new(prefix)) as Arc<dyn Skill>);
                 }
-                _ => {}
+                "skill" => {
+                    // Custom skill package uploaded via upload_skill_package
+                    // Create a GenericSkill that injects the skill content as system prompt
+                    let name = skill.name.clone();
+                    let description = skill.description.clone();
+                    let content = skill.config["content"].as_str().unwrap_or("").to_string();
+
+                    if content.is_empty() {
+                        tracing::warn!(
+                            skill_name = %skill.name,
+                            "Skill has no content, skipping"
+                        );
+                    } else {
+                        result.push(Arc::new(SystemPromptSkill::new(format!(
+                            "# {}\n\n{}",
+                            description, content
+                        ))) as Arc<dyn Skill>);
+                        tracing::info!(
+                            skill_name = %name,
+                            "Loaded generic skill as system prompt"
+                        );
+                    }
+                }
+                _ => {
+                    tracing::warn!(
+                        skill_name = %skill.name,
+                        skill_type = %skill.skill_type,
+                        "Unknown skill type, ignoring"
+                    );
+                }
             }
         }
         result
@@ -477,6 +528,15 @@ impl AppState {
 
     /// Build a fully configured Agent from the current state.
     pub async fn build_agent(&self) -> Result<Agent, String> {
+        self.build_agent_with_context(None, None).await
+    }
+
+    /// Build a fully configured Agent with user context for computer use capabilities.
+    pub async fn build_agent_with_context(
+        &self,
+        user_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<Agent, String> {
         let providers = self.providers.read().await;
         let active_id = self.active_provider_id.read().await;
 
@@ -488,7 +548,6 @@ impl AppState {
 
         let provider = Self::build_provider(stored)?;
         drop(providers);
-        let _ = active_id;
 
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -499,18 +558,100 @@ impl AppState {
         // Re-add skills
         let skills = self.skills.read().await;
         let skill_instances = Self::build_skills(&skills, None);
+        let num_skills = skill_instances.len();
         drop(skills);
         for skill in skill_instances {
+            tracing::info!("Adding skill: {}", skill.name());
             agent.add_skill(skill);
         }
+        tracing::info!("Successfully added {} skills to agent", num_skills);
 
-        // Register built-in tools
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+        // Check computer use configuration and register tools accordingly
+        let computer_use_config = self.computer_use_config.read().await;
+        let user_id = user_id.unwrap_or("default_user");
+        let session_id = session_id.unwrap_or("default_session");
+
+        match computer_use_config.runtime {
+            crate::computer_use::ComputerUseRuntime::None => {
+                // Computer use is disabled - register only basic tools
+                tracing::info!("Computer use is disabled, registering basic tools only");
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool));
+            }
+            crate::computer_use::ComputerUseRuntime::Local => {
+                // Computer use is enabled in local mode
+                tracing::info!("Computer use enabled in local mode for user '{}'", user_id);
+
+                // Create permission checker and workspace manager
+                let data_dir = crate::computer_use::workspace::default_data_dir();
+                let temp_dir = std::env::temp_dir();
+                let permission_checker = Arc::new(crate::computer_use::PermissionChecker::new(
+                    computer_use_config.clone(),
+                    data_dir,
+                    temp_dir,
+                ));
+                let workspace_manager = self.workspace_manager.clone();
+
+                // Create tool context
+                let tool_context = Arc::new(crate::computer_use::ComputerUseContext {
+                    user_id: user_id.to_string(),
+                    session_id: session_id.to_string(),
+                    permission_checker,
+                    workspace_manager,
+                    working_dir: None,
+                });
+
+                // Check if user can use power tools
+                let can_use_power_tools = computer_use_config.can_use_power_tools(user_id);
+
+                // Register wrapped file tools with permission checking
+                agent.register_tool(Arc::new(crate::computer_use::WrappedReadFileTool::new(
+                    tool_context.clone(),
+                )));
+                agent.register_tool(Arc::new(crate::computer_use::WrappedWriteFileTool::new(
+                    tool_context.clone(),
+                )));
+                agent.register_tool(Arc::new(
+                    crate::computer_use::WrappedListDirectoryTool::new(tool_context.clone()),
+                ));
+
+                // Register Shell and Python tools only if user has permission
+                if can_use_power_tools {
+                    tracing::info!("User '{}' has permission to use power tools", user_id);
+                    agent.register_tool(Arc::new(crate::computer_use::ShellTool::new(
+                        tool_context.clone(),
+                    )));
+                    agent.register_tool(Arc::new(crate::computer_use::PythonTool::new(
+                        tool_context.clone(),
+                    )));
+                } else {
+                    tracing::info!(
+                        "User '{}' does not have permission to use power tools",
+                        user_id
+                    );
+                }
+
+                // Register other basic tools
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+            }
+            crate::computer_use::ComputerUseRuntime::Sandbox => {
+                // Sandbox mode is not yet implemented
+                tracing::warn!("Sandbox mode is not yet implemented, falling back to basic tools");
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+            }
+        }
 
         // Restore chat history first
         let history = self.chat_history.read().await;

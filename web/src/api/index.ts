@@ -5,6 +5,7 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatMessage,
+  ComputerUseConfig,
   CreateProviderRequest,
   CreateSkillRequest,
   LogEntry,
@@ -12,6 +13,7 @@ import type {
   Skill,
   Tool,
   UpdateAcpConfigRequest,
+  UpdateComputerUseConfigRequest,
   UploadSkillPackageResponse,
 } from '../types'
 
@@ -125,6 +127,18 @@ export async function getAcpConfig(): Promise<AcpConfig> {
 
 export async function updateAcpConfig(data: UpdateAcpConfigRequest): Promise<AcpConfig> {
   const res = await client.put('/api/acp/config', data)
+  return res.data
+}
+
+// ─── Computer Use ───────────────────────────────────────────────────
+
+export async function getComputerUseConfig(): Promise<ComputerUseConfig> {
+  const res = await client.get('/api/computer-use/config')
+  return res.data
+}
+
+export async function updateComputerUseConfig(data: UpdateComputerUseConfigRequest): Promise<ComputerUseConfig> {
+  const res = await client.put('/api/computer-use/config', data)
   return res.data
 }
 

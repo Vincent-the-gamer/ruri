@@ -2,6 +2,9 @@
 
 A customizable AI Agent, written in Rust + Vue.
 
+> [!WARNING]
+> This project is in very early development, it can't be use in production.
+
 ## Features
 
 - 🤖 Multi-provider support (OpenAI, Anthropic, Custom)
@@ -11,9 +14,7 @@ A customizable AI Agent, written in Rust + Vue.
 - 📡 REST API
 - 🔌 **ACP (Agent Client Protocol)** support — connect from Zed, JetBrains, and other ACP-compatible IDEs
 
-## Quick Start
-
-### Web UI + API Server
+## Dev
 
 ```bash
 cargo run

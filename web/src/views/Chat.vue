@@ -220,6 +220,62 @@ function toggleSettings() {
                     :key="i"
                     :message="msg"
                 />
+
+                <!-- Thinking Indicator Message -->
+                <div v-if="chatStore.loading" class="thinking-message">
+                    <div class="thinking-avatar">
+                        <svg
+                            class="avatar-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                        >
+                            <defs>
+                                <linearGradient
+                                    id="thinking-gradient"
+                                    x1="0%"
+                                    y1="0%"
+                                    x2="100%"
+                                    y2="100%"
+                                >
+                                    <stop
+                                        offset="0%"
+                                        stop-color="hsl(var(--primary))"
+                                    />
+                                    <stop
+                                        offset="100%"
+                                        stop-color="hsl(280 70% 60%)"
+                                    />
+                                </linearGradient>
+                            </defs>
+                            <path
+                                d="M12 2 L20 10 L12 22 L4 10 Z"
+                                fill="url(#thinking-gradient)"
+                            />
+                            <path
+                                d="M12 2 L16 8 L12 6 L8 8 Z"
+                                fill="rgba(255,255,255,0.4)"
+                            />
+                        </svg>
+                        <div class="thinking-dots">
+                            <span class="dot dot-1"></span>
+                            <span class="dot dot-2"></span>
+                            <span class="dot dot-3"></span>
+                        </div>
+                    </div>
+                    <div class="thinking-content-wrapper">
+                        <div class="thinking-label">
+                            <span>琉璃</span>
+                            <span class="thinking-status">💭 思考中...</span>
+                        </div>
+                        <div class="thinking-content">
+                            <div class="thinking-animation">
+                                <span class="spark sparkle-1">✨</span>
+                                <span class="spark sparkle-2">💫</span>
+                                <span class="spark sparkle-3">⭐</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -688,6 +744,195 @@ function toggleSettings() {
     background: transparent;
     position: relative;
     z-index: 5;
+}
+
+/* ── Thinking Message ─────────────────────────────── */
+
+.thinking-message {
+    display: flex;
+    gap: 0.625rem;
+    max-width: 85%;
+    margin-bottom: 1rem;
+    animation: slideIn 0.4s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.thinking-avatar {
+    position: relative;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 0.625rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: hsl(var(--secondary));
+    border: 2px solid hsl(var(--primary));
+}
+
+.thinking-dots {
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 3px;
+}
+
+.dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    animation: bounceDot 1.4s ease-in-out infinite;
+}
+
+.dot-1 {
+    animation-delay: 0s;
+}
+
+.dot-2 {
+    animation-delay: 0.2s;
+}
+
+.dot-3 {
+    animation-delay: 0.4s;
+}
+
+@keyframes bounceDot {
+    0%,
+    80%,
+    100% {
+        transform: scale(1);
+        opacity: 0.6;
+    }
+    40% {
+        transform: scale(1.5);
+        opacity: 1;
+    }
+}
+
+.thinking-content-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+}
+
+.thinking-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: hsl(var(--primary));
+}
+
+.thinking-status {
+    background: linear-gradient(
+        90deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(280 70% 60% / 0.2) 100%
+    );
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.375rem;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+.thinking-content {
+    padding: 1rem 1.25rem;
+    background: hsl(var(--card));
+    border: 2px solid hsl(var(--primary) / 0.3);
+    border-radius: 1rem 1rem 1rem 0.25rem;
+    color: hsl(var(--foreground));
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+.thinking-content::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        45deg,
+        transparent 30%,
+        hsl(var(--primary) / 0.05) 50%,
+        transparent 70%
+    );
+    animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.thinking-animation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+}
+
+.spark {
+    font-size: 1.5rem;
+    display: inline-flex;
+    animation: float 2s ease-in-out infinite;
+}
+
+.sparkle-1 {
+    animation-delay: 0s;
+}
+
+.sparkle-2 {
+    animation-delay: 0.3s;
+}
+
+.sparkle-3 {
+    animation-delay: 0.6s;
+}
+
+@keyframes float {
+    0%,
+    100% {
+        transform: translateY(0) rotate(0deg);
+        opacity: 0.7;
+    }
+    50% {
+        transform: translateY(-10px) rotate(10deg);
+        opacity: 1;
+    }
 }
 
 /* ── Transitions ─────────────────────────────────── */

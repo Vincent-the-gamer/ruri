@@ -3,6 +3,7 @@
 mod acp;
 mod agent;
 mod api;
+mod computer_use;
 mod logging;
 mod provider;
 mod transport;
