@@ -1,7 +1,5 @@
 use crate::agent::tool_executor::{Tool, ToolError};
-use crate::computer_use::permissions::PermissionChecker;
 use crate::computer_use::tools::ComputerUseContext;
-use crate::computer_use::workspace::WorkspaceManager;
 use crate::types::{ParameterType, ToolDefinition};
 use async_trait::async_trait;
 use serde_json::Value;

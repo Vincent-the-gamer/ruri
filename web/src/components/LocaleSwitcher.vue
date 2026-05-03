@@ -1,37 +1,42 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { setLocale, getAvailableLocales } from '../locales'
+import { ref, computed } from "vue";
+import { useI18n } from "vue-i18n";
+import { onClickOutside } from "@vueuse/core";
+import { setLocale, getAvailableLocales } from "../locales";
 
-const { t } = useI18n()
-const { locale } = useI18n()
+const { t, locale } = useI18n();
 
-const availableLocales = getAvailableLocales()
-const isOpen = ref(false)
+const availableLocales = getAvailableLocales();
+const isOpen = ref(false);
+const localeSwitcherRef = ref<HTMLElement | null>(null);
+
+// 使用 VueUse 的 onClickOutside 监听点击外部关闭下拉菜单
+onClickOutside(localeSwitcherRef, () => {
+    if (isOpen.value) {
+        isOpen.value = false;
+    }
+});
 
 const currentLocale = computed(() => {
-  const current = availableLocales.find(l => l.code === locale.value)
-  return current || availableLocales[0]
-})
+    const current = availableLocales.find((l) => l.code === locale.value);
+    return current || availableLocales[0];
+});
 
 function changeLocale(code: string) {
-  setLocale(code)
-  locale.value = code
-  isOpen.value = false
+    // 先更新 locale，触发响应式更新
+    locale.value = code;
+    // 保存到 localStorage
+    setLocale(code);
+    isOpen.value = false;
 }
 
 function toggleDropdown() {
-  isOpen.value = !isOpen.value
-}
-
-// 点击外部关闭下拉菜单
-function closeDropdown() {
-  isOpen.value = false
+    isOpen.value = !isOpen.value;
 }
 </script>
 
 <template>
-    <div class="locale-switcher" v-click-outside="closeDropdown">
+    <div class="locale-switcher" ref="localeSwitcherRef">
         <button
             class="locale-btn"
             @click="toggleDropdown"
@@ -63,7 +68,9 @@ function closeDropdown() {
                     :class="{ active: loc.code === locale }"
                     @click="changeLocale(loc.code)"
                 >
-                    <span class="option-check" v-if="loc.code === locale">✓</span>
+                    <span class="option-check" v-if="loc.code === locale"
+                        >✓</span
+                    >
                     <span class="option-name">{{ loc.name }}</span>
                 </button>
             </div>

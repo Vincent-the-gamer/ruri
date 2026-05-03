@@ -126,7 +126,12 @@ onMounted(() => {
         );
 }
 
-.app-container > * {
+.app-container > header {
+    position: relative;
+    z-index: 20;
+}
+
+.app-container > .flex {
     position: relative;
     z-index: 1;
 }

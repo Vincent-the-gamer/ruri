@@ -204,12 +204,27 @@ export interface LogEntry {
 
 export type ComputerUseRuntime = 'none' | 'local' | 'sandbox'
 
+export type SandboxDriver = 'shipyard_neo' | 'cua'
+
 export interface SandboxConfig {
-  driver: string
+  driver: SandboxDriver
+
+  // Shipyard Neo 配置
   endpoint?: string
+  access_token?: string
   profile?: string
-  ttl_secs: number
-  enable_browser: boolean
+  ttl_secs?: number
+
+  // CUA 配置
+  cua_image?: string
+  cua_os_type?: string
+  cua_sandbox_ttl?: number
+  cua_telemetry_enabled?: boolean
+  cua_local_runtime?: boolean
+  cua_api_key?: string
+
+  // 通用配置
+  enable_browser?: boolean
 }
 
 export interface ComputerUseConfig {

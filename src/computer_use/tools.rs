@@ -4,7 +4,7 @@ use crate::computer_use::workspace::WorkspaceManager;
 use crate::types::{ParameterType, ToolDefinition};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tracing::info;

@@ -50,8 +50,13 @@ const navItems = computed(() => [
     },
     {
         path: "/acp-config",
-        label: t("nav.settings"),
-        icon: "lucide:settings",
+        label: t("nav.agentConfig"),
+        icon: "lucide:bot",
+    },
+    {
+        path: "/computer-use-config",
+        label: t("nav.computerUse"),
+        icon: "lucide:monitor",
     },
     {
         path: "/api-test",

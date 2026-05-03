@@ -133,7 +133,7 @@ impl ComputerUseConfig {
     }
 
     /// Check if user can use file tools
-    pub fn can_use_file_tools(&self, user_id: &str) -> bool {
+    pub fn can_use_file_tools(&self, _user_id: &str) -> bool {
         // File tools are available to all users, but with directory restrictions
         self.is_enabled()
     }
