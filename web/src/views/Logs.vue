@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
+import { useI18n } from "vue-i18n";
 import * as api from "../api";
 import type { LogEntry, LogLevel } from "../types";
 
+const { t } = useI18n();
 const logs = ref<LogEntry[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -55,12 +57,12 @@ async function fetchLogs() {
 }
 
 async function clearLogs() {
-    if (confirm("确定要清空所有日志吗？")) {
+    if (confirm(t("logs.clearConfirm"))) {
         try {
             await api.clearLogs();
             logs.value = [];
         } catch (e: unknown) {
-            alert(e instanceof Error ? e.message : "Failed to clear logs");
+            alert(e instanceof Error ? e.message : t("errors.unknown"));
         }
     }
 }
@@ -204,7 +206,7 @@ onUnmounted(() => {
                     <polyline points="4 17 10 11 4 5" />
                     <line x1="12" y1="18" x2="20" y2="18" />
                 </svg>
-                <span class="toolbar-title">终端日志</span>
+                <span class="toolbar-title">{{ t("logs.terminal") }}</span>
                 <span
                     class="toolbar-dot"
                     :class="{ online: ws !== null }"
@@ -213,24 +215,24 @@ onUnmounted(() => {
 
             <div class="toolbar-center">
                 <select v-model="filterLevel" class="toolbar-select">
-                    <option value="all">全部级别</option>
-                    <option value="error">错误</option>
-                    <option value="warn">警告</option>
-                    <option value="info">信息</option>
-                    <option value="debug">调试</option>
-                    <option value="trace">追踪</option>
+                    <option value="all">{{ t("logs.level.all") }}</option>
+                    <option value="error">{{ t("logs.level.error") }}</option>
+                    <option value="warn">{{ t("logs.level.warning") }}</option>
+                    <option value="info">{{ t("logs.level.info") }}</option>
+                    <option value="debug">{{ t("logs.level.debug") }}</option>
+                    <option value="trace">{{ t("logs.level.trace") }}</option>
                 </select>
                 <input
                     v-model="filterTarget"
                     type="text"
                     class="toolbar-input"
-                    placeholder="筛选模块..."
+                    :placeholder="t('logs.filterModule')"
                 />
                 <input
                     v-model="searchQuery"
                     type="text"
                     class="toolbar-input"
-                    placeholder="搜索日志..."
+                    :placeholder="t('logs.searchLogs')"
                 />
             </div>
 
@@ -240,9 +242,13 @@ onUnmounted(() => {
                     <span class="toggle-track"
                         ><span class="toggle-thumb"></span
                     ></span>
-                    <span class="toggle-label">自动滚动</span>
+                    <span class="toggle-label">{{ t("logs.autoScroll") }}</span>
                 </label>
-                <button class="toolbar-btn" @click="clearLogs" title="清空日志">
+                <button
+                    class="toolbar-btn"
+                    @click="clearLogs"
+                    :title="t('logs.clearLogs')"
+                >
                     <svg
                         viewBox="0 0 24 24"
                         fill="none"
@@ -255,7 +261,11 @@ onUnmounted(() => {
                         />
                     </svg>
                 </button>
-                <button class="toolbar-btn" @click="fetchLogs" title="刷新日志">
+                <button
+                    class="toolbar-btn"
+                    @click="fetchLogs"
+                    :title="t('logs.refresh')"
+                >
                     <svg
                         viewBox="0 0 24 24"
                         fill="none"
@@ -281,12 +291,16 @@ onUnmounted(() => {
                 v-else-if="loading && filteredLogs.length === 0"
                 class="term-line"
             >
-                <span class="term-text term-dim">加载中...</span>
+                <span class="term-text term-dim">{{
+                    t("common.loading")
+                }}</span>
             </div>
 
             <!-- Empty state -->
             <div v-else-if="filteredLogs.length === 0" class="term-line">
-                <span class="term-text term-dim">没有匹配的日志</span>
+                <span class="term-text term-dim">{{
+                    t("logs.noMatchingLogs")
+                }}</span>
             </div>
 
             <!-- Log lines - pure text -->
@@ -325,7 +339,9 @@ onUnmounted(() => {
             >
             <span class="status-spacer"></span>
             <span class="status-chunk">{{
-                ws !== null ? "● 实时连接" : "○ 已断开"
+                ws !== null
+                    ? t("logs.realtimeConnected")
+                    : t("logs.disconnected")
             }}</span>
         </div>
     </div>

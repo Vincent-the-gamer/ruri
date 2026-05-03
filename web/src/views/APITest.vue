@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
 import axios from "axios";
 
+const { t } = useI18n();
 const activeTab = ref("chat");
 const responseOutput = ref("");
 const loading = ref(false);
@@ -54,9 +56,9 @@ const endpoints = [
 ];
 
 const tabs = [
-    { key: "chat", label: "对话" },
-    { key: "custom", label: "自定义请求" },
-    { key: "docs", label: "API 文档" },
+    { key: "chat", label: t("apiTest.tabs.chat") },
+    { key: "custom", label: t("apiTest.tabs.custom") },
+    { key: "docs", label: t("apiTest.tabs.docs") },
 ];
 
 async function sendChat() {
@@ -169,8 +171,8 @@ const methodColor = (method: string) => {
 <template>
     <div class="api-test-view">
         <div class="header">
-            <h1 class="header-title">接口测试</h1>
-            <p class="header-desc">测试 API 接口并集成到您的应用</p>
+            <h1 class="header-title">{{ t("apiTest.title") }}</h1>
+            <p class="header-desc">{{ t("apiTest.subtitle") }}</p>
         </div>
 
         <!-- Tabs -->
@@ -194,7 +196,9 @@ const methodColor = (method: string) => {
                     <div class="input-panel">
                         <h3 class="panel-title">POST /api/chat</h3>
                         <div class="form-group">
-                            <label class="form-label">消息</label>
+                            <label class="form-label">{{
+                                t("apiTest.message")
+                            }}</label>
                             <textarea
                                 v-model="chatMessage"
                                 rows="3"
@@ -204,18 +208,22 @@ const methodColor = (method: string) => {
                         </div>
                         <div class="form-grid-2">
                             <div class="form-group">
-                                <label class="form-label"
-                                    >供应商 ID（可选）</label
-                                >
+                                <label class="form-label">{{
+                                    t("apiTest.providerIdOptional")
+                                }}</label>
                                 <input
                                     v-model="chatProviderId"
                                     type="text"
-                                    placeholder="留空使用活跃供应商"
+                                    :placeholder="
+                                        t('apiTest.useActiveProvider')
+                                    "
                                     class="form-input"
                                 />
                             </div>
                             <div class="form-group">
-                                <label class="form-label">温度</label>
+                                <label class="form-label">{{
+                                    t("apiTest.temperature")
+                                }}</label>
                                 <input
                                     v-model.number="chatTemperature"
                                     type="number"
@@ -231,7 +239,11 @@ const methodColor = (method: string) => {
                             :disabled="loading || !chatMessage.trim()"
                             class="btn-primary"
                         >
-                            {{ loading ? "发送中..." : "发送消息" }}
+                            {{
+                                loading
+                                    ? t("apiTest.sending")
+                                    : t("apiTest.sendMessage")
+                            }}
                         </button>
                     </div>
                 </template>
@@ -239,7 +251,9 @@ const methodColor = (method: string) => {
                 <!-- Custom Request Tab -->
                 <template v-if="activeTab === 'custom'">
                     <div class="input-panel">
-                        <h3 class="panel-title">自定义请求</h3>
+                        <h3 class="panel-title">
+                            {{ t("apiTest.customRequest") }}
+                        </h3>
                         <div class="custom-request-row">
                             <select v-model="customMethod" class="form-select">
                                 <option>GET</option>
@@ -261,7 +275,9 @@ const methodColor = (method: string) => {
                             "
                             class="form-group"
                         >
-                            <label class="form-label">请求体 (JSON)</label>
+                            <label class="form-label">{{
+                                t("apiTest.requestBody")
+                            }}</label>
                             <textarea
                                 v-model="customBody"
                                 rows="10"
@@ -273,7 +289,11 @@ const methodColor = (method: string) => {
                             :disabled="loading"
                             class="btn-primary"
                         >
-                            {{ loading ? "发送中..." : "发送请求" }}
+                            {{
+                                loading
+                                    ? t("apiTest.sending")
+                                    : t("apiTest.sendRequest")
+                            }}
                         </button>
                     </div>
                 </template>
@@ -304,7 +324,7 @@ const methodColor = (method: string) => {
             <div>
                 <div class="response-panel">
                     <div class="response-header">
-                        <h3 class="panel-title">响应</h3>
+                        <h3 class="panel-title">{{ t("apiTest.response") }}</h3>
                         <button
                             v-if="responseOutput"
                             @click="
@@ -341,7 +361,7 @@ const methodColor = (method: string) => {
                                     d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
                                 />
                             </svg>
-                            复制
+                            {{ t("apiTest.copy") }}
                         </button>
                     </div>
                     <div class="response-body">
@@ -349,7 +369,7 @@ const methodColor = (method: string) => {
                             responseOutput
                         }}</pre>
                         <div v-else class="response-placeholder">
-                            发送请求以查看响应
+                            {{ t("apiTest.sendToSeeResponse") }}
                         </div>
                     </div>
                 </div>
@@ -374,12 +394,14 @@ const methodColor = (method: string) => {
                     <polyline points="15 3 21 3 21 9" />
                     <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
-                外部 API 调用
+                {{ t("apiTest.externalApiCall") }}
             </h3>
-            <p class="curl-desc">使用这些接口从外部应用调用智能体：</p>
+            <p class="curl-desc">{{ t("apiTest.externalApiDesc") }}</p>
             <div class="curl-code-block">
                 <div class="curl-example">
-                    <span class="curl-comment"># 发送对话消息</span><br />
+                    <span class="curl-comment"
+                        ># {{ t("apiTest.curlSendMessage") }}</span
+                    ><br />
                     <span class="curl-cmd">curl</span>
                     <span class="curl-flag">-X POST</span>
                     http://localhost:3000/api/chat \<br />
@@ -394,12 +416,16 @@ const methodColor = (method: string) => {
                     >
                 </div>
                 <div class="curl-example">
-                    <span class="curl-comment"># 获取智能体状态</span><br />
+                    <span class="curl-comment"
+                        ># {{ t("apiTest.curlGetStatus") }}</span
+                    ><br />
                     <span class="curl-cmd">curl</span>
                     http://localhost:3000/api/agent/status
                 </div>
                 <div class="curl-example">
-                    <span class="curl-comment"># 列出供应商</span><br />
+                    <span class="curl-comment"
+                        ># {{ t("apiTest.curlListProviders") }}</span
+                    ><br />
                     <span class="curl-cmd">curl</span>
                     http://localhost:3000/api/providers
                 </div>

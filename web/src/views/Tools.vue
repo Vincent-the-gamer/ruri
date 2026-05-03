@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { useToolStore } from "../stores/tool";
 
+const { t } = useI18n();
 const toolStore = useToolStore();
 
 onMounted(() => {
@@ -32,8 +34,8 @@ const paramTypeColor = (type: string) => {
     <div class="tools-view">
         <!-- Header -->
         <div class="header">
-            <h1 class="header-title">工具</h1>
-            <p class="header-desc">智能体可用的已注册工具</p>
+            <h1 class="header-title">{{ t("tools.title") }}</h1>
+            <p class="header-desc">{{ t("tools.subtitle") }}</p>
         </div>
 
         <!-- Error -->
@@ -60,7 +62,7 @@ const paramTypeColor = (type: string) => {
             class="loading-state"
         >
             <div class="loading-spinner"></div>
-            <span class="loading-text">加载中...</span>
+            <span class="loading-text">{{ t("common.loading") }}</span>
         </div>
 
         <!-- Empty State -->
@@ -80,8 +82,8 @@ const paramTypeColor = (type: string) => {
                     />
                 </svg>
             </div>
-            <h3 class="empty-title">暂无注册工具</h3>
-            <p class="empty-desc">工具在智能体初始化时通过代码注册</p>
+            <h3 class="empty-title">{{ t("tools.noTools") }}</h3>
+            <p class="empty-desc">{{ t("tools.noToolsDesc") }}</p>
         </div>
 
         <!-- Tool Cards -->
@@ -118,7 +120,9 @@ const paramTypeColor = (type: string) => {
                             v-if="tool.parameters.length > 0"
                             class="params-section"
                         >
-                            <h4 class="params-label">参数</h4>
+                            <h4 class="params-label">
+                                {{ t("tools.parameters") }}
+                            </h4>
                             <div class="params-list">
                                 <div
                                     v-for="param in tool.parameters"
@@ -140,7 +144,7 @@ const paramTypeColor = (type: string) => {
                                         v-if="param.required"
                                         class="param-required-badge"
                                     >
-                                        必填
+                                        {{ t("tools.required") }}
                                     </span>
                                     <span
                                         v-if="param.description"
@@ -151,7 +155,9 @@ const paramTypeColor = (type: string) => {
                                 </div>
                             </div>
                         </div>
-                        <div v-else class="no-params">无参数</div>
+                        <div v-else class="no-params">
+                            {{ t("tools.noParameters") }}
+                        </div>
                     </div>
                 </div>
             </div>

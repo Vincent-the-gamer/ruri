@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useSkillStore } from "../stores/skill";
 // SkillForm removed - only skill package upload is supported
 // CreateSkillRequest type removed - only skill package upload is supported
 
+const { t } = useI18n();
 const skillStore = useSkillStore();
 // showForm removed - skill form modal no longer available
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -15,7 +17,7 @@ onMounted(() => {
 // handleSave removed - skill form is no longer available
 
 async function handleRemove(name: string) {
-    if (!confirm(`确定移除技能 "${name}" 吗？`)) return;
+    if (!confirm(t("skills.deleteConfirm"))) return;
     try {
         await skillStore.removeSkill(name);
     } catch {
@@ -55,16 +57,20 @@ async function handleFileUpload(event: Event) {
 
     // Check if it's a ZIP file
     if (!file.name.endsWith(".zip")) {
-        alert("请上传 ZIP 格式的技能包文件");
+        alert(t("skills.uploadZipOnly"));
         return;
     }
 
     try {
         await skillStore.uploadSkillPackage(file);
-        alert("技能包上传成功！");
+        alert(t("skills.uploadSuccess"));
     } catch (e) {
         console.error("Upload failed:", e);
-        alert(`上传失败：${skillStore.error || "未知错误"}`);
+        alert(
+            t("skills.uploadFailed", {
+                error: skillStore.error || t("errors.unknown"),
+            }),
+        );
     } finally {
         // Reset input
         if (target) {
@@ -97,8 +103,8 @@ async function handleFileUpload(event: Event) {
                     </svg>
                 </div>
                 <div class="header-text">
-                    <h1 class="header-title">技能</h1>
-                    <p class="header-desc">管理智能体的能力和行为</p>
+                    <h1 class="header-title">{{ t("skills.title") }}</h1>
+                    <p class="header-desc">{{ t("skills.subtitle") }}</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -117,7 +123,7 @@ async function handleFileUpload(event: Event) {
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
-                    上传技能包
+                    {{ t("skills.uploadPackage") }}
                 </button>
             </div>
             <!-- Hidden file input -->
@@ -155,7 +161,7 @@ async function handleFileUpload(event: Event) {
             class="loading-state"
         >
             <div class="loading-spinner"></div>
-            <span class="loading-text">加载中...</span>
+            <span class="loading-text">{{ t("common.loading") }}</span>
         </div>
 
         <!-- Empty State -->
@@ -184,8 +190,8 @@ async function handleFileUpload(event: Event) {
                     <span class="deco-dot deco-dot-3"></span>
                 </div>
             </div>
-            <h3 class="empty-title">暂无技能</h3>
-            <p class="empty-desc">技能可以增强智能体的行为和能力</p>
+            <h3 class="empty-title">{{ t("skills.noSkills") }}</h3>
+            <p class="empty-desc">{{ t("skills.noSkillsDesc") }}</p>
             <button class="btn btn-accent" @click="triggerFileUpload">
                 <svg
                     width="16"
@@ -201,7 +207,7 @@ async function handleFileUpload(event: Event) {
                     <polyline points="17 8 12 3 7 8" />
                     <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
-                上传第一个技能包
+                {{ t("skills.addFirstSkill") }}
             </button>
         </div>
 
@@ -354,7 +360,11 @@ async function handleFileUpload(event: Event) {
                                     "
                                 >
                                     <span class="status-dot"></span>
-                                    {{ skill.is_active ? "已启用" : "已停用" }}
+                                    {{
+                                        skill.is_active
+                                            ? t("skills.enabled")
+                                            : t("skills.disabled")
+                                    }}
                                 </span>
                                 <span class="type-badge">{{
                                     skill.skill_type
@@ -397,7 +407,8 @@ async function handleFileUpload(event: Event) {
                                             skill.skill_type === 'system_prompt'
                                         "
                                     >
-                                        提示词：<span class="card-config-value"
+                                        {{ t("skills.prompt")
+                                        }}<span class="card-config-value"
                                             >{{
                                                 String(
                                                     skill.config.prompt || "",
@@ -416,12 +427,10 @@ async function handleFileUpload(event: Event) {
                                             skill.skill_type === 'memory'
                                         "
                                     >
-                                        最大消息数：<span
-                                            class="card-config-value"
-                                            >{{
-                                                skill.config.max_messages
-                                            }}</span
-                                        >
+                                        {{ t("skills.maxMessages")
+                                        }}<span class="card-config-value">{{
+                                            skill.config.max_messages
+                                        }}</span>
                                     </template>
                                     <template
                                         v-else-if="
@@ -429,7 +438,8 @@ async function handleFileUpload(event: Event) {
                                             'context_prefix'
                                         "
                                     >
-                                        前缀：<span class="card-config-value"
+                                        {{ t("skills.prefix")
+                                        }}<span class="card-config-value"
                                             >{{
                                                 String(
                                                     skill.config.prefix || "",
@@ -456,14 +466,18 @@ async function handleFileUpload(event: Event) {
                             @click="handleToggle(skill.name, !skill.is_active)"
                             role="switch"
                             :aria-checked="skill.is_active"
-                            :title="skill.is_active ? '停用技能' : '启用技能'"
+                            :title="
+                                skill.is_active
+                                    ? t('skills.deactivate')
+                                    : t('skills.activate')
+                            "
                         >
                             <span class="toggle-thumb"></span>
                         </button>
                         <button
                             class="btn btn-ghost btn-sm btn-danger-ghost"
                             @click="handleRemove(skill.name)"
-                            title="移除技能"
+                            :title="t('skills.remove')"
                         >
                             <svg
                                 width="14"

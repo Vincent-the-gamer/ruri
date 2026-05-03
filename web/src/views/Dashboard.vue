@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { useAgentStore } from "../stores/agent";
 import { useProviderStore } from "../stores/provider";
 import { useSkillStore } from "../stores/skill";
@@ -9,6 +10,7 @@ import { useChatStore } from "../stores/chat";
 import StatusBar from "../components/StatusBar.vue";
 
 const router = useRouter();
+const { t } = useI18n();
 const agentStore = useAgentStore();
 const providerStore = useProviderStore();
 const skillStore = useSkillStore();
@@ -36,6 +38,17 @@ const statusClass = computed(() => {
     }
 });
 
+const statusText = computed(() => {
+    switch (agentStore.status.status) {
+        case "running":
+            return t("dashboard.status.running");
+        case "error":
+            return t("dashboard.status.error");
+        default:
+            return t("dashboard.status.stopped");
+    }
+});
+
 const recentMessages = computed(() => {
     const msgs = chatStore.messages.filter((m) => m.role !== "system");
     return msgs.slice(-5).reverse();
@@ -44,13 +57,16 @@ const recentMessages = computed(() => {
 const providerTypeStyle = (type: string) => {
     switch (type) {
         case "openai":
-            return { class: "type-openai", label: "OpenAI" };
+            return { class: "type-openai", label: t("providers.type.openai") };
         case "anthropic":
-            return { class: "type-anthropic", label: "Anthropic" };
+            return {
+                class: "type-anthropic",
+                label: t("providers.type.anthropic"),
+            };
         case "custom":
-            return { class: "type-custom", label: "Custom" };
+            return { class: "type-custom", label: t("providers.type.custom") };
         default:
-            return { class: "type-default", label: "Other" };
+            return { class: "type-default", label: t("providers.type.other") };
     }
 };
 </script>
@@ -59,8 +75,8 @@ const providerTypeStyle = (type: string) => {
     <div class="dashboard">
         <!-- Header -->
         <header class="dashboard-header">
-            <h1 class="title">仪表盘</h1>
-            <p class="subtitle">Ruri AI 智能体总览</p>
+            <h1 class="title">{{ t("dashboard.title") }}</h1>
+            <p class="subtitle">{{ t("dashboard.subtitle") }}</p>
         </header>
 
         <!-- Status Card -->
@@ -94,21 +110,15 @@ const providerTypeStyle = (type: string) => {
                         </svg>
                     </div>
                     <div class="status-text">
-                        <h2 class="status-title">
-                            {{
-                                agentStore.status.status === "running"
-                                    ? "运行中"
-                                    : agentStore.status.status === "error"
-                                      ? "错误"
-                                      : "已停止"
-                            }}
-                        </h2>
+                        <h2 class="status-title">{{ statusText }}</h2>
                         <StatusBar />
                     </div>
                 </div>
                 <div class="status-meta">
                     <div class="meta-item">
-                        <span class="meta-label">运行时间</span>
+                        <span class="meta-label">{{
+                            t("dashboard.uptime")
+                        }}</span>
                         <span class="meta-value">{{
                             agentStore.formatUptime(
                                 agentStore.status.uptime_secs,
@@ -116,7 +126,9 @@ const providerTypeStyle = (type: string) => {
                         }}</span>
                     </div>
                     <div class="meta-item">
-                        <span class="meta-label">消息数</span>
+                        <span class="meta-label">{{
+                            t("dashboard.messageCount")
+                        }}</span>
                         <span class="meta-value">{{
                             agentStore.status.message_count
                         }}</span>
@@ -130,7 +142,9 @@ const providerTypeStyle = (type: string) => {
             <!-- Providers -->
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">供应商</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.providers")
+                    }}</span>
                     <svg
                         class="stat-icon"
                         viewBox="0 0 24 24"
@@ -150,15 +164,21 @@ const providerTypeStyle = (type: string) => {
                     v-if="providerStore.activeProvider"
                     class="stat-detail accent"
                 >
-                    活跃：{{ providerStore.activeProvider.name }}
+                    {{ t("common.active") }}：{{
+                        providerStore.activeProvider.name
+                    }}
                 </div>
-                <div v-else class="stat-detail warning">暂无活跃供应商</div>
+                <div v-else class="stat-detail warning">
+                    {{ t("dashboard.noProvider") }}
+                </div>
             </div>
 
             <!-- Skills -->
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">技能</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.skills")
+                    }}</span>
                     <svg
                         class="stat-icon"
                         viewBox="0 0 24 24"
@@ -174,14 +194,16 @@ const providerTypeStyle = (type: string) => {
                 <div class="stat-value">{{ skillStore.skills.length }}</div>
                 <div class="stat-detail success">
                     {{ skillStore.skills.filter((s) => s.is_active).length }}
-                    已启用
+                    {{ t("common.enabled") }}
                 </div>
             </div>
 
             <!-- Tools -->
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">工具</span>
+                    <span class="stat-label">{{
+                        t("dashboard.stats.tools")
+                    }}</span>
                     <svg
                         class="stat-icon"
                         viewBox="0 0 24 24"
@@ -195,7 +217,7 @@ const providerTypeStyle = (type: string) => {
                     </svg>
                 </div>
                 <div class="stat-value">{{ toolStore.tools.length }}</div>
-                <div class="stat-detail">可用工具</div>
+                <div class="stat-detail">{{ t("dashboard.stats.tools") }}</div>
             </div>
         </div>
 
@@ -204,9 +226,11 @@ const providerTypeStyle = (type: string) => {
             <!-- Providers List -->
             <section class="panel">
                 <div class="panel-header">
-                    <h3 class="panel-title">已配置供应商</h3>
+                    <h3 class="panel-title">
+                        {{ t("dashboard.configuredProviders") }}
+                    </h3>
                     <button class="link-btn" @click="router.push('/providers')">
-                        管理
+                        {{ t("dashboard.manage") }}
                         <svg
                             viewBox="0 0 24 24"
                             fill="none"
@@ -221,7 +245,7 @@ const providerTypeStyle = (type: string) => {
                     v-if="providerStore.providers.length === 0"
                     class="empty-state"
                 >
-                    暂未配置供应商
+                    {{ t("dashboard.noConfiguredProviders") }}
                 </div>
                 <div v-else class="provider-list">
                     <div
@@ -240,9 +264,9 @@ const providerTypeStyle = (type: string) => {
                                 {{ (p.config as any).default_model }}
                             </div>
                         </div>
-                        <span v-if="p.is_active" class="active-badge"
-                            >已启用</span
-                        >
+                        <span v-if="p.is_active" class="active-badge">{{
+                            t("common.enabled")
+                        }}</span>
                     </div>
                 </div>
             </section>
@@ -250,9 +274,11 @@ const providerTypeStyle = (type: string) => {
             <!-- Recent Messages -->
             <section class="panel">
                 <div class="panel-header">
-                    <h3 class="panel-title">最近消息</h3>
+                    <h3 class="panel-title">
+                        {{ t("dashboard.recentMessages") }}
+                    </h3>
                     <button class="link-btn" @click="router.push('/chat')">
-                        打开对话
+                        {{ t("dashboard.openChat") }}
                         <svg
                             viewBox="0 0 24 24"
                             fill="none"
@@ -264,7 +290,7 @@ const providerTypeStyle = (type: string) => {
                     </button>
                 </div>
                 <div v-if="recentMessages.length === 0" class="empty-state">
-                    暂无消息
+                    {{ t("dashboard.noMessages") }}
                 </div>
                 <div v-else class="message-list">
                     <div
@@ -307,7 +333,11 @@ const providerTypeStyle = (type: string) => {
                                 <circle cx="16" cy="16" r="1" />
                             </svg>
                             <span class="message-role" :class="msg.role">
-                                {{ msg.role === "user" ? "用户" : "助手" }}
+                                {{
+                                    msg.role === "user"
+                                        ? t("chat.userMessage")
+                                        : t("chat.assistantMessage")
+                                }}
                             </span>
                         </div>
                         <div class="message-content">{{ msg.content }}</div>
@@ -329,7 +359,7 @@ const providerTypeStyle = (type: string) => {
                         d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
                     />
                 </svg>
-                开始对话
+                {{ t("dashboard.startChat") }}
             </button>
             <button class="btn" @click="router.push('/providers')">
                 <svg
@@ -342,7 +372,7 @@ const providerTypeStyle = (type: string) => {
                         d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
                     />
                 </svg>
-                配置供应商
+                {{ t("dashboard.configureProvider") }}
             </button>
             <button class="btn btn-ghost" @click="router.push('/api-test')">
                 <svg
@@ -358,7 +388,7 @@ const providerTypeStyle = (type: string) => {
                     <path d="M12 18v-6" />
                     <path d="M9 15l3 3 3-3" />
                 </svg>
-                接口测试
+                {{ t("dashboard.apiTest") }}
             </button>
         </div>
     </div>

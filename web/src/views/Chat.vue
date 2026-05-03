@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, nextTick, computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
 
+const { t } = useI18n();
 const chatStore = useChatStore();
 const providerStore = useProviderStore();
 
@@ -44,7 +46,7 @@ async function handleSend(message: string) {
 }
 
 async function handleClear() {
-    if (!confirm("💕 确定要清空所有和琉璃的聊天记录吗？")) return;
+    if (!confirm(t("chat.confirmClear"))) return;
     await chatStore.clearHistory();
 }
 
@@ -64,7 +66,7 @@ function toggleSettings() {
                 <div>
                     <h1 class="header-title font-cute">
                         <span>💎</span>
-                        <span>对话</span>
+                        <span>{{ t("chat.title") }}</span>
                         <span>✨</span>
                     </h1>
                     <span v-if="chatStore.loading" class="thinking-indicator">
@@ -87,10 +89,10 @@ function toggleSettings() {
                                 d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"
                             />
                         </svg>
-                        <span>琉璃正在思考...</span>
+                        <span>{{ t("chat.thinking") }}</span>
                     </span>
                     <span v-else class="thinking-indicator ready">
-                        <span>✨ 琉璃准备好了</span>
+                        <span>✨ {{ t("chat.ready") }}</span>
                     </span>
                 </div>
             </div>
@@ -113,14 +115,14 @@ function toggleSettings() {
                         class="icon-btn"
                         :class="{ active: showSettings }"
                         @click="toggleSettings"
-                        title="设置 ⚙️"
+                        :title="t('chat.settings') + ' ⚙️'"
                     >
                         <span class="btn-icon">⚙️</span>
                     </button>
                     <button
                         class="icon-btn danger"
                         @click="handleClear"
-                        title="清空记录 🗑️"
+                        :title="t('chat.clearHistory') + ' 🗑️'"
                     >
                         <span class="btn-icon">🗑️</span>
                     </button>
@@ -135,7 +137,7 @@ function toggleSettings() {
                     <div class="setting-item">
                         <label class="setting-label font-cute">
                             <span>🌡️</span>
-                            <span>温度</span>
+                            <span>{{ t("chat.temperature") }}</span>
                         </label>
                         <div class="setting-control">
                             <input
@@ -154,7 +156,7 @@ function toggleSettings() {
                     <div class="setting-item">
                         <label class="setting-label font-cute">
                             <span>📊</span>
-                            <span>最大 Token</span>
+                            <span>{{ t("chat.maxTokens") }}</span>
                         </label>
                         <div class="setting-control">
                             <input
@@ -177,9 +179,9 @@ function toggleSettings() {
             class="warning-bar"
         >
             <span class="warning-emoji">💡</span>
-            <span>还没有配置模型供应商哦~</span>
+            <span>{{ t("chat.noProvider") }}</span>
             <router-link to="/providers" class="warning-link">
-                <span>去配置 💖</span>
+                <span>{{ t("chat.goToConfig") }} 💖</span>
             </router-link>
         </div>
 
@@ -195,12 +197,11 @@ function toggleSettings() {
                     </div>
                     <h2 class="empty-title font-cute">
                         <span>💎</span>
-                        <span>和琉璃开始对话吧</span>
+                        <span>{{ t("chat.emptyTitle") }}</span>
                         <span>✨</span>
                     </h2>
                     <p class="empty-desc">
-                        琉璃是你的 AI 助手哦~🎀
-                        先去配置个模型供应商，然后就可以开始聊天啦！
+                        {{ t("chat.emptyDesc") }}
                     </p>
                     <router-link
                         v-if="!providerStore.activeProvider"
@@ -208,7 +209,7 @@ function toggleSettings() {
                         class="cta-button"
                     >
                         <span>💖</span>
-                        <span>配置供应商</span>
+                        <span>{{ t("chat.configureProvider") }}</span>
                         <span>🚀</span>
                     </router-link>
                 </div>

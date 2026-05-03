@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useProviderStore } from "../stores/provider";
 import ProviderForm from "../components/ProviderForm.vue";
 import type {
@@ -9,6 +10,7 @@ import type {
     CreateProviderRequest,
 } from "../types";
 
+const { t } = useI18n();
 const providerStore = useProviderStore();
 const showForm = ref(false);
 const editingProvider = ref<Provider | null>(null);
@@ -46,7 +48,7 @@ async function handleSave(data: {
 }
 
 async function handleDelete(id: string) {
-    if (!confirm("确定要删除此供应商吗？")) return;
+    if (!confirm(t("providers.deleteConfirm"))) return;
     try {
         await providerStore.deleteProvider(id);
     } catch {
@@ -78,18 +80,18 @@ const providerTypeIcon = (type: string) => {
 const providerTypeLabel = (type: string) => {
     switch (type) {
         case "openai":
-            return "OpenAI";
+            return t("providers.types.openai");
         case "anthropic":
-            return "Anthropic";
+            return t("providers.types.anthropic");
         case "custom":
-            return "Custom";
+            return t("providers.types.custom");
         default:
             return type;
     }
 };
 
 function maskApiKey(key: string): string {
-    if (!key) return "(未设置)";
+    if (!key) return t("providers.apiKeyNotSet");
     if (key.length <= 8) return "••••••••";
     return key.slice(0, 4) + "••••" + key.slice(-4);
 }
@@ -124,8 +126,8 @@ function maskApiKey(key: string): string {
                     </svg>
                 </div>
                 <div class="header-text">
-                    <h1 class="header-title">模型供应商</h1>
-                    <p class="header-desc">配置 AI 模型供应商</p>
+                    <h1 class="header-title">{{ t("providers.title") }}</h1>
+                    <p class="header-desc">{{ t("providers.subtitle") }}</p>
                 </div>
             </div>
             <button class="btn btn-accent" @click="openCreate">
@@ -143,7 +145,7 @@ function maskApiKey(key: string): string {
                         stroke-linecap="round"
                     />
                 </svg>
-                添加供应商
+                {{ t("providers.addProvider") }}
             </button>
         </div>
 
@@ -172,7 +174,7 @@ function maskApiKey(key: string): string {
             class="loading-state"
         >
             <div class="loading-spinner"></div>
-            <span class="loading-text">加载中...</span>
+            <span class="loading-text">{{ t("common.loading") }}</span>
         </div>
 
         <!-- Empty State -->
@@ -210,8 +212,8 @@ function maskApiKey(key: string): string {
                     <span class="deco-dot deco-dot-3"></span>
                 </div>
             </div>
-            <h3 class="empty-title">暂无供应商</h3>
-            <p class="empty-desc">添加供应商以开始与 AI 模型对话</p>
+            <h3 class="empty-title">{{ t("providers.noProviders") }}</h3>
+            <p class="empty-desc">{{ t("providers.noProvidersDesc") }}</p>
             <button class="btn btn-accent" @click="openCreate">
                 <svg
                     width="16"
@@ -224,7 +226,7 @@ function maskApiKey(key: string): string {
                 >
                     <path d="M12 5v14M5 12h14" />
                 </svg>
-                添加第一个供应商
+                {{ t("providers.addFirstProvider") }}
             </button>
         </div>
 
@@ -260,7 +262,7 @@ function maskApiKey(key: string): string {
                                     class="status-badge status-badge--active"
                                 >
                                     <span class="status-dot"></span>
-                                    活跃
+                                    {{ t("providers.status.active") }}
                                 </span>
                             </div>
                             <div class="card-meta">
@@ -311,7 +313,8 @@ function maskApiKey(key: string): string {
                                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                                 </svg>
                                 <span class="info-text">
-                                    密钥：{{
+                                    {{ t("providers.apiKey")
+                                    }}{{
                                         maskApiKey(
                                             (provider.config as any).api_key ||
                                                 "",
@@ -327,7 +330,7 @@ function maskApiKey(key: string): string {
                             v-if="!provider.is_active"
                             class="btn btn-ghost btn-sm"
                             @click="handleActivate(provider.id)"
-                            title="设为活跃供应商"
+                            :title="t('providers.activateProvider')"
                         >
                             <svg
                                 width="14"
@@ -339,15 +342,15 @@ function maskApiKey(key: string): string {
                                 stroke-linecap="round"
                                 stroke-linejoin="round"
                             >
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                <path d="M22 11.08V12a10 10 0 1 1 -5.93-9.14" />
                                 <polyline points="22 4 12 14.01 9 11.01" />
                             </svg>
-                            设为活跃
+                            {{ t("providers.activate") }}
                         </button>
                         <button
                             class="btn btn-ghost btn-sm"
                             @click="openEdit(provider)"
-                            title="编辑供应商"
+                            :title="t('providers.editProvider')"
                         >
                             <svg
                                 width="14"
@@ -366,12 +369,12 @@ function maskApiKey(key: string): string {
                                     d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
                                 />
                             </svg>
-                            编辑
+                            {{ t("providers.edit") }}
                         </button>
                         <button
                             class="btn btn-ghost btn-sm btn-danger-ghost"
                             @click="handleDelete(provider.id)"
-                            title="删除供应商"
+                            :title="t('providers.deleteProvider')"
                         >
                             <svg
                                 width="14"
