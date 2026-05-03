@@ -10,6 +10,7 @@ use crate::agent::acp_tools::RequestManager;
 use crate::agent::runner::{Agent, AgentConfig};
 use crate::agent::skill::Skill;
 use crate::provider::Provider;
+use crate::types::WebSearchConfig;
 
 /// State tracked for each ACP session.
 pub struct AcpSession {
@@ -26,7 +27,12 @@ pub struct AcpSession {
 impl AcpSession {
     /// Create a new ACP session with only built-in tools (backward compatible).
     pub fn new(provider: Box<dyn Provider>, cwd: String) -> Self {
-        Self::new_with_skills(provider, cwd, Vec::new())
+        Self::new_with_skills(
+            provider,
+            cwd,
+            Vec::new(),
+            Arc::new(RwLock::new(WebSearchConfig::default())),
+        )
     }
 
     /// Create a new ACP session with skills applied.
@@ -34,6 +40,7 @@ impl AcpSession {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        web_search_config: Arc<RwLock<WebSearchConfig>>,
     ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -53,6 +60,9 @@ impl AcpSession {
         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+            web_search_config,
+        )));
 
         Self {
             agent,
@@ -69,6 +79,7 @@ impl AcpSession {
         skills: Vec<Arc<dyn Skill>>,
         _session_id: String,
         _request_manager: Arc<RequestManager>,
+        web_search_config: Arc<RwLock<WebSearchConfig>>,
     ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -89,6 +100,9 @@ impl AcpSession {
         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+            web_search_config,
+        )));
 
         Self {
             agent,
@@ -121,14 +135,18 @@ pub struct SessionManager {
     connections: RwLock<HashMap<String, Arc<ConnectionTo<Client>>>>,
     /// Manages pending ACP requests.
     request_manager: Arc<RequestManager>,
+    /// Web search configuration shared across sessions.
+    web_search_config: Arc<RwLock<WebSearchConfig>>,
 }
 
 impl SessionManager {
-    pub fn new() -> Self {
+    /// Create a new SessionManager with the given web search configuration.
+    pub fn new(web_search_config: Arc<RwLock<WebSearchConfig>>) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             connections: RwLock::new(HashMap::new()),
             request_manager: Arc::new(RequestManager::new()),
+            web_search_config,
         }
     }
 
@@ -191,6 +209,7 @@ impl SessionManager {
             skills,
             session_id.clone(),
             Arc::clone(&self.request_manager),
+            Arc::clone(&self.web_search_config),
         );
         self.sessions
             .write()
@@ -252,6 +271,7 @@ impl SessionManager {
             skills,
             session_id.clone(),
             Arc::clone(&self.request_manager),
+            Arc::clone(&self.web_search_config),
         );
         self.sessions.write().await.insert(session_id, session);
         true
@@ -266,6 +286,6 @@ impl SessionManager {
 
 impl Default for SessionManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(RwLock::new(WebSearchConfig::default())))
     }
 }

@@ -740,3 +740,438 @@ impl Tool for BashTool {
         }
     }
 }
+
+// ─── WebSearchTool ─────────────────────────────────
+
+/// Search the web using DuckDuckGo.
+/// Web search tool that supports multiple search engines.
+///
+/// Supported engines:
+/// - DuckDuckGo (free, no API key required)
+/// - Tavily (requires API key)
+/// - BoCha (requires API key)
+/// - Baidu AI Search (requires API key)
+/// - Brave Search (requires API key)
+pub struct WebSearchTool {
+    config: std::sync::Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>>,
+}
+
+impl WebSearchTool {
+    /// Create a new WebSearchTool with the given configuration.
+    pub fn new(config: std::sync::Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>>) -> Self {
+        Self { config }
+    }
+
+    /// Create a new WebSearchTool with default configuration.
+    pub fn with_default_config() -> Self {
+        Self {
+            config: std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::types::WebSearchConfig::default(),
+            )),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for WebSearchTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::function("web_search")
+            .description(
+                "Search the web for information using DuckDuckGo. \n\
+                 Returns a list of search results with titles, URLs, and snippets. \n\
+                 Use this tool when you need to find information that is not available in the local files."
+            )
+            .parameter_with_description(
+                "query",
+                ParameterType::String,
+                true,
+                Some("The search query to look for."),
+            )
+            .parameter_with_description(
+                "max_results",
+                ParameterType::Integer,
+                false,
+                Some("Maximum number of results to return (default: 10, max: 20)."),
+            )
+            .build()
+    }
+
+    async fn execute(&self, args: &str) -> Result<String, ToolError> {
+        let parsed = parse_args(args)?;
+        let query = parsed["query"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'query' parameter".into()))?;
+
+        // Read configuration
+        let config = self.config.read().await;
+
+        // Check if web search is enabled
+        if !config.enabled {
+            return Err(ToolError::ExecutionError(
+                "Web search is disabled in configuration.".to_string(),
+            ));
+        }
+
+        // Use max_results from args or config
+        let max_results = parsed["max_results"]
+            .as_u64()
+            .map(|n| n.min(20) as usize)
+            .unwrap_or(config.max_results.min(20));
+
+        tracing::info!(
+            query = %query,
+            max_results = %max_results,
+            engine = ?config.search_engine,
+            "Executing web search"
+        );
+
+        // Get API key if needed
+        let api_key = config.api_key.clone();
+
+        // Perform the search using the configured engine
+        let results = match config.search_engine {
+            crate::types::SearchEngine::DuckDuckGo => {
+                search_duckduckgo(query, max_results).await
+            }
+            crate::types::SearchEngine::Tavily => {
+                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
+                    "Tavily API key not configured. Please set api_key in web_search_config.".to_string()
+                ))?;
+                search_tavily(query, max_results, &key).await
+            }
+            crate::types::SearchEngine::BoCha => {
+                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
+                    "BoCha API key not configured. Please set api_key in web_search_config.".to_string()
+                ))?;
+                search_bocha(query, max_results, &key).await
+            }
+            crate::types::SearchEngine::Baidu => {
+                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
+                    "Baidu AI Search API key not configured. Please set api_key in web_search_config.".to_string()
+                ))?;
+                search_baidu(query, max_results, &key).await
+            }
+            crate::types::SearchEngine::Brave => {
+                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
+                    "Brave Search API key not configured. Please set api_key in web_search_config.".to_string()
+                ))?;
+                search_brave(query, max_results, &key).await
+            }
+        }
+        .map_err(|e| ToolError::ExecutionError(format!("Search failed: {}", e)))?;
+
+        if results.is_empty() {
+            return Ok("No search results found.".to_string());
+        }
+
+        // Format results as markdown
+        let mut output = String::new();
+        output.push_str(&format!(
+            "Found {} results for '{}' (using {}):\n\n",
+            results.len(),
+            query,
+            match config.search_engine {
+                crate::types::SearchEngine::DuckDuckGo => "DuckDuckGo",
+                crate::types::SearchEngine::Tavily => "Tavily",
+                crate::types::SearchEngine::BoCha => "BoCha",
+                crate::types::SearchEngine::Baidu => "Baidu AI Search",
+                crate::types::SearchEngine::Brave => "Brave Search",
+            }
+        ));
+
+        for (i, result) in results.iter().enumerate() {
+            output.push_str(&format!("{}. {}\n", i + 1, result.title));
+            output.push_str(&format!("   URL: {}\n", result.url));
+            output.push_str(&format!("   {}\n\n", result.snippet));
+        }
+
+        Ok(output)
+    }
+}
+
+/// A single search result.
+struct SearchResult {
+    title: String,
+    url: String,
+    snippet: String,
+}
+
+/// Perform a web search using DuckDuckGo.
+async fn search_duckduckgo(
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    use scraper::{Html, Selector};
+
+    // URL encode the query
+    let encoded_query = urlencode(query);
+    let search_url = format!("https://duckduckgo.com/html/?q={}", encoded_query);
+
+    tracing::debug!(url = %search_url, "Fetching search results");
+
+    // Make the HTTP request
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; RuriBot/1.0; +https://github.com/ruri)")
+        .build()?;
+
+    let response = client
+        .get(&search_url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    let html_content = response.text().await?;
+    let document = Html::parse_document(&html_content);
+
+    // Parse search results from DuckDuckGo HTML
+    let result_selector = Selector::parse(".result").unwrap();
+    let title_selector = Selector::parse(".result__title .result__a").unwrap();
+    let snippet_selector = Selector::parse(".result__snippet").unwrap();
+
+    let mut results = Vec::new();
+
+    for result_elem in document.select(&result_selector).take(max_results) {
+        let title = result_elem
+            .select(&title_selector)
+            .next()
+            .map(|el| el.text().collect::<String>().trim().to_string())
+            .unwrap_or_else(|| "No title".to_string());
+
+        // Get URL from the link
+        let url = result_elem
+            .select(&title_selector)
+            .next()
+            .and_then(|el| el.value().attr("href"))
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| "No URL".to_string());
+
+        // Try to get snippet
+        let snippet = result_elem
+            .select(&snippet_selector)
+            .next()
+            .map(|el| el.text().collect::<String>().trim().to_string())
+            .unwrap_or_else(|| "No description available".to_string());
+
+        results.push(SearchResult {
+            title,
+            url,
+            snippet,
+        });
+    }
+
+    Ok(results)
+}
+
+fn urlencode(s: &str) -> String {
+    let mut encoded = String::new();
+    for c in s.chars() {
+        match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                encoded.push(c);
+            }
+            _ => {
+                for byte in c.to_string().as_bytes() {
+                    encoded.push_str(&format!("%{:02X}", byte));
+                }
+            }
+        }
+    }
+    encoded
+}
+
+/// Perform a web search using Tavily API.
+async fn search_tavily(
+    query: &str,
+    max_results: usize,
+    api_key: &str,
+) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    #[derive(serde::Serialize)]
+    struct TavilyRequest {
+        query: String,
+        max_results: usize,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TavilyResponse {
+        results: Vec<TavilyResult>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TavilyResult {
+        title: String,
+        url: String,
+        content: String,
+    }
+
+    let client = reqwest::Client::new();
+    let request = TavilyRequest {
+        query: query.to_string(),
+        max_results,
+    };
+
+    let response = client
+        .post("https://api.tavily.com/search")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&request)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    let tavily_response: TavilyResponse = response.json().await?;
+
+    Ok(tavily_response
+        .results
+        .into_iter()
+        .map(|r| SearchResult {
+            title: r.title,
+            url: r.url,
+            snippet: r.content,
+        })
+        .collect())
+}
+
+/// Perform a web search using BoCha API.
+async fn search_bocha(
+    query: &str,
+    max_results: usize,
+    api_key: &str,
+) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    // BoCha API implementation
+    // Note: Adjust the endpoint and parameters based on actual BoCha API documentation
+    let encoded_query = urlencode(query);
+    let url = format!(
+        "https://api.bocha.io/search?q={}&count={}",
+        encoded_query, max_results
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    #[derive(serde::Deserialize)]
+    struct BoChaResponse {
+        data: Vec<BoChaResult>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct BoChaResult {
+        title: String,
+        link: String,
+        snippet: String,
+    }
+
+    let bocha_response: BoChaResponse = response.json().await?;
+
+    Ok(bocha_response
+        .data
+        .into_iter()
+        .map(|r| SearchResult {
+            title: r.title,
+            url: r.link,
+            snippet: r.snippet,
+        })
+        .collect())
+}
+
+/// Perform a web search using Baidu AI Search API.
+async fn search_baidu(
+    query: &str,
+    max_results: usize,
+    api_key: &str,
+) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    // Baidu AI Search API implementation
+    // Note: Adjust the endpoint and parameters based on actual Baidu API documentation
+    let encoded_query = urlencode(query);
+    let url = format!(
+        "https://api.baidu.com/api/v1/search?query={}&num={}",
+        encoded_query, max_results
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    #[derive(serde::Deserialize)]
+    struct BaiduResponse {
+        results: Vec<BaiduResult>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct BaiduResult {
+        title: String,
+        url: String,
+        desc: String,
+    }
+
+    let baidu_response: BaiduResponse = response.json().await?;
+
+    Ok(baidu_response
+        .results
+        .into_iter()
+        .map(|r| SearchResult {
+            title: r.title,
+            url: r.url,
+            snippet: r.desc,
+        })
+        .collect())
+}
+
+/// Perform a web search using Brave Search API.
+async fn search_brave(
+    query: &str,
+    max_results: usize,
+    api_key: &str,
+) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+    let encoded_query = urlencode(query);
+    let url = format!(
+        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        encoded_query, max_results
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("X-Subscription-Token", api_key)
+        .header("Accept", "application/json")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    #[derive(serde::Deserialize)]
+    struct BraveResponse {
+        web: BraveWebResults,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct BraveWebResults {
+        results: Vec<BraveResult>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct BraveResult {
+        title: String,
+        url: String,
+        description: String,
+    }
+
+    let brave_response: BraveResponse = response.json().await?;
+
+    Ok(brave_response
+        .web
+        .results
+        .into_iter()
+        .map(|r| SearchResult {
+            title: r.title,
+            url: r.url,
+            snippet: r.description,
+        })
+        .collect())
+}

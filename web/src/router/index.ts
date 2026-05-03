@@ -44,6 +44,11 @@ const router = createRouter({
       component: () => import('../views/ComputerUseConfig.vue'),
     },
     {
+      path: '/web-search-config',
+      name: 'Web Search Config',
+      component: () => import('../views/WebSearchConfig.vue'),
+    },
+    {
       path: '/api-test',
       name: 'API Test',
       component: () => import('../views/APITest.vue'),

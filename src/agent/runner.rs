@@ -15,8 +15,6 @@ pub struct AgentConfig {
     pub max_tool_rounds: u32,
     /// Whether to automatically execute tool calls.
     pub auto_execute_tools: bool,
-    /// Optional system prompt prepended to every conversation.
-    pub system_prompt: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -24,7 +22,6 @@ impl Default for AgentConfig {
         Self {
             max_tool_rounds: MAX_TOOL_ROUNDS,
             auto_execute_tools: true,
-            system_prompt: None,
         }
     }
 }
@@ -41,11 +38,6 @@ impl AgentConfig {
 
     pub fn with_auto_execute_tools(mut self, auto: bool) -> Self {
         self.auto_execute_tools = auto;
-        self
-    }
-
-    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = Some(prompt.into());
         self
     }
 }
@@ -66,11 +58,6 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Create a new Agent with the given provider and default configuration.
-    pub fn new(provider: Box<dyn Provider>) -> Self {
-        Self::with_config(provider, AgentConfig::default())
-    }
-
     /// Create a new Agent with custom configuration.
     pub fn with_config(provider: Box<dyn Provider>, config: AgentConfig) -> Self {
         Self {
@@ -92,21 +79,6 @@ impl Agent {
     /// Register a tool with the agent.
     pub fn register_tool(&mut self, tool: Arc<dyn crate::agent::tool_executor::Tool>) {
         self.tool_executor.register(tool);
-    }
-
-    /// Get all tool definitions for external use.
-    pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
-        self.tool_executor.definitions()
-    }
-
-    /// Clear conversation history.
-    pub fn clear_history(&mut self) {
-        self.history.clear();
-    }
-
-    /// Get a reference to the conversation history.
-    pub fn history(&self) -> &[ChatMessage] {
-        &self.history
     }
 
     /// Set the conversation history (for restoring from persistence).

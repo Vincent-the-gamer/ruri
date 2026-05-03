@@ -2,6 +2,8 @@
 //!
 //! These tools use the ACP protocol to request file operations from the client
 //! (e.g., Zed editor), enabling proper permission handling and IDE integration.
+//!
+//! NOTE: These tools are prepared for future ACP protocol integration.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -98,11 +100,6 @@ mod read_file;
 mod write_file;
 
 // Re-export for potential use in the future (ACP tools)
-// TODO: Use these tools once ACP protocol integration is complete
-#[allow(unused_imports)]
-pub use read_file::AcpReadFileTool;
-#[allow(unused_imports)]
-pub use write_file::AcpWriteFileTool;
 
 // TODO: Add more ACP tools as needed:
 // - AcpListDirectoryTool

@@ -24,9 +24,6 @@ pub enum ToolError {
 
     #[error("Tool not found: {0}")]
     NotFound(String),
-
-    #[error("Timeout executing tool: {0}")]
-    Timeout(String),
 }
 
 /// Registry that manages available tools and dispatches calls.
@@ -48,13 +45,6 @@ impl ToolExecutor {
         self.tools.insert(name, tool);
     }
 
-    /// Register multiple tools.
-    pub fn register_all(&mut self, tools: Vec<Arc<dyn Tool>>) {
-        for tool in tools {
-            self.register(tool);
-        }
-    }
-
     /// Get all tool definitions for sending to the model.
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
@@ -67,17 +57,49 @@ impl ToolExecutor {
             .get(&function_call.name)
             .ok_or_else(|| ToolError::NotFound(function_call.name.clone()))?;
 
-        tracing::info!(tool = %function_call.name, "Executing tool");
+        // Log tool call with arguments
+        tracing::info!(
+            tool = %function_call.name,
+            arguments = %function_call.arguments,
+            "Executing tool"
+        );
 
-        match tool.execute(&function_call.arguments).await {
-            Ok(result) => Ok(ToolResult {
-                tool_call_id: String::new(), // Will be filled by the caller
-                content: result,
-            }),
-            Err(e) => Ok(ToolResult {
-                tool_call_id: String::new(),
-                content: format!("Error: {}", e),
-            }),
+        let start = std::time::Instant::now();
+        let result = tool.execute(&function_call.arguments).await;
+        let duration = start.elapsed();
+
+        match result {
+            Ok(content) => {
+                // Log success with result preview (truncate if too long)
+                let preview = if content.len() > 500 {
+                    format!("{}... ({} chars total)", &content[..500], content.len())
+                } else {
+                    content.clone()
+                };
+                tracing::info!(
+                    tool = %function_call.name,
+                    duration_ms = duration.as_millis(),
+                    result_preview = %preview,
+                    "Tool execution completed"
+                );
+                Ok(ToolResult {
+                    tool_call_id: String::new(), // Will be filled by the caller
+                    content,
+                })
+            }
+            Err(e) => {
+                // Log error
+                tracing::error!(
+                    tool = %function_call.name,
+                    duration_ms = duration.as_millis(),
+                    error = %e,
+                    "Tool execution failed"
+                );
+                Ok(ToolResult {
+                    tool_call_id: String::new(),
+                    content: format!("Error: {}", e),
+                })
+            }
         }
     }
 
@@ -97,16 +119,6 @@ impl ToolExecutor {
                 content: format!("Error: {}", e),
             },
         }
-    }
-
-    /// Check if a tool is registered.
-    pub fn has_tool(&self, name: &str) -> bool {
-        self.tools.contains_key(name)
-    }
-
-    /// List registered tool names.
-    pub fn tool_names(&self) -> Vec<&str> {
-        self.tools.keys().map(|s| s.as_str()).collect()
     }
 }
 

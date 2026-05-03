@@ -55,6 +55,8 @@ pub struct PersistedConfig {
     pub acp_config: AcpConfig,
     #[serde(default)]
     pub computer_use_config: crate::computer_use::ComputerUseConfig,
+    #[serde(default)]
+    pub web_search_config: crate::types::WebSearchConfig,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
@@ -128,6 +130,8 @@ pub struct AppState {
     pub acp_config: RwLock<AcpConfig>,
     /// Computer use configuration.
     pub computer_use_config: RwLock<crate::computer_use::ComputerUseConfig>,
+    /// Web search configuration.
+    pub web_search_config: std::sync::Arc<RwLock<crate::types::WebSearchConfig>>,
     /// Workspace manager for computer use.
     pub workspace_manager: std::sync::Arc<crate::computer_use::WorkspaceManager>,
     /// Tool definitions (read-only, set at startup).
@@ -163,71 +167,79 @@ impl AppState {
     /// Create a new AppState with a specific config file path,
     /// attempting to load persisted config from that path.
     pub fn with_config_path(config_path: &Path) -> Self {
-        let (providers, active_provider_id, skills, acp_config, computer_use_config) =
-            match Self::load_from_file_sync(config_path) {
-                Ok(config) => {
-                    tracing::info!("Loaded config from {}", config_path.display());
-                    let providers = config
-                        .providers
-                        .into_iter()
-                        .map(|(id, p)| {
-                            let created_at = DateTime::parse_from_rfc3339(&p.created_at)
-                                .map(|dt| dt.to_utc())
-                                .unwrap_or(Utc::now());
-                            (
-                                id,
-                                StoredProvider {
-                                    id: p.id,
-                                    name: p.name,
-                                    provider_type: p.provider_type,
-                                    config_json: p.config_json,
-                                    is_active: p.is_active,
-                                    created_at,
-                                },
-                            )
-                        })
-                        .collect();
+        let (
+            providers,
+            active_provider_id,
+            skills,
+            acp_config,
+            computer_use_config,
+            web_search_config,
+        ) = match Self::load_from_file_sync(config_path) {
+            Ok(config) => {
+                tracing::info!("Loaded config from {}", config_path.display());
+                let providers = config
+                    .providers
+                    .into_iter()
+                    .map(|(id, p)| {
+                        let created_at = DateTime::parse_from_rfc3339(&p.created_at)
+                            .map(|dt| dt.to_utc())
+                            .unwrap_or(Utc::now());
+                        (
+                            id,
+                            StoredProvider {
+                                id: p.id,
+                                name: p.name,
+                                provider_type: p.provider_type,
+                                config_json: p.config_json,
+                                is_active: p.is_active,
+                                created_at,
+                            },
+                        )
+                    })
+                    .collect();
 
-                    let skills = config
-                        .skills
-                        .into_iter()
-                        .map(|(name, s)| {
-                            (
-                                name,
-                                StoredSkill {
-                                    name: s.name,
-                                    description: s.description,
-                                    skill_type: s.skill_type,
-                                    config: s.config,
-                                    is_active: s.is_active,
-                                },
-                            )
-                        })
-                        .collect();
+                let skills = config
+                    .skills
+                    .into_iter()
+                    .map(|(name, s)| {
+                        (
+                            name,
+                            StoredSkill {
+                                name: s.name,
+                                description: s.description,
+                                skill_type: s.skill_type,
+                                config: s.config,
+                                is_active: s.is_active,
+                            },
+                        )
+                    })
+                    .collect();
 
-                    (
-                        providers,
-                        config.active_provider_id,
-                        skills,
-                        config.acp_config,
-                        config.computer_use_config,
-                    )
-                }
-                Err(e) => {
-                    tracing::info!(
-                        "Could not load config from {}: {}",
-                        config_path.display(),
-                        e
-                    );
-                    (
-                        HashMap::new(),
-                        None,
-                        HashMap::new(),
-                        AcpConfig::default(),
-                        crate::computer_use::ComputerUseConfig::default(),
-                    )
-                }
-            };
+                (
+                    providers,
+                    config.active_provider_id,
+                    skills,
+                    config.acp_config,
+                    config.computer_use_config,
+                    config.web_search_config,
+                )
+            }
+            Err(e) => {
+                tracing::info!(
+                    "Could not load config from {}: {}",
+                    config_path.display(),
+                    e
+                );
+                (
+                    HashMap::new(),
+                    None,
+                    HashMap::new(),
+                    AcpConfig::default(),
+                    crate::computer_use::ComputerUseConfig::default(),
+                    crate::types::WebSearchConfig::default(),
+                )
+            }
+        };
 
         // Load chat history from the default chat history file path
         let chat_history_file_path = chat_history_path();
@@ -261,6 +273,7 @@ impl AppState {
             skills: RwLock::new(skills),
             acp_config: RwLock::new(acp_config),
             computer_use_config: RwLock::new(computer_use_config),
+            web_search_config: std::sync::Arc::new(RwLock::new(web_search_config)),
             workspace_manager,
             tool_definitions: Vec::new(),
             chat_history: RwLock::new(chat_history),
@@ -358,6 +371,7 @@ impl AppState {
         let skills = self.skills.read().await;
         let acp_config = self.acp_config.read().await;
         let computer_use_config = self.computer_use_config.read().await;
+        let web_search_config = self.web_search_config.read().await;
 
         let persisted_providers: HashMap<String, PersistedProvider> = providers
             .iter()
@@ -398,6 +412,7 @@ impl AppState {
             skills: persisted_skills,
             acp_config: acp_config.clone(),
             computer_use_config: computer_use_config.clone(),
+            web_search_config: web_search_config.clone(),
         }
     }
 
@@ -652,6 +667,12 @@ impl AppState {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
             }
         }
+
+        // Register WebSearchTool (always available, independent of computer use config)
+        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+            self.web_search_config.clone(),
+        )));
+        tracing::info!("WebSearchTool registered with current configuration");
 
         // Restore chat history first
         let history = self.chat_history.read().await;

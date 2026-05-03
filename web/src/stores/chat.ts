@@ -1,20 +1,52 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { ChatMessage, ChatRequest } from '../types'
 import * as api from '../api'
+
+const CHAT_HISTORY_KEY = 'ruri_chat_history'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  // Load from localStorage on initialization
+  function loadFromLocalStorage() {
+    try {
+      const saved = localStorage.getItem(CHAT_HISTORY_KEY)
+      if (saved) {
+        messages.value = JSON.parse(saved)
+      }
+    } catch (e) {
+      console.error('Failed to load chat history from localStorage:', e)
+    }
+  }
+
+  // Save to localStorage whenever messages change
+  watch(messages, (newMessages) => {
+    try {
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(newMessages))
+    } catch (e) {
+      console.error('Failed to save chat history to localStorage:', e)
+    }
+  }, { deep: true })
+
+  // Load persisted messages on store initialization
+  loadFromLocalStorage()
+
   async function fetchHistory() {
     loading.value = true
     error.value = null
     try {
-      messages.value = await api.getChatHistory()
+      const serverHistory = await api.getChatHistory()
+      // Merge with local history, preferring more recent/complete data
+      if (serverHistory && serverHistory.length > 0) {
+        messages.value = serverHistory
+      }
+      // If server returns empty but we have local history, keep it
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch chat history'
+      // Don't clear local messages on fetch error
     } finally {
       loading.value = false
     }
@@ -64,6 +96,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       await api.clearChatHistory()
       messages.value = []
+      localStorage.removeItem(CHAT_HISTORY_KEY)
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to clear chat history'
       throw e

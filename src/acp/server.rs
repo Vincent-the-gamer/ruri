@@ -38,7 +38,9 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
     );
 
     let agent_state = Arc::new(RuriAgentState::new(&config_path));
-    let session_manager = Arc::new(SessionManager::new());
+    let session_manager = Arc::new(SessionManager::new(Arc::clone(
+        &agent_state.web_search_config,
+    )));
 
     let stdin = tokio::io::stdin().compat();
     let stdout = tokio::io::stdout().compat_write();
@@ -182,12 +184,17 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
 /// State shared across all ACP request handlers.
 struct RuriAgentState {
     provider_factory: ProviderFactory,
+    /// Web search configuration shared across sessions.
+    web_search_config: Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>>,
 }
 
 impl RuriAgentState {
     fn new(config_path: &Path) -> Self {
+        let provider_factory = ProviderFactory::from_config_path(config_path);
+        let web_search_config = provider_factory.get_web_search_config();
         Self {
-            provider_factory: ProviderFactory::from_config_path(config_path),
+            provider_factory,
+            web_search_config,
         }
     }
 }
@@ -506,6 +513,17 @@ impl ProviderFactory {
         let config: PersistedConfig = serde_json::from_str(&content)
             .map_err(|e| anyhow::anyhow!("Failed to parse config: {}", e))?;
         Ok(config)
+    }
+
+    /// Get the web search configuration from the persisted config.
+    /// Returns a default configuration if no config is loaded.
+    pub fn get_web_search_config(&self) -> Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>> {
+        let config = self
+            .config
+            .as_ref()
+            .map(|c| c.web_search_config.clone())
+            .unwrap_or_default();
+        Arc::new(tokio::sync::RwLock::new(config))
     }
 
     /// Resolve the active provider ID for ACP mode.

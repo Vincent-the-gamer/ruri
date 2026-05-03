@@ -59,6 +59,11 @@ const navItems = computed(() => [
         icon: "lucide:monitor",
     },
     {
+        path: "/web-search-config",
+        label: t("nav.webSearch"),
+        icon: "lucide:search",
+    },
+    {
         path: "/api-test",
         label: t("nav.apiTest"),
         icon: "lucide:flask-conical",

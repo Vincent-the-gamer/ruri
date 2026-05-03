@@ -436,3 +436,44 @@ impl ComputerUseConfigDto {
         })
     }
 }
+
+// ─── Web Search Config Models ─────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchConfigDto {
+    pub search_engine: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    pub max_results: usize,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateWebSearchConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_engine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_results: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+impl From<&types::WebSearchConfig> for WebSearchConfigDto {
+    fn from(config: &types::WebSearchConfig) -> Self {
+        Self {
+            search_engine: match config.search_engine {
+                types::SearchEngine::DuckDuckGo => "duckduckgo",
+                types::SearchEngine::Tavily => "tavily",
+                types::SearchEngine::BoCha => "bocha",
+                types::SearchEngine::Baidu => "baidu",
+                types::SearchEngine::Brave => "brave",
+            }
+            .to_string(),
+            api_key: config.api_key.clone(),
+            max_results: config.max_results,
+            enabled: config.enabled,
+        }
+    }
+}

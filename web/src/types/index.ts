@@ -243,6 +243,24 @@ export interface UpdateComputerUseConfigRequest {
   sandbox_config?: SandboxConfig
 }
 
+// ─── Web Search Types ────────────────────────────────────────────
+
+export type SearchEngine = 'duckduckgo' | 'tavily' | 'bocha' | 'baidu' | 'brave'
+
+export interface WebSearchConfig {
+  search_engine: SearchEngine
+  api_key?: string | null
+  max_results: number
+  enabled: boolean
+}
+
+export interface UpdateWebSearchConfigRequest {
+  search_engine?: SearchEngine
+  api_key?: string | null
+  max_results?: number
+  enabled?: boolean
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

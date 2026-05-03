@@ -10,6 +10,7 @@ use axum::{
     routing::{delete, get, post},
 };
 use chrono::Utc;
+use tracing::{debug, error};
 // futures::sink::SinkExt is not needed for axum WebSocket
 use serde::Deserialize;
 use serde_json::json;
@@ -135,6 +136,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/computer-use/config",
             get(get_computer_use_config).put(update_computer_use_config),
+        )
+        // Web search config
+        .route(
+            "/api/web-search/config",
+            get(get_web_search_config).put(update_web_search_config),
         )
         // Logs
         .route("/api/logs", get(get_logs).delete(clear_logs))
@@ -394,14 +400,14 @@ async fn upload_skill_package(
             Json(json!({ "error": "Missing Content-Type header" })),
         ))?;
 
-    println!("[DEBUG] Content-Type header: {}", content_type);
+    debug!(content_type = %content_type, "Processing skill package upload");
 
     // Extract boundary from Content-Type
     let boundary = content_type
         .split("boundary=")
         .nth(1)
         .ok_or_else(|| {
-            eprintln!("[ERROR] Missing boundary in Content-Type");
+            error!("Missing boundary in Content-Type");
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Missing boundary in Content-Type" })),
@@ -410,23 +416,21 @@ async fn upload_skill_package(
         .trim()
         .to_string();
 
-    println!("[DEBUG] Extracted boundary: {}", boundary);
+    debug!(boundary = %boundary, "Extracted multipart boundary");
 
     // Parse multipart using multer - use Body::into_data_stream for Stream trait
     let body = request.into_body();
     let data_stream = body.into_data_stream();
     let mut multipart = Multipart::new(data_stream, boundary);
 
-    println!("[DEBUG] Multipart parser created, starting to parse fields...");
+    debug!("Multipart parser created, starting to parse fields");
 
     // Find the file field
     let mut zip_bytes: Option<Vec<u8>> = None;
 
-    println!("[DEBUG] Starting to parse multipart fields...");
-
     let mut field_count = 0;
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        eprintln!("[ERROR] Failed to parse multipart: {}", e);
+        error!(error = %e, "Failed to parse multipart");
         (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Failed to parse multipart: {}", e) })),
@@ -439,25 +443,28 @@ async fn upload_skill_package(
             .map(|mime| mime.to_string())
             .unwrap_or("unknown".to_string());
         let filename_field = field.file_name().unwrap_or("none").to_string();
-        println!(
-            "[DEBUG] Field {} - name: {}, content_type: {}, filename: {}",
-            field_count, name, content_type_field, filename_field
+        debug!(
+            field_count, name = %name, content_type = %content_type_field, filename = %filename_field,
+            "Parsed multipart field"
         );
 
         if name == "file" || name == "package" {
             let buffer = field.bytes().await.map_err(|e| {
-                eprintln!("[ERROR] Failed to read file bytes: {}", e);
+                error!(error = %e, "Failed to read file bytes");
                 (
                     StatusCode::BAD_REQUEST,
                     Json(json!({ "error": format!("Failed to read file: {}", e) })),
                 )
             })?;
-            println!("[DEBUG] File field size: {} bytes", buffer.len());
+            debug!(size = buffer.len(), "Read file field bytes");
             zip_bytes = Some(buffer.to_vec());
             break;
         }
     }
-    println!("[DEBUG] Total fields parsed: {}", field_count);
+    debug!(
+        total_fields = field_count,
+        "Finished parsing multipart fields"
+    );
 
     let zip_bytes = zip_bytes.ok_or((
         StatusCode::BAD_REQUEST,
@@ -465,40 +472,40 @@ async fn upload_skill_package(
     ))?;
 
     // Parse the ZIP file
-    println!("[DEBUG] Parsing ZIP file, size: {} bytes", zip_bytes.len());
+    debug!(size = zip_bytes.len(), "Parsing ZIP file");
     let cursor = Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(cursor).map_err(|e| {
-        eprintln!("[ERROR] Failed to parse ZIP: {}", e);
+        error!(error = %e, "Failed to parse ZIP file");
         (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Invalid ZIP file: {}", e) })),
         )
     })?;
-    println!("[DEBUG] ZIP parsed successfully, {} files", archive.len());
+    debug!(file_count = archive.len(), "ZIP parsed successfully");
 
     // Find the skill directory (the first directory in the ZIP)
-    println!("[DEBUG] Looking for skill directory in ZIP");
+    debug!("Looking for skill directory in ZIP");
     let mut skill_dir_name: Option<String> = None;
     let mut _skill_dir_path: Option<String> = None;
 
     for i in 0..archive.len() {
         let file = archive.by_index(i).map_err(|e| {
-            eprintln!("[ERROR] Failed to access ZIP file at index {}: {}", i, e);
+            error!(index = i, error = %e, "Failed to access ZIP file at index");
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": format!("Failed to access ZIP file: {}", e) })),
             )
         })?;
         let name = file.name();
-        println!("[DEBUG] Found file in ZIP: {}", name);
+        debug!(file_name = %name, "Found file in ZIP");
 
         // Find the first directory (ends with '/')
         if name.ends_with('/') && name.matches('/').count() == 1 {
             skill_dir_name = Some(name.trim_end_matches('/').to_string());
             _skill_dir_path = Some(name.to_string());
-            println!(
-                "[DEBUG] Found skill directory: {}",
-                skill_dir_name.as_ref().unwrap()
+            debug!(
+                skill_dir = skill_dir_name.as_ref().unwrap(),
+                "Found skill directory"
             );
             break;
         }
@@ -506,18 +513,18 @@ async fn upload_skill_package(
 
     let skill_dir_name = skill_dir_name.ok_or((
         StatusCode::BAD_REQUEST,
-        Json(json!({ "error": "No skill directory found in ZIP. Expected format: skill-name.zip skill-name/SKILL.md" })),
+        Json(json!({ "error": "No skill directory found in ZIP. Expected format: skill-name.zip containing skill-name/SKILL.md" })),
     ))?;
-    println!("[DEBUG] Skill directory confirmed: {}", skill_dir_name);
+    debug!(skill_dir = %skill_dir_name, "Skill directory confirmed");
 
     // Read SKILL.md file
-    println!("[DEBUG] Reading SKILL.md file");
+    debug!("Reading SKILL.md file");
     let skill_content = {
         let skill_md_path = format!("{}/SKILL.md", skill_dir_name.trim_end_matches('/'));
-        println!("[DEBUG] Looking for SKILL.md at path: {}", skill_md_path);
+        debug!(path = %skill_md_path, "Looking for SKILL.md");
         let mut skill_md_file = archive.by_name(&skill_md_path)
             .map_err(|e| {
-                eprintln!("[ERROR] Failed to find SKILL.md in ZIP: {}, path: {}", e, skill_md_path);
+                error!(error = %e, path = %skill_md_path, "Failed to find SKILL.md in ZIP");
                 (
                     StatusCode::BAD_REQUEST,
                     Json(json!({ "error": format!("Failed to find SKILL.md in ZIP: {} (path: {})", e, skill_md_path) })),
@@ -526,43 +533,37 @@ async fn upload_skill_package(
 
         let mut bytes = Vec::new();
         skill_md_file.read_to_end(&mut bytes).map_err(|e| {
-            eprintln!("[ERROR] Failed to read SKILL.md: {}", e);
+            error!(error = %e, "Failed to read SKILL.md");
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": format!("Failed to read SKILL.md: {}", e) })),
             )
         })?;
         let content = String::from_utf8(bytes).map_err(|e| {
-            eprintln!("[ERROR] SKILL.md is not valid UTF-8: {}", e);
+            error!(error = %e, "SKILL.md is not valid UTF-8");
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": format!("SKILL.md is not valid UTF-8: {}", e) })),
             )
         })?;
-        println!(
-            "[DEBUG] SKILL.md content read successfully, size: {} bytes",
-            content.len()
-        );
+        debug!(size = content.len(), "SKILL.md content read successfully");
         content
     };
 
     // Parse SKILL.md
-    println!("[DEBUG] Parsing SKILL.md markdown and frontmatter");
+    debug!("Parsing SKILL.md markdown and frontmatter");
     let parsed_skill = parse_skill_markdown(&skill_content).map_err(|e| {
-        eprintln!("[ERROR] Failed to parse SKILL.md: {}", e);
+        error!(error = %e, "Failed to parse SKILL.md");
         (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Failed to parse SKILL.md: {}", e) })),
         )
     })?;
-    println!("[DEBUG] SKILL.md parsed successfully");
-    println!(
-        "[DEBUG] Frontmatter: name={:?}, description={:?}",
-        parsed_skill.frontmatter.name, parsed_skill.frontmatter.description
-    );
-    println!(
-        "[DEBUG] Content length: {} chars",
-        parsed_skill.content.len()
+    debug!(
+        name = ?parsed_skill.frontmatter.name,
+        description = ?parsed_skill.frontmatter.description,
+        content_len = parsed_skill.content.len(),
+        "SKILL.md parsed successfully"
     );
 
     // Extract skill name and description
@@ -1095,24 +1096,68 @@ async fn update_computer_use_config(
     Ok(Json(dto))
 }
 
+// ─── Web Search Config Handlers ─────────────────────────────────────
+
+async fn get_web_search_config(State(state): State<Arc<AppState>>) -> Json<WebSearchConfigDto> {
+    let config = state.web_search_config.read().await;
+    Json(WebSearchConfigDto::from(&*config))
+}
+
+async fn update_web_search_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateWebSearchConfigRequest>,
+) -> Result<Json<WebSearchConfigDto>, (StatusCode, Json<serde_json::Value>)> {
+    let mut config = state.web_search_config.write().await;
+
+    // Update search_engine if provided
+    if let Some(search_engine) = req.search_engine {
+        config.search_engine = match search_engine.as_str() {
+            "duckduckgo" => crate::types::SearchEngine::DuckDuckGo,
+            "tavily" => crate::types::SearchEngine::Tavily,
+            "bocha" => crate::types::SearchEngine::BoCha,
+            "baidu" => crate::types::SearchEngine::Baidu,
+            "brave" => crate::types::SearchEngine::Brave,
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Invalid search engine: {}. Must be 'duckduckgo', 'tavily', 'bocha', 'baidu', or 'brave'", search_engine)
+                    })),
+                ));
+            }
+        };
+    }
+
+    // Update api_key if provided
+    if let Some(api_key) = req.api_key {
+        config.api_key = api_key;
+    }
+
+    // Update max_results if provided
+    if let Some(max_results) = req.max_results {
+        config.max_results = max_results;
+    }
+
+    // Update enabled if provided
+    if let Some(enabled) = req.enabled {
+        config.enabled = enabled;
+    }
+
+    let dto = WebSearchConfigDto::from(&*config);
+    drop(config);
+
+    state.auto_save().await;
+
+    Ok(Json(dto))
+}
+
 /// WebSocket日志推送处理器
 async fn ws_logs_handler(mut socket: WebSocket, state: Arc<AppState>) {
     // 订阅日志广播
     let mut log_rx = state.log_manager.subscribe();
 
-    // 发送历史日志
-    let logs = state.log_manager.get_logs().await;
-    for log in logs {
-        if let Ok(log_json) = serde_json::to_string(&log) {
-            if socket
-                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(log_json)))
-                .await
-                .is_err()
-            {
-                return;
-            }
-        }
-    }
+    // 注意：历史日志由前端通过 HTTP API 获取，WebSocket 只推送新日志
+    // 这样避免历史日志重复发送
 
     // 持续接收新日志并推送
     while let Ok(log) = log_rx.recv().await {

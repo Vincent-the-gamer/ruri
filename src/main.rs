@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+//! Ruri - AI Agent application
+#![allow(dead_code)] // Allow unused code for future features
 
 mod acp;
 mod agent;
@@ -10,7 +11,8 @@ mod transport;
 mod types;
 
 use agent::builtin_tools::{
-    CreateFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, WriteFileTool,
+    CreateFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, WebSearchTool,
+    WriteFileTool,
 };
 use agent::tool_executor::ToolExecutor;
 use api::AppState;
@@ -105,13 +107,19 @@ async fn main() -> anyhow::Result<()> {
     // Normal mode: use our logging system with LogManager
     let log_manager = logging::init_logging(1000);
 
-    tracing::info!("╔══════════════════════════════════════╗");
-    tracing::info!("║         🤖 Ruri AI Agent             ║");
-    tracing::info!("╚══════════════════════════════════════╝");
+    tracing::info!("══════════════════════════════════════");
+    tracing::info!("         🤖 Ruri AI Agent             ");
+    tracing::info!("══════════════════════════════════════");
 
     // ── Create shared application state ──────────────────────────
 
-    // Register built-in tools and store definitions
+    // Create AppState to load configuration (including web_search_config)
+    let temp_state = AppState::new().with_log_manager(log_manager);
+
+    // Clone the web_search_config before moving state into Arc
+    let web_search_config = temp_state.web_search_config.clone();
+
+    // Register built-in tools
     let mut tool_executor = ToolExecutor::new();
     tool_executor.register(Arc::new(ReadFileTool));
     tool_executor.register(Arc::new(WriteFileTool));
@@ -119,14 +127,15 @@ async fn main() -> anyhow::Result<()> {
     tool_executor.register(Arc::new(EditFileTool));
     tool_executor.register(Arc::new(ListDirectoryTool));
     tool_executor.register(Arc::new(SearchFilesTool));
+    tool_executor.register(Arc::new(WebSearchTool::new(web_search_config)));
 
-    // Store tool definitions for the API
+    // Get tool definitions
     let tool_defs = tool_executor.definitions();
 
+    // Create the final state with tool definitions
     let state = Arc::new(AppState {
         tool_definitions: tool_defs,
-        log_manager,
-        ..AppState::new()
+        ..temp_state
     });
 
     // ── Create the API router ────────────────────────────────────

@@ -66,3 +66,7 @@ tempfile = "3"
 
 # Multipart file upload
 multer = "3"
+
+# HTML parsing for web search
+scraper = "0.20"
+url = "2.5"

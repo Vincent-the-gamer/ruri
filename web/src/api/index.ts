@@ -14,7 +14,9 @@ import type {
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
+  UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
+  WebSearchConfig,
 } from '../types'
 
 const client = axios.create({
@@ -164,4 +166,16 @@ export function openLogsStream(): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
   return new WebSocket(`${protocol}//${host}/api/logs/stream`)
+}
+
+// ─── Web Search ───────────────────────────────────────────────────
+
+export async function getWebSearchConfig(): Promise<WebSearchConfig> {
+  const res = await client.get('/api/web-search/config')
+  return res.data
+}
+
+export async function updateWebSearchConfig(data: UpdateWebSearchConfigRequest): Promise<WebSearchConfig> {
+  const res = await client.put('/api/web-search/config', data)
+  return res.data
 }
