@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, nextTick, computed } from "vue";
+import { onMounted, onActivated, ref, nextTick, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
@@ -20,6 +20,12 @@ onMounted(async () => {
         chatStore.fetchHistory(),
         providerStore.fetchProviders(),
     ]);
+    scrollToBottom();
+});
+
+// When activated from keep-alive cache, just scroll to bottom
+// No need to refetch history as component state is preserved
+onActivated(() => {
     scrollToBottom();
 });
 

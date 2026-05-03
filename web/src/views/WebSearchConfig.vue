@@ -375,90 +375,98 @@ const searchEngines = computed(() => [
 }
 
 .header-title {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 700;
+    color: var(--color-text);
     margin-bottom: 0.5rem;
+    letter-spacing: -0.01em;
 }
 
 .header-desc {
-    color: #666;
-    font-size: 0.95rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
 }
 
 .config-section {
-    background: #fff;
-    border-radius: 12px;
+    background-color: var(--color-bg-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .section-title {
-    font-size: 1.25rem;
+    font-size: 1.0625rem;
     font-weight: 600;
-    margin-bottom: 0.5rem;
+    color: var(--color-text);
+    margin-bottom: 0.25rem;
 }
 
 .section-desc {
-    color: #666;
-    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
     margin-bottom: 1rem;
 }
 
 .error-banner {
-    background: #fee;
-    border: 1px solid #fcc;
-    color: #c00;
-    padding: 1rem;
-    border-radius: 8px;
+    background-color: var(--color-danger-soft);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--color-danger);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
     margin-bottom: 1rem;
+    font-size: 0.875rem;
 }
 
 .success-banner {
-    background: #efe;
-    border: 1px solid #cfc;
-    color: #0a0;
-    padding: 1rem;
-    border-radius: 8px;
+    background-color: var(--color-accent-soft);
+    border: 1px solid rgba(134, 59, 255, 0.2);
+    color: var(--color-accent-hover);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
     margin-bottom: 1rem;
+    font-size: 0.875rem;
 }
 
 .loading-state {
     text-align: center;
     padding: 3rem;
-    color: #666;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
 }
 
 .engine-options {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .engine-option {
     display: flex;
     align-items: flex-start;
-    padding: 1rem;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    background: white;
+    padding: 1rem 1.25rem;
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-bg-soft);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
     text-align: left;
+    width: 100%;
 }
 
 .engine-option:hover {
-    border-color: #007bff;
-    background: #f8f9ff;
+    border-color: var(--color-primary);
+    background-color: var(--color-bg-hover);
 }
 
 .engine-option--selected {
-    border-color: #007bff;
-    background: #f0f7ff;
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
 }
 
 .engine-option--selected:hover {
-    border-color: #0056b3;
+    border-color: var(--color-accent-hover);
 }
 
 .engine-radio {
@@ -472,25 +480,22 @@ const searchEngines = computed(() => [
     justify-content: center;
     width: 18px;
     height: 18px;
-    border: 2px solid #ccc;
+    border: 2px solid var(--color-border);
     border-radius: 50%;
     transition: all 0.2s;
+    background-color: var(--color-bg);
 }
 
 .radio-dot--selected {
-    border-color: #007bff;
+    border-color: var(--color-accent);
 }
 
 .radio-dot-inner {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: transparent;
+    background-color: var(--color-accent);
     transition: all 0.2s;
-}
-
-.radio-dot--selected .radio-dot-inner {
-    background: #007bff;
 }
 
 .engine-info {
@@ -498,13 +503,15 @@ const searchEngines = computed(() => [
 }
 
 .engine-name {
-    font-weight: 600;
+    font-weight: 500;
+    color: var(--color-text);
     margin-bottom: 0.25rem;
+    font-size: 0.9375rem;
 }
 
 .engine-desc {
-    font-size: 0.85rem;
-    color: #666;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
 }
 
 .toggle-row {
@@ -520,48 +527,55 @@ const searchEngines = computed(() => [
 }
 
 .toggle-input {
-    display: none;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .toggle {
     position: relative;
-    width: 48px;
-    height: 28px;
-    background: #ccc;
-    border-radius: 14px;
-    transition: all 0.3s;
+    width: 2.75rem;
+    height: 1.5rem;
+    background-color: var(--color-bg-soft);
+    border: 2px solid var(--color-border);
+    border-radius: 1.5rem;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .toggle:hover {
-    background: #bbb;
+    border-color: var(--color-primary);
 }
 
 .toggle--on {
-    background: #007bff;
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
 }
 
 .toggle--on:hover {
-    background: #0056b3;
+    border-color: var(--color-accent-hover);
+    background-color: var(--color-accent-hover);
 }
 
 .toggle-thumb {
     position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 22px;
-    height: 22px;
-    background: white;
+    top: 0.125rem;
+    left: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    background-color: var(--color-text);
     border-radius: 50%;
-    transition: all 0.3s;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .toggle--on .toggle-thumb {
-    transform: translateX(20px);
+    transform: translateX(1.25rem);
 }
 
 .toggle-text {
     font-weight: 500;
+    color: var(--color-text);
 }
 
 .form-field {
@@ -575,37 +589,40 @@ const searchEngines = computed(() => [
 .input-label {
     display: block;
     font-weight: 500;
+    color: var(--color-text);
     margin-bottom: 0.5rem;
 }
 
 .text-input {
     width: 100%;
     padding: 0.75rem;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    font-size: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
     transition: all 0.2s;
+    background-color: var(--color-bg);
+    color: var(--color-text);
 }
 
 .text-input:focus {
     outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
 .text-input:disabled {
-    background: #f5f5f5;
+    background-color: var(--color-bg-mute);
     cursor: not-allowed;
 }
 
 .text-input::placeholder {
-    color: #aaa;
+    color: var(--color-text-muted);
 }
 
 .input-hint {
     margin-top: 0.5rem;
-    font-size: 0.85rem;
-    color: #666;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
 }
 
 .btn {
@@ -614,8 +631,8 @@ const searchEngines = computed(() => [
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
     border: none;
-    border-radius: 6px;
-    font-size: 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
@@ -645,12 +662,12 @@ const searchEngines = computed(() => [
 }
 
 .btn-accent {
-    background: #007bff;
-    color: white;
+    background-color: var(--color-accent);
+    color: var(--color-primary-foreground, #fff);
 }
 
 .btn-accent:hover:not(:disabled) {
-    background: #0056b3;
+    background-color: var(--color-accent-hover);
 }
 
 .save-row {
@@ -661,18 +678,18 @@ const searchEngines = computed(() => [
 }
 
 .change-hint {
-    color: #666;
-    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
 }
 
 .info-banner {
     display: flex;
     align-items: flex-start;
     gap: 1rem;
-    background: #e7f3ff;
-    border: 1px solid #b3d7ff;
+    background-color: var(--color-info-soft);
+    border: 1px solid var(--color-info);
     padding: 1rem;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     margin-bottom: 1.5rem;
 }
 
@@ -681,33 +698,37 @@ const searchEngines = computed(() => [
     height: 20px;
     flex-shrink: 0;
     margin-top: 0.1rem;
+    color: var(--color-info-text);
 }
 
 .info-banner > span {
     flex: 1;
-    font-size: 0.9rem;
+    font-size: 0.875rem;
+    color: var(--color-text);
 }
 
 .learn-more {
-    background: #f8f9fa;
-    border-radius: 12px;
+    background-color: var(--color-bg-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
     padding: 1.5rem;
 }
 
 .learn-more-title {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
+    color: var(--color-text);
     margin-bottom: 0.75rem;
 }
 
 .learn-more-desc {
-    color: #666;
-    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
     line-height: 1.6;
 }
 
 .learn-more-link {
-    color: #007bff;
+    color: var(--color-accent);
     text-decoration: none;
     font-weight: 500;
 }

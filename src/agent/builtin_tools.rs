@@ -777,21 +777,24 @@ impl Tool for WebSearchTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition::function("web_search")
             .description(
-                "Search the web for information using DuckDuckGo. \n\
-                 Returns a list of search results with titles, URLs, and snippets. \n\
-                 Use this tool when you need to find information that is not available in the local files."
+                "Search the web for current information. \n\
+                 Returns search results with titles, URLs, snippets, and when available, \n\
+                 full page content. \n\
+                 Use this tool when you need information that may not be in your training data, \n\
+                 such as current events, recent news, live data, or up-to-date documentation. \n\
+                 Supports multiple search engines: DuckDuckGo (free), Tavily, BoCha, Baidu, Brave."
             )
             .parameter_with_description(
                 "query",
                 ParameterType::String,
                 true,
-                Some("The search query to look for."),
+                Some("The search query. Be specific and include relevant keywords."),
             )
             .parameter_with_description(
                 "max_results",
                 ParameterType::Integer,
                 false,
-                Some("Maximum number of results to return (default: 10, max: 20)."),
+                Some("Maximum number of results to return (default: 5, max: 20). Use fewer results for focused queries."),
             )
             .build()
     }
@@ -807,16 +810,16 @@ impl Tool for WebSearchTool {
 
         // Check if web search is enabled
         if !config.enabled {
-            return Err(ToolError::ExecutionError(
-                "Web search is disabled in configuration.".to_string(),
-            ));
+            return Ok(
+                "Web search is currently disabled. I will answer based on my training knowledge instead.".to_string(),
+            );
         }
 
-        // Use max_results from args or config
+        // Use max_results from args or config, with a sensible default
         let max_results = parsed["max_results"]
             .as_u64()
-            .map(|n| n.min(20) as usize)
-            .unwrap_or(config.max_results.min(20));
+            .map(|n| n.max(1).min(20) as usize)
+            .unwrap_or(config.max_results.min(20).max(1));
 
         tracing::info!(
             query = %query,
@@ -834,27 +837,47 @@ impl Tool for WebSearchTool {
                 search_duckduckgo(query, max_results).await
             }
             crate::types::SearchEngine::Tavily => {
-                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
-                    "Tavily API key not configured. Please set api_key in web_search_config.".to_string()
-                ))?;
+                let key = match api_key {
+                    Some(k) => k,
+                    None => {
+                        return Ok(
+                            "Web search (Tavily) is not configured. I will answer based on my training knowledge instead.".to_string(),
+                        );
+                    }
+                };
                 search_tavily(query, max_results, &key).await
             }
             crate::types::SearchEngine::BoCha => {
-                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
-                    "BoCha API key not configured. Please set api_key in web_search_config.".to_string()
-                ))?;
+                let key = match api_key {
+                    Some(k) => k,
+                    None => {
+                        return Ok(
+                            "Web search (BoCha) is not configured. I will answer based on my training knowledge instead.".to_string(),
+                        );
+                    }
+                };
                 search_bocha(query, max_results, &key).await
             }
             crate::types::SearchEngine::Baidu => {
-                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
-                    "Baidu AI Search API key not configured. Please set api_key in web_search_config.".to_string()
-                ))?;
+                let key = match api_key {
+                    Some(k) => k,
+                    None => {
+                        return Ok(
+                            "Web search (Baidu) is not configured. I will answer based on my training knowledge instead.".to_string(),
+                        );
+                    }
+                };
                 search_baidu(query, max_results, &key).await
             }
             crate::types::SearchEngine::Brave => {
-                let key = api_key.ok_or_else(|| ToolError::ExecutionError(
-                    "Brave Search API key not configured. Please set api_key in web_search_config.".to_string()
-                ))?;
+                let key = match api_key {
+                    Some(k) => k,
+                    None => {
+                        return Ok(
+                            "Web search (Brave) is not configured. I will answer based on my training knowledge instead.".to_string(),
+                        );
+                    }
+                };
                 search_brave(query, max_results, &key).await
             }
         }
@@ -864,28 +887,35 @@ impl Tool for WebSearchTool {
             return Ok("No search results found.".to_string());
         }
 
-        // Format results as markdown
+        // Format results as markdown with proper structure for consumption
         let mut output = String::new();
+        let engine_name = match config.search_engine {
+            crate::types::SearchEngine::DuckDuckGo => "DuckDuckGo",
+            crate::types::SearchEngine::Tavily => "Tavily",
+            crate::types::SearchEngine::BoCha => "BoCha",
+            crate::types::SearchEngine::Baidu => "Baidu AI Search",
+            crate::types::SearchEngine::Brave => "Brave Search",
+        };
         output.push_str(&format!(
-            "Found {} results for '{}' (using {}):\n\n",
-            results.len(),
+            "## Web Search Results\n\n**Query:** {}\n**Engine:** {}\n**Results:** {}\n\n",
             query,
-            match config.search_engine {
-                crate::types::SearchEngine::DuckDuckGo => "DuckDuckGo",
-                crate::types::SearchEngine::Tavily => "Tavily",
-                crate::types::SearchEngine::BoCha => "BoCha",
-                crate::types::SearchEngine::Baidu => "Baidu AI Search",
-                crate::types::SearchEngine::Brave => "Brave Search",
-            }
+            engine_name,
+            results.len()
         ));
 
         for (i, result) in results.iter().enumerate() {
-            output.push_str(&format!("{}. {}\n", i + 1, result.title));
-            output.push_str(&format!("   URL: {}\n", result.url));
-            output.push_str(&format!("   {}\n\n", result.snippet));
+            output.push_str(&format!("### {}. {}\n\n", i + 1, result.title));
+            output.push_str(&format!("**URL:** {}\n\n", result.url));
+            if !result.snippet.is_empty() {
+                output.push_str(&format!("**Snippet:** {}\n\n", result.snippet));
+            }
+            if !result.content.is_empty() {
+                output.push_str(&format!("**Content:**\n{}\n\n", result.content));
+            }
+            output.push_str("---\n\n");
         }
 
-        Ok(output)
+        Ok(output.trim_end().to_string())
     }
 }
 
@@ -894,6 +924,8 @@ struct SearchResult {
     title: String,
     url: String,
     snippet: String,
+    /// Full page content when available (e.g., from Tavily advanced search)
+    content: String,
 }
 
 /// Perform a web search using DuckDuckGo.
@@ -956,6 +988,7 @@ async fn search_duckduckgo(
             title,
             url,
             snippet,
+            content: String::new(),
         });
     }
 
@@ -980,6 +1013,7 @@ fn urlencode(s: &str) -> String {
 }
 
 /// Perform a web search using Tavily API.
+/// Uses advanced search depth to fetch actual page content.
 async fn search_tavily(
     query: &str,
     max_results: usize,
@@ -989,45 +1023,94 @@ async fn search_tavily(
     struct TavilyRequest {
         query: String,
         max_results: usize,
+        /// Use advanced search to get full page content
+        search_depth: &'static str,
+        /// Include extracted content from pages
+        include_answer: bool,
+        /// Include raw content
+        include_raw_content: bool,
     }
 
     #[derive(serde::Deserialize)]
     struct TavilyResponse {
         results: Vec<TavilyResult>,
+        #[serde(default)]
+        answer: Option<String>,
     }
 
     #[derive(serde::Deserialize)]
     struct TavilyResult {
         title: String,
         url: String,
-        content: String,
+        #[serde(default)]
+        content: Option<String>,
+        #[serde(default)]
+        snippet: Option<String>,
+        #[serde(default)]
+        raw_content: Option<String>,
+        #[serde(default)]
+        score: Option<f64>,
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("RuriBot/1.0")
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
     let request = TavilyRequest {
         query: query.to_string(),
         max_results,
+        search_depth: "advanced",
+        include_answer: true,
+        include_raw_content: true,
     };
+
+    let request_body = serde_json::to_string(&request).unwrap_or_default();
+    tracing::debug!(query = %query, max_results = max_results, request_body = %request_body, "Sending Tavily search request");
 
     let response = client
         .post("https://api.tavily.com/search")
         .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
         .json(&request)
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
         .send()
         .await?;
 
     let tavily_response: TavilyResponse = response.json().await?;
 
-    Ok(tavily_response
+    tracing::info!(
+        requested_max_results = max_results,
+        received_results_count = tavily_response.results.len(),
+        has_answer = tavily_response.answer.is_some(),
+        "Tavily search completed"
+    );
+
+    let mut results: Vec<SearchResult> = tavily_response
         .results
         .into_iter()
         .map(|r| SearchResult {
             title: r.title,
             url: r.url,
-            snippet: r.content,
+            snippet: r.snippet.unwrap_or_default(),
+            content: r.raw_content.or(r.content).unwrap_or_default(),
         })
-        .collect())
+        .collect();
+
+    // If Tavily provided a direct answer, prepend it as a special result
+    if let Some(answer) = tavily_response.answer {
+        results.insert(
+            0,
+            SearchResult {
+                title: "Direct Answer".to_string(),
+                url: "tavily://direct-answer".to_string(),
+                snippet: answer.clone(),
+                content: answer,
+            },
+        );
+    }
+
+    Ok(results)
 }
 
 /// Perform a web search using BoCha API.
@@ -1073,6 +1156,7 @@ async fn search_bocha(
             title: r.title,
             url: r.link,
             snippet: r.snippet,
+            content: String::new(),
         })
         .collect())
 }
@@ -1120,6 +1204,7 @@ async fn search_baidu(
             title: r.title,
             url: r.url,
             snippet: r.desc,
+            content: String::new(),
         })
         .collect())
 }
@@ -1132,22 +1217,28 @@ async fn search_brave(
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
     let encoded_query = urlencode(query);
     let url = format!(
-        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        "https://api.search.brave.com/res/v1/web/search?q={}&count={}&summarize=true",
         encoded_query, max_results
     );
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent("RuriBot/1.0")
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
     let response = client
         .get(&url)
         .header("X-Subscription-Token", api_key)
         .header("Accept", "application/json")
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15))
         .send()
         .await?;
 
     #[derive(serde::Deserialize)]
     struct BraveResponse {
         web: BraveWebResults,
+        #[serde(default)]
+        summarize: Option<BraveSummary>,
     }
 
     #[derive(serde::Deserialize)]
@@ -1159,19 +1250,47 @@ async fn search_brave(
     struct BraveResult {
         title: String,
         url: String,
-        description: String,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        page_age: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct BraveSummary {
+        #[serde(default)]
+        summary: Vec<String>,
     }
 
     let brave_response: BraveResponse = response.json().await?;
 
-    Ok(brave_response
+    let mut results: Vec<SearchResult> = brave_response
         .web
         .results
         .into_iter()
         .map(|r| SearchResult {
             title: r.title,
             url: r.url,
-            snippet: r.description,
+            snippet: r.description.unwrap_or_default(),
+            content: String::new(),
         })
-        .collect())
+        .collect();
+
+    // If Brave provided a summary, prepend it
+    if let Some(summary_data) = brave_response.summarize {
+        let summary_text = summary_data.summary.join("\n");
+        if !summary_text.is_empty() {
+            results.insert(
+                0,
+                SearchResult {
+                    title: "Brave Summary".to_string(),
+                    url: "brave://summary".to_string(),
+                    snippet: summary_text.clone(),
+                    content: summary_text,
+                },
+            );
+        }
+    }
+
+    Ok(results)
 }

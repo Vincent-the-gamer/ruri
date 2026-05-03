@@ -60,9 +60,24 @@ impl AcpSession {
         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
-            web_search_config,
-        )));
+
+        // Register WebSearchTool only if properly configured
+        let web_search_available = web_search_config
+            .try_read()
+            .map(|config| {
+                config.enabled
+                    && match config.search_engine {
+                        crate::types::SearchEngine::DuckDuckGo => true,
+                        _ => config.api_key.is_some(),
+                    }
+            })
+            .unwrap_or(false);
+
+        if web_search_available {
+            agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+                web_search_config,
+            )));
+        }
 
         Self {
             agent,
@@ -100,9 +115,24 @@ impl AcpSession {
         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
-            web_search_config,
-        )));
+
+        // Register WebSearchTool only if properly configured
+        let web_search_available = web_search_config
+            .try_read()
+            .map(|config| {
+                config.enabled
+                    && match config.search_engine {
+                        crate::types::SearchEngine::DuckDuckGo => true,
+                        _ => config.api_key.is_some(),
+                    }
+            })
+            .unwrap_or(false);
+
+        if web_search_available {
+            agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+                web_search_config,
+            )));
+        }
 
         Self {
             agent,

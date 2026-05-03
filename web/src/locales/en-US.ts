@@ -157,6 +157,7 @@ export default {
     type: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
+
       custom: 'Custom',
       other: 'Other',
     },

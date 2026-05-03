@@ -114,7 +114,7 @@ function handleSave() {
 </script>
 
 <template>
-    <div class="modal-backdrop" @click.self="emit('cancel')">
+    <div class="modal-backdrop">
         <div class="modal-card">
             <!-- Header -->
             <div class="modal-header">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
+import { marked } from "marked";
 import type { ChatMessage as ChatMessageType } from "../types";
 
 const props = defineProps<{
@@ -23,6 +24,14 @@ function formatArgs(args: string): string {
         return args;
     }
 }
+
+function renderMarkdown(content: string): string {
+    try {
+        return marked.parse(content, { async: false }) as string;
+    } catch {
+        return content;
+    }
+}
 </script>
 
 <template>
@@ -42,9 +51,10 @@ function formatArgs(args: string): string {
             </div>
             <div class="message-content-wrapper">
                 <div class="message-label">你</div>
-                <div class="message-content user-content">
-                    {{ message.content }}
-                </div>
+                <div
+                    class="message-content user-content"
+                    v-html="renderMarkdown(message.content)"
+                ></div>
             </div>
         </div>
 
@@ -96,9 +106,10 @@ function formatArgs(args: string): string {
                     <span>琉璃</span>
                     <span class="label-dot"></span>
                 </div>
-                <div class="message-content assistant-content">
-                    {{ message.content }}
-                </div>
+                <div
+                    class="message-content assistant-content"
+                    v-html="renderMarkdown(message.content)"
+                ></div>
                 <!-- Tool calls -->
                 <div v-if="hasToolCalls" class="tool-calls">
                     <div
@@ -158,16 +169,17 @@ function formatArgs(args: string): string {
                         message.tool_call_id
                     }}</span>
                 </div>
-                <div class="message-content tool-content">
-                    {{ message.content }}
-                </div>
+                <div
+                    class="message-content tool-content"
+                    v-html="renderMarkdown(message.content)"
+                ></div>
             </div>
         </div>
 
         <!-- System Message -->
         <div v-else-if="isSystem" class="message message-system">
             <div class="message-content">
-                {{ message.content }}
+                <div v-html="renderMarkdown(message.content)"></div>
             </div>
         </div>
     </div>
@@ -314,9 +326,126 @@ function formatArgs(args: string): string {
 .message-content {
     padding: 0.75rem 1rem;
     font-size: 0.875rem;
-    line-height: 1.5;
+    line-height: 1.6;
     word-break: break-word;
-    white-space: pre-wrap;
+}
+
+/* Markdown styles */
+.message-content :deep(p) {
+    margin: 0.25rem 0;
+}
+
+.message-content :deep(p:first-child) {
+    margin-top: 0;
+}
+
+.message-content :deep(p:last-child) {
+    margin-bottom: 0;
+}
+
+.message-content :deep(pre) {
+    background: hsl(var(--muted) / 0.5);
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
+.message-content :deep(code) {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 0.8125rem;
+}
+
+.message-content :deep(:not(pre) > code) {
+    background: hsl(var(--muted) / 0.5);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.message-content :deep(pre code) {
+    background: none;
+    padding: 0;
+}
+
+.message-content :deep(ul),
+.message-content :deep(ol) {
+    margin: 0.25rem 0;
+    padding-left: 1.5rem;
+}
+
+.message-content :deep(li) {
+    margin: 0.125rem 0;
+}
+
+.message-content :deep(blockquote) {
+    border-left: 3px solid hsl(var(--primary) / 0.5);
+    padding-left: 0.75rem;
+    margin: 0.5rem 0;
+    color: hsl(var(--muted-foreground));
+}
+
+.message-content :deep(a) {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.message-content :deep(a:hover) {
+    text-decoration-thickness: 2px;
+}
+
+.message-content :deep(hr) {
+    border: none;
+    border-top: 1px solid hsl(var(--border));
+    margin: 0.75rem 0;
+}
+
+.message-content :deep(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5rem 0;
+}
+
+.message-content :deep(th),
+.message-content :deep(td) {
+    border: 1px solid hsl(var(--border));
+    padding: 0.375rem 0.625rem;
+    text-align: left;
+}
+
+.message-content :deep(th) {
+    background: hsl(var(--muted) / 0.3);
+    font-weight: 600;
+}
+
+.message-content :deep(img) {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    margin: 0.25rem 0;
+}
+
+.message-content :deep(h1),
+.message-content :deep(h2),
+.message-content :deep(h3),
+.message-content :deep(h4),
+.message-content :deep(h5),
+.message-content :deep(h6) {
+    margin: 0.5rem 0 0.25rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.message-content :deep(h1) {
+    font-size: 1.25rem;
+}
+
+.message-content :deep(h2) {
+    font-size: 1.125rem;
+}
+
+.message-content :deep(h3) {
+    font-size: 1rem;
 }
 
 .user-content {

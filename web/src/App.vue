@@ -29,9 +29,16 @@ onMounted(() => {
     <div
         class="app-container min-h-screen flex flex-col bg-background font-sans-rounded"
     >
+        <!-- Floating orbs background animation -->
+        <div class="bg-orbs">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+        </div>
+
         <!-- Header - Inspired by airi's elegant navigation -->
         <header
-            class="sticky top-0 z-20 h-[68px] w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-all duration-300"
+            class="sticky top-0 z-20 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300"
         >
             <div
                 class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
@@ -61,10 +68,17 @@ onMounted(() => {
             <!-- Main Content -->
             <main class="flex-1 overflow-auto">
                 <div class="max-w-[1440px] mx-auto w-full p-6">
-                    <router-view v-slot="{ Component }">
-                        <transition name="fade" mode="out-in">
-                            <component :is="Component" />
-                        </transition>
+                    <router-view v-slot="{ Component, route }">
+                        <keep-alive v-if="route.meta.keepAlive">
+                            <transition name="fade" mode="out-in">
+                                <component :is="Component" />
+                            </transition>
+                        </keep-alive>
+                        <template v-else>
+                            <transition name="fade" mode="out-in">
+                                <component :is="Component" />
+                            </transition>
+                        </template>
                     </router-view>
                 </div>
             </main>
@@ -79,6 +93,7 @@ onMounted(() => {
     min-height: 100vh;
 }
 
+/* Full-page gradient background - lowest layer */
 .app-container::before {
     content: "";
     position: fixed;
@@ -86,42 +101,62 @@ onMounted(() => {
     left: 0;
     right: 0;
     bottom: 0;
+    width: 100%;
+    height: 100%;
     background:
-        radial-gradient(
-            ellipse 80% 50% at 20% -10%,
-            hsl(var(--primary) / 0.08) 0%,
-            transparent 50%
+        linear-gradient(
+            135deg,
+            hsl(var(--background)) 0%,
+            hsl(var(--primary) / 0.12) 20%,
+            hsl(280 70% 60% / 0.1) 40%,
+            hsl(var(--primary) / 0.08) 60%,
+            hsl(200 70% 60% / 0.08) 80%,
+            hsl(var(--background)) 100%
         ),
         radial-gradient(
-            ellipse 60% 40% at 80% 100%,
-            hsl(280 70% 60% / 0.06) 0%,
-            transparent 50%
+            ellipse 60% 50% at 10% 0%,
+            hsl(var(--primary) / 0.15) 0%,
+            transparent 60%
+        ),
+        radial-gradient(
+            ellipse 50% 40% at 90% 100%,
+            hsl(280 70% 60% / 0.12) 0%,
+            transparent 60%
         ),
         radial-gradient(
             ellipse 40% 30% at 50% 50%,
-            hsl(var(--primary) / 0.03) 0%,
+            hsl(var(--primary) / 0.06) 0%,
             transparent 70%
         );
     pointer-events: none;
     z-index: 0;
 }
 
-/* Dark mode gradient */
+/* Dark mode gradient - more vibrant */
 :global(.dark) .app-container::before {
     background:
-        radial-gradient(
-            ellipse 80% 50% at 20% -10%,
-            hsl(var(--primary) / 0.12) 0%,
-            transparent 50%
+        linear-gradient(
+            135deg,
+            hsl(var(--background)) 0%,
+            hsl(var(--primary) / 0.2) 20%,
+            hsl(280 70% 60% / 0.18) 40%,
+            hsl(var(--primary) / 0.15) 60%,
+            hsl(200 70% 60% / 0.12) 80%,
+            hsl(var(--background)) 100%
         ),
         radial-gradient(
-            ellipse 60% 40% at 80% 100%,
-            hsl(280 70% 60% / 0.08) 0%,
-            transparent 50%
+            ellipse 60% 50% at 10% 0%,
+            hsl(var(--primary) / 0.25) 0%,
+            transparent 60%
+        ),
+        radial-gradient(
+            ellipse 50% 40% at 90% 100%,
+            hsl(280 70% 60% / 0.2) 0%,
+            transparent 60%
         ),
         radial-gradient(
             ellipse 40% 30% at 50% 50%,
-            hsl(var(--primary) / 0.05) 0%,
+            hsl(var(--primary) / 0.1) 0%,
             transparent 70%
         );
 }
@@ -129,11 +164,82 @@ onMounted(() => {
 .app-container > header {
     position: relative;
     z-index: 20;
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
 .app-container > .flex {
     position: relative;
     z-index: 1;
+}
+
+/* Floating orbs background animation */
+.bg-orbs {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.3;
+    animation: orb-float 25s ease-in-out infinite;
+}
+
+.orb-1 {
+    width: 500px;
+    height: 500px;
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 70% 60%));
+    top: -100px;
+    right: -100px;
+    animation-delay: 0s;
+}
+
+.orb-2 {
+    width: 400px;
+    height: 400px;
+    background: linear-gradient(135deg, hsl(320 70% 60%), hsl(var(--primary)));
+    bottom: -80px;
+    left: -80px;
+    animation-delay: -8s;
+}
+
+.orb-3 {
+    width: 350px;
+    height: 350px;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.7),
+        hsl(200 70% 70%)
+    );
+    top: 40%;
+    left: 20%;
+    animation-delay: -16s;
+}
+
+@keyframes orb-float {
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+    33% {
+        transform: translate(40px, -40px) scale(1.05);
+    }
+    66% {
+        transform: translate(-30px, 30px) scale(0.95);
+    }
+}
+
+/* Sidebar frosted glass enhancement via global style */
+:global(.sidebar-container) {
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
 /* Page transition */

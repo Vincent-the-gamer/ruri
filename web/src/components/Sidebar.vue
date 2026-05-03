@@ -78,7 +78,7 @@ const isActive = (path: string) => {
 
 <template>
     <aside
-        class="sidebar-container w-64 border-r border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex flex-col transition-all duration-300"
+        class="sidebar-container w-64 border-r border-border/30 bg-background/25 backdrop-blur-xl supports-[backdrop-filter]:bg-background/15 flex flex-col transition-all duration-300"
     >
         <!-- Navigation -->
         <nav class="flex-1 p-3 space-y-1.5 overflow-y-auto">
@@ -118,13 +118,15 @@ const isActive = (path: string) => {
 </template>
 
 <style scoped>
-/* Sidebar Container */
+/* Sidebar Container - frosted glass */
 .sidebar-container {
     background: linear-gradient(
         180deg,
-        hsl(var(--background)) 0%,
-        hsl(var(--background) / 0.95) 100%
+        hsl(var(--background) / 0.3) 0%,
+        hsl(var(--background) / 0.2) 100%
     );
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
 }
 
 /* Navigation Items */
@@ -159,7 +161,7 @@ const isActive = (path: string) => {
 
 .nav-item-inactive:hover {
     color: hsl(var(--foreground));
-    background-color: hsl(var(--secondary));
+    background-color: hsl(var(--secondary) / 0.5);
     border-color: hsl(var(--border) / 0.5);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
@@ -212,7 +214,9 @@ const isActive = (path: string) => {
 
 /* Footer */
 .sidebar-footer {
-    background: hsl(var(--background) / 0.5);
+    background: hsl(var(--background) / 0.15);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 
 .version-badge {

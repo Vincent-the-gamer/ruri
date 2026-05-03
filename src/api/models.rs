@@ -10,6 +10,7 @@ use crate::types;
 pub enum ProviderConfigDto {
     Openai(OpenAIProviderConfigDto),
     Anthropic(AnthropicProviderConfigDto),
+    LmStudio(LmStudioProviderConfigDto),
     Custom(Box<CustomProviderConfigDto>),
 }
 
@@ -17,6 +18,14 @@ pub enum ProviderConfigDto {
 pub struct OpenAIProviderConfigDto {
     pub base_url: String,
     pub api_key: String,
+    pub default_model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LmStudioProviderConfigDto {
+    pub host: String,
+    pub port: u16,
+    pub api_key: Option<String>,
     pub default_model: String,
 }
 

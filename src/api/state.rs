@@ -473,6 +473,26 @@ impl AppState {
                     api_key,
                 )))
             }
+            "lm_studio" => {
+                let host = config["host"].as_str().unwrap_or("localhost").to_string();
+                let port = config["port"].as_u64().unwrap_or(1234) as u16;
+                let api_key = config["api_key"].as_str().map(|s| s.to_string());
+                let default_model = config["default_model"]
+                    .as_str()
+                    .unwrap_or("local-model")
+                    .to_string();
+
+                let mut provider = crate::provider::lm_studio::LmStudioProvider::builder()
+                    .host(host)
+                    .port(port)
+                    .default_model(default_model);
+
+                if let Some(key) = api_key {
+                    provider = provider.api_key(key);
+                }
+
+                Ok(Box::new(provider.build()))
+            }
             other => Err(format!("Unknown provider type: {}", other)),
         }
     }
@@ -668,11 +688,32 @@ impl AppState {
             }
         }
 
-        // Register WebSearchTool (always available, independent of computer use config)
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
-            self.web_search_config.clone(),
-        )));
-        tracing::info!("WebSearchTool registered with current configuration");
+        // Register WebSearchTool only if properly configured (enabled and has API key if needed)
+        let web_search_config = self.web_search_config.read().await;
+        let web_search_available = web_search_config.enabled && {
+            match web_search_config.search_engine {
+                crate::types::SearchEngine::DuckDuckGo => {
+                    // DuckDuckGo doesn't require an API key
+                    true
+                }
+                _ => {
+                    // Other engines require an API key
+                    web_search_config.api_key.is_some()
+                }
+            }
+        };
+        drop(web_search_config);
+
+        if web_search_available {
+            agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
+                self.web_search_config.clone(),
+            )));
+            tracing::info!("WebSearchTool registered with current configuration");
+        } else {
+            tracing::info!(
+                "WebSearchTool not registered: web search is disabled or not properly configured"
+            );
+        }
 
         // Restore chat history first
         let history = self.chat_history.read().await;

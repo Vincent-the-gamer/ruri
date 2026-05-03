@@ -4,11 +4,28 @@ import type { ChatMessage, ChatRequest } from '../types'
 import * as api from '../api'
 
 const CHAT_HISTORY_KEY = 'ruri_chat_history'
+const CHAT_LOADING_KEY = 'ruri_chat_loading'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  // Persist loading state so thinking indicator survives page switches
+  function persistLoading() {
+    try {
+      localStorage.setItem(CHAT_LOADING_KEY, JSON.stringify(loading.value))
+    } catch { /* ignore */ }
+  }
+
+  function restoreLoading() {
+    try {
+      const saved = localStorage.getItem(CHAT_LOADING_KEY)
+      if (saved) {
+        loading.value = JSON.parse(saved)
+      }
+    } catch { /* ignore */ }
+  }
 
   // Load from localStorage on initialization
   function loadFromLocalStorage() {
@@ -22,6 +39,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Restore loading state from persistence
+  restoreLoading()
+
   // Save to localStorage whenever messages change
   watch(messages, (newMessages) => {
     try {
@@ -31,8 +51,18 @@ export const useChatStore = defineStore('chat', () => {
     }
   }, { deep: true })
 
+  // Persist loading state whenever it changes
+  watch(loading, persistLoading)
+
   // Load persisted messages on store initialization
   loadFromLocalStorage()
+
+  // Clear loading persistence when loading finishes
+  function clearLoadingPersistence() {
+    try {
+      localStorage.removeItem(CHAT_LOADING_KEY)
+    } catch { /* ignore */ }
+  }
 
   async function fetchHistory() {
     loading.value = true
@@ -49,6 +79,7 @@ export const useChatStore = defineStore('chat', () => {
       // Don't clear local messages on fetch error
     } finally {
       loading.value = false
+      clearLoadingPersistence()
     }
   }
 
@@ -87,6 +118,7 @@ export const useChatStore = defineStore('chat', () => {
       throw e
     } finally {
       loading.value = false
+      clearLoadingPersistence()
     }
   }
 
@@ -102,6 +134,7 @@ export const useChatStore = defineStore('chat', () => {
       throw e
     } finally {
       loading.value = false
+      clearLoadingPersistence()
     }
   }
 

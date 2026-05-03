@@ -21,7 +21,6 @@ import type {
 
 const client = axios.create({
   baseURL: '',
-  timeout: 60000,
   // Remove default Content-Type to allow FormData multipart uploads to work correctly
   // headers: {
   //   'Content-Type': 'application/json',

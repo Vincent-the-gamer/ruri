@@ -73,15 +73,6 @@ const goToDashboard = () => {
 
 <template>
     <div class="home-container">
-        <!-- Background effects -->
-        <div class="bg-gradient"></div>
-        <div class="bg-grid"></div>
-        <div class="floating-orbs">
-            <div class="orb orb-1"></div>
-            <div class="orb orb-2"></div>
-            <div class="orb orb-3"></div>
-        </div>
-
         <!-- Main content -->
         <div class="home-content">
             <!-- Character section -->
@@ -245,102 +236,9 @@ const goToDashboard = () => {
 <style scoped>
 .home-container {
     min-height: 100vh;
-    position: relative;
-    overflow: hidden;
+    width: 100%;
     display: flex;
     flex-direction: column;
-}
-
-/* Background effects */
-.bg-gradient {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        135deg,
-        hsl(var(--background)) 0%,
-        hsl(var(--primary) / 0.05) 50%,
-        hsl(var(--background)) 100%
-    );
-    z-index: 0;
-}
-
-.dark .bg-gradient {
-    background: linear-gradient(
-        135deg,
-        hsl(var(--background)) 0%,
-        hsl(var(--primary) / 0.1) 50%,
-        hsl(var(--background)) 100%
-    );
-}
-
-.bg-grid {
-    position: absolute;
-    inset: 0;
-    background-image:
-        linear-gradient(hsl(var(--border) / 0.3) 1px, transparent 1px),
-        linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
-    background-size: 60px 60px;
-    mask-image: radial-gradient(ellipse at center, black 20%, transparent 70%);
-    z-index: 0;
-}
-
-.floating-orbs {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    z-index: 0;
-}
-
-.orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(60px);
-    opacity: 0.4;
-    animation: float 20s ease-in-out infinite;
-}
-
-.orb-1 {
-    width: 400px;
-    height: 400px;
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 70% 60%));
-    top: -100px;
-    right: -100px;
-    animation-delay: 0s;
-}
-
-.orb-2 {
-    width: 300px;
-    height: 300px;
-    background: linear-gradient(135deg, hsl(320 70% 60%), hsl(var(--primary)));
-    bottom: -50px;
-    left: -50px;
-    animation-delay: -7s;
-}
-
-.orb-3 {
-    width: 250px;
-    height: 250px;
-    background: linear-gradient(
-        135deg,
-        hsl(var(--primary) / 0.6),
-        hsl(200 70% 70%)
-    );
-    top: 50%;
-    left: 30%;
-    animation-delay: -14s;
-}
-
-@keyframes float {
-    0%,
-    100% {
-        transform: translate(0, 0) scale(1);
-    }
-    33% {
-        transform: translate(30px, -30px) scale(1.05);
-    }
-    66% {
-        transform: translate(-20px, 20px) scale(0.95);
-    }
 }
 
 /* Main content */
@@ -535,8 +433,10 @@ const goToDashboard = () => {
     align-items: center;
     gap: 0.75rem;
     padding: 0.875rem 1rem;
-    background: hsl(var(--card));
-    border: 1px solid hsl(var(--border) / 0.5);
+    background: hsl(var(--card) / 0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.4);
     border-radius: 12px;
     font-size: 0.875rem;
     font-weight: 500;
