@@ -1,9 +1,6 @@
 <div align="center">
-    Ruri 琉璃
-</div>
-
-<div align="center">
-    <b>一个可自定义的 AI 智能体，使用 Rust + Vue 编写。</b>
+    <p>Ruri 琉璃</p>
+    <p><b>一个可自定义的 AI 智能体，使用 Rust + Vue 编写。</b></p>
 </div>
 
 [English](README.md) | [中文](README.zh-CN.md)
