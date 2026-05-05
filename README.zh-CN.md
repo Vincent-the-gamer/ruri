@@ -1,20 +1,19 @@
 <div align="center">
     <p>Ruri 琉璃</p>
     <p><b>一个可自定义的 AI 智能体，使用 Rust + Vue 编写。</b></p>
+    <p><a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a></p>
 </div>
-
-[English](README.md) | [中文](README.zh-CN.md)
 
 > [!WARNING]
 > 本项目仍在建设中，目前尚不能用于生产环境。
 
 ## 计划
 
-- [ x ] 工具调用
-- [ x ] 技能系统
-- [ x ] 网络搜索
-- [ x ] ACP (Agent Client Protocol)
-- [ x ] 人设系统
+- [x] 工具调用
+- [x] 技能系统
+- [x] 网络搜索
+- [x] ACP (Agent Client Protocol)
+- [x] 人设系统
 - [ ] MCP (Model Context Protocol)
 - [ ] 聊天 - Discord
 - [ ] 聊天 - OneBot V11
