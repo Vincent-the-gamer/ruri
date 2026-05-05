@@ -33,6 +33,19 @@ pub struct PersistedSkill {
     pub is_active: bool,
 }
 
+/// Serializable version of StoredPersona for config file persistence.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PersistedPersona {
+    /// The display name of the persona (e.g., "Assistant", "Coder", "Teacher")
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+    /// Whether this persona is currently active.
+    pub is_active: bool,
+}
+
 /// ACP-specific configuration stored alongside the main config.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AcpConfig {
@@ -57,6 +70,8 @@ pub struct PersistedConfig {
     pub computer_use_config: crate::computer_use::ComputerUseConfig,
     #[serde(default)]
     pub web_search_config: crate::types::WebSearchConfig,
+    #[serde(default)]
+    pub personas: HashMap<String, PersistedPersona>,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
@@ -79,6 +94,21 @@ pub struct StoredSkill {
     pub description: String,
     pub skill_type: String,
     pub config: serde_json::Value,
+    pub is_active: bool,
+}
+
+/// Information about a stored persona.
+#[derive(Debug, Clone)]
+pub struct StoredPersona {
+    /// Unique identifier for this persona.
+    pub id: String,
+    /// The display name of the persona.
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+    /// Whether this persona is currently active.
     pub is_active: bool,
 }
 
@@ -126,6 +156,8 @@ pub struct AppState {
     pub active_provider_id: RwLock<Option<String>>,
     /// Stored skill configurations.
     pub skills: RwLock<HashMap<String, StoredSkill>>,
+    /// All configured personas, keyed by ID.
+    pub personas: RwLock<HashMap<String, StoredPersona>>,
     /// ACP-specific configuration.
     pub acp_config: RwLock<AcpConfig>,
     /// Computer use configuration.
@@ -171,6 +203,7 @@ impl AppState {
             providers,
             active_provider_id,
             skills,
+            personas,
             acp_config,
             computer_use_config,
             web_search_config,
@@ -215,10 +248,28 @@ impl AppState {
                     })
                     .collect();
 
+                let personas = config
+                    .personas
+                    .into_iter()
+                    .map(|(id, p)| {
+                        (
+                            id.clone(),
+                            StoredPersona {
+                                id,
+                                name: p.name,
+                                description: p.description,
+                                prompt: p.prompt,
+                                is_active: p.is_active,
+                            },
+                        )
+                    })
+                    .collect();
+
                 (
                     providers,
                     config.active_provider_id,
                     skills,
+                    personas,
                     config.acp_config,
                     config.computer_use_config,
                     config.web_search_config,
@@ -233,6 +284,7 @@ impl AppState {
                 (
                     HashMap::new(),
                     None,
+                    HashMap::new(),
                     HashMap::new(),
                     AcpConfig::default(),
                     crate::computer_use::ComputerUseConfig::default(),
@@ -271,6 +323,7 @@ impl AppState {
             providers: RwLock::new(providers),
             active_provider_id: RwLock::new(active_provider_id),
             skills: RwLock::new(skills),
+            personas: RwLock::new(personas),
             acp_config: RwLock::new(acp_config),
             computer_use_config: RwLock::new(computer_use_config),
             web_search_config: std::sync::Arc::new(RwLock::new(web_search_config)),
@@ -369,6 +422,7 @@ impl AppState {
         let providers = self.providers.read().await;
         let active_provider_id = self.active_provider_id.read().await;
         let skills = self.skills.read().await;
+        let personas = self.personas.read().await;
         let acp_config = self.acp_config.read().await;
         let computer_use_config = self.computer_use_config.read().await;
         let web_search_config = self.web_search_config.read().await;
@@ -406,10 +460,26 @@ impl AppState {
             })
             .collect();
 
+        let persisted_personas: HashMap<String, PersistedPersona> = personas
+            .iter()
+            .map(|(id, p)| {
+                (
+                    id.clone(),
+                    PersistedPersona {
+                        name: p.name.clone(),
+                        description: p.description.clone(),
+                        prompt: p.prompt.clone(),
+                        is_active: p.is_active,
+                    },
+                )
+            })
+            .collect();
+
         PersistedConfig {
             providers: persisted_providers,
             active_provider_id: active_provider_id.clone(),
             skills: persisted_skills,
+            personas: persisted_personas,
             acp_config: acp_config.clone(),
             computer_use_config: computer_use_config.clone(),
             web_search_config: web_search_config.clone(),
@@ -563,7 +633,7 @@ impl AppState {
 
     /// Build a fully configured Agent from the current state.
     pub async fn build_agent(&self) -> Result<Agent, String> {
-        self.build_agent_with_context(None, None).await
+        self.build_agent_with_context(None, None, None).await
     }
 
     /// Build a fully configured Agent with user context for computer use capabilities.
@@ -571,6 +641,7 @@ impl AppState {
         &self,
         user_id: Option<&str>,
         session_id: Option<&str>,
+        persona_id: Option<&str>,
     ) -> Result<Agent, String> {
         let providers = self.providers.read().await;
         let active_id = self.active_provider_id.read().await;
@@ -600,6 +671,35 @@ impl AppState {
             agent.add_skill(skill);
         }
         tracing::info!("Successfully added {} skills to agent", num_skills);
+
+        // Inject persona system prompt if configured and active
+        {
+            let personas = self.personas.read().await;
+            let persona_to_use = if let Some(pid) = persona_id {
+                // Look for the specific persona by ID
+                personas.get(pid).filter(|p| p.is_active)
+            } else {
+                // Look for any active persona
+                personas.values().find(|p| p.is_active)
+            };
+
+            if let Some(p) = persona_to_use {
+                if !p.prompt.is_empty() {
+                    tracing::info!(
+                        persona_id = %p.id,
+                        persona_name = %p.name,
+                        "Injecting persona system prompt"
+                    );
+                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                }
+            } else if let Some(pid) = persona_id {
+                tracing::warn!(
+                    persona_id = %pid,
+                    "Requested persona not found or not active"
+                );
+            }
+            drop(personas);
+        }
 
         // Check computer use configuration and register tools accordingly
         let computer_use_config = self.computer_use_config.read().await;

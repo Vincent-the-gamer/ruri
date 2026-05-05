@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
+
 import packageJson from "../../package.json";
 
 const route = useRoute();
@@ -27,6 +28,11 @@ const navItems = computed(() => [
         path: "/chat",
         label: t("nav.chat"),
         icon: "lucide:message-square",
+    },
+    {
+        path: "/personas",
+        label: t("nav.personas"),
+        icon: "lucide:users",
     },
     {
         path: "/skills",

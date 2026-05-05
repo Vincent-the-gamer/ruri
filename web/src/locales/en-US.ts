@@ -34,6 +34,45 @@ export default {
     computerUse: 'Computer Use',
     webSearch: 'Web Search',
     apiTest: 'API Test',
+    personas: 'Personas',
+  },
+
+  // Personas
+  personas: {
+    title: 'Persona Management',
+    subtitle: 'Manage and configure AI personas',
+    addPersona: 'Add Persona',
+    noPersonas: 'No personas yet',
+    noPersonasDesc: 'Add personas to define AI behavior and personality',
+    addFirstPersona: 'Add First Persona',
+    name: 'Name',
+    description: 'Description',
+    prompt: 'System Prompt',
+    active: 'Active',
+    inactive: 'Inactive',
+    edit: 'Edit',
+    delete: 'Delete',
+    deleteConfirm: 'Are you sure you want to delete this persona?',
+    activate: 'Activate',
+    activateConfirm: 'Activating this persona will deactivate others. Continue?',
+    deactivate: 'Deactivate',
+    deactivateConfirm: 'Are you sure you want to deactivate this persona?',
+    editPersona: 'Edit Persona',
+    createPersona: 'Create Persona',
+    cancel: 'Cancel',
+    save: 'Save',
+    promptPlaceholder: 'Enter system prompt to define AI behavior, personality, and response style...',
+    namePlaceholder: 'e.g., Code Assistant',
+    descriptionPlaceholder: 'e.g., Professional programming assistant',
+    defaultAssistant: 'Default Assistant',
+    defaultAssistantDesc: 'General AI assistant',
+  },
+
+  // Persona Sidebar Display
+  persona: {
+    none: 'No active persona',
+    clickToSelect: 'Click to select',
+    default: 'Default assistant',
   },
 
   // Home
@@ -336,7 +375,7 @@ export default {
     sandboxConfig: 'Sandbox Configuration',
     sandboxDriver: 'Sandbox Driver',
     sandboxDriverDesc: {
-      shipyard_neo: 'AstrBot recommended remote/independent deployment sandbox service',
+      shipyard_neo: 'Ruri recommended remote/independent deployment sandbox service',
       cua: 'Based on CUA local or cloud computer use sandbox with desktop capabilities',
     },
     // Shipyard Neo Configuration

@@ -1,0 +1,11 @@
+{
+  "name": "ruri",
+  "version": "0.1.0",
+  "description": "A customizable AI Agent, written in Rust + Vue",
+  "keywords": [
+    "Agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.3"
+}

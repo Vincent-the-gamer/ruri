@@ -8,12 +8,15 @@ import type {
   ComputerUseConfig,
   CreateProviderRequest,
   CreateSkillRequest,
+  CreatePersonaRequest,
   LogEntry,
+  Persona,
   Provider,
   Skill,
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
+  UpdatePersonaRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
   WebSearchConfig,
@@ -176,5 +179,36 @@ export async function getWebSearchConfig(): Promise<WebSearchConfig> {
 
 export async function updateWebSearchConfig(data: UpdateWebSearchConfigRequest): Promise<WebSearchConfig> {
   const res = await client.put('/api/web-search/config', data)
+  return res.data
+}
+
+// ─── Personas ─────────────────────────────────────────────────────
+
+export async function getPersonas(): Promise<Persona[]> {
+  const res = await client.get('/api/personas')
+  return res.data
+}
+
+export async function getPersona(id: string): Promise<Persona> {
+  const res = await client.get(`/api/personas/${id}`)
+  return res.data
+}
+
+export async function createPersona(data: CreatePersonaRequest): Promise<Persona> {
+  const res = await client.post('/api/personas', data)
+  return res.data
+}
+
+export async function updatePersona(id: string, data: UpdatePersonaRequest): Promise<Persona> {
+  const res = await client.put(`/api/personas/${id}`, data)
+  return res.data
+}
+
+export async function deletePersona(id: string): Promise<void> {
+  await client.delete(`/api/personas/${id}`)
+}
+
+export async function activatePersona(id: string): Promise<Persona> {
+  const res = await client.patch(`/api/personas/${id}/activate`)
   return res.data
 }

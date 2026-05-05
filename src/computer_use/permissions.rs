@@ -124,7 +124,7 @@ impl PermissionChecker {
                 // Allowed directories for non-admin:
                 // 1. Skills directory
                 // 2. Current session workspace
-                // 3. System temp directory's .astrbot folder (we'll use .ruri)
+                // 3. System temp directory's .ruri folder
                 // 4. Configured allowed_paths
 
                 let workspace_path = self.get_workspace_path(session_id);

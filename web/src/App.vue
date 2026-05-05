@@ -36,7 +36,7 @@ onMounted(() => {
             <div class="orb orb-3"></div>
         </div>
 
-        <!-- Header - Inspired by airi's elegant navigation -->
+        <!-- Header -->
         <header
             class="sticky top-0 z-20 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300"
         >

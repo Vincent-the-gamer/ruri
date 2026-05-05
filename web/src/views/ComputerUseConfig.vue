@@ -725,11 +725,7 @@ const hasChanges = computed(() => {
             </h3>
             <p class="learn-more-desc">
                 {{ t("computerUseConfig.learnMoreDesc") }}
-                <a
-                    href="https://docs.astrbot.app/use/astrbot-agent-sandbox.html"
-                    target="_blank"
-                    class="learn-more-link"
-                >
+                <a href="" target="_blank" class="learn-more-link">
                     {{ t("computerUseConfig.viewDocs") }}
                 </a>
             </p>

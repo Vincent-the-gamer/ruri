@@ -131,6 +131,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string
   provider_id?: string
+  persona_id?: string
   temperature?: number
   max_tokens?: number
 }
@@ -261,6 +262,30 @@ export interface UpdateWebSearchConfigRequest {
   api_key?: string | null
   max_results?: number
   enabled?: boolean
+}
+
+// ─── Persona Types ───────────────────────────────────────────────
+
+export interface Persona {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  is_active: boolean
+}
+
+export interface CreatePersonaRequest {
+  name: string
+  description: string
+  prompt: string
+  is_active?: boolean
+}
+
+export interface UpdatePersonaRequest {
+  name?: string
+  description?: string
+  prompt?: string
+  is_active?: boolean
 }
 
 // ─── API Response ────────────────────────────────────────────────

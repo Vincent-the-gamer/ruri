@@ -1,9 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
- *  🎨 Ruri Style System - Based on AIRI Design
- *  ✨ HSL Color Variables + Modern Design Language
+ *  🎨 Ruri Style
  * ═══════════════════════════════════════════════════════════════ */
 
-/* Light Theme - Based on airi's elegant design */
+/* Light Theme */
 :root {
     /* Core colors */
     --background: 0 0% 100%;
@@ -92,7 +91,7 @@
     --color-text-dim: hsl(var(--muted-foreground) / 0.7);
 }
 
-/* Dark Theme - Beautiful dark mode inspired by airi */
+/* Dark Theme  */
 .dark {
     --background: 207 15% 5%;
     --foreground: 0 0% 95%;

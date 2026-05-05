@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum ComputerUseRuntime {
     /// Computer use is disabled
     None,
-    /// Run in local environment (AstrBot/Ruri host machine)
+    /// Run in local environment (Ruri host machine)
     Local,
     /// Run in isolated sandbox
     Sandbox,

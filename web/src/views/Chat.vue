@@ -3,12 +3,14 @@ import { onMounted, onActivated, ref, nextTick, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
+import { usePersonaStore } from "../stores/persona";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
 
 const { t } = useI18n();
 const chatStore = useChatStore();
 const providerStore = useProviderStore();
+const personaStore = usePersonaStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
 const temperature = ref(0.7);
@@ -19,6 +21,7 @@ onMounted(async () => {
     await Promise.all([
         chatStore.fetchHistory(),
         providerStore.fetchProviders(),
+        personaStore.fetchPersonas(),
     ]);
     scrollToBottom();
 });
@@ -45,6 +48,7 @@ function scrollToBottom() {
 async function handleSend(message: string) {
     await chatStore.sendMessage({
         message,
+        persona_id: personaStore.activePersona?.id,
         temperature: temperature.value,
         max_tokens: maxTokens.value,
     });
@@ -104,6 +108,13 @@ function toggleSettings() {
             </div>
 
             <div class="header-right">
+                <div
+                    v-if="personaStore.activePersona"
+                    class="model-badge persona-badge"
+                >
+                    <span class="badge-icon">🎭</span>
+                    <span>{{ personaStore.activePersona.name }}</span>
+                </div>
                 <div v-if="providerStore.activeProvider" class="model-badge">
                     <span class="badge-icon">🤖</span>
                     <span>{{ providerStore.activeProvider.name }}</span>

@@ -14,6 +14,7 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::acp::session::{AcpSession, SessionManager};
+use crate::agent::skill::SystemPromptSkill;
 use crate::api::state::{
     AppState, PersistedConfig, PersistedProvider, PersistedSkill, StoredProvider, StoredSkill,
     default_config_path,
@@ -578,22 +579,40 @@ impl ProviderFactory {
 
     /// Build skill instances based on the persisted ACP config.
     /// Only returns skills whose names are listed in `acp_config.active_skill_names`.
+    /// Also injects the persona system prompt if configured and active.
     pub fn build_skills(&self) -> Vec<Arc<dyn crate::agent::skill::Skill>> {
         let Some(ref config) = self.config else {
             return Vec::new();
         };
 
-        if config.acp_config.active_skill_names.is_empty() {
-            return Vec::new();
+        let mut skills: Vec<Arc<dyn crate::agent::skill::Skill>> = Vec::new();
+
+        // Build regular skills from ACP config
+        if !config.acp_config.active_skill_names.is_empty() {
+            let stored_skills: HashMap<String, StoredSkill> = config
+                .skills
+                .iter()
+                .map(|(name, s)| (name.clone(), Self::persisted_to_stored_skill(s)))
+                .collect();
+
+            skills =
+                AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
 
-        let stored_skills: HashMap<String, StoredSkill> = config
-            .skills
-            .iter()
-            .map(|(name, s)| (name.clone(), Self::persisted_to_stored_skill(s)))
-            .collect();
+        // Inject persona system prompt if any active persona is configured
+        if let Some(active_persona) = config
+            .personas
+            .values()
+            .find(|p| p.is_active && !p.prompt.is_empty())
+        {
+            tracing::info!(
+                persona_name = %active_persona.name,
+                "ACP injecting persona system prompt"
+            );
+            skills.push(Arc::new(SystemPromptSkill::new(&active_persona.prompt)));
+        }
 
-        AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names))
+        skills
     }
 
     /// Convert a PersistedProvider to a StoredProvider.

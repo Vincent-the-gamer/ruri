@@ -26,6 +26,7 @@ export default {
     home: '首页',
     dashboard: '仪表盘',
     chat: '对话',
+    personas: '人设',
     skills: '技能',
     providers: '供应商',
     tools: '工具',
@@ -335,7 +336,7 @@ export default {
     sandboxConfig: '沙箱配置',
     sandboxDriver: '沙箱驱动',
     sandboxDriverDesc: {
-      shipyard_neo: 'AstrBot 推荐的远程/独立部署沙箱服务',
+      shipyard_neo: 'Ruri 推荐的远程/独立部署沙箱服务',
       cua: '基于 CUA 的本地或云端电脑使用沙箱',
     },
     // Shipyard Neo 配置
@@ -424,6 +425,44 @@ export default {
     learnMore: '了解更多',
     learnMoreDesc: '网页搜索集成使 AI 能够访问互联网上的实时信息。这对于了解时事、最新信息或模型训练数据中未包含的主题特别有用。',
     viewDocs: '查看文档',
+  },
+
+  // 人设 Sidebar 显示
+  persona: {
+    none: '未选择人设',
+    clickToSelect: '点击选择人设',
+    default: '默认助手',
+  },
+
+  // 人设管理
+  personas: {
+    title: '人设管理',
+    subtitle: '管理和配置 AI 人设',
+    addPersona: '添加人设',
+    noPersonas: '暂无人设',
+    noPersonasDesc: '添加人设来定义 AI 的行为和性格',
+    addFirstPersona: '添加第一个人设',
+    name: '名称',
+    description: '描述',
+    prompt: '系统提示词',
+    active: '已激活',
+    inactive: '未激活',
+    edit: '编辑',
+    delete: '删除',
+    deleteConfirm: '确定要删除此人设吗？',
+    activate: '激活',
+    activateConfirm: '激活此人设将停用其他人设，确定要继续吗？',
+    deactivate: '停用',
+    deactivateConfirm: '确定要停用此人设吗？',
+    editPersona: '编辑人设',
+    createPersona: '创建人设',
+    cancel: '取消',
+    save: '保存',
+    promptPlaceholder: '输入系统提示词来定义 AI 的行为、性格和回答风格...',
+    namePlaceholder: '例如：代码助手',
+    descriptionPlaceholder: '例如：专业的编程助手',
+    defaultAssistant: '默认助手',
+    defaultAssistantDesc: '通用 AI 助手',
   },
 
   // 错误消息

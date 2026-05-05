@@ -35,6 +35,11 @@ const router = createRouter({
       meta: { keepAlive: true },
     },
     {
+      path: '/personas',
+      name: 'Personas',
+      component: () => import('../views/Personas.vue'),
+    },
+    {
       path: '/acp-config',
       name: 'ACP Config',
       component: () => import('../views/AcpConfig.vue'),

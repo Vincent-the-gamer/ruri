@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::Response,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use chrono::Utc;
 use tracing::{debug, error};
@@ -127,6 +127,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Agent status
         .route("/api/agent/status", get(get_status))
+        // Personas
+        .route("/api/personas", get(list_personas).post(create_persona))
+        .route(
+            "/api/personas/{id}",
+            get(get_persona).put(update_persona).delete(delete_persona),
+        )
+        .route("/api/personas/{id}/activate", patch(activate_persona))
         // ACP config
         .route(
             "/api/acp/config",
@@ -779,7 +786,11 @@ async fn send_chat_message(
 ) -> Result<Json<ChatResponseDto>, (StatusCode, Json<serde_json::Value>)> {
     // Build agent from current state with user context
     let agent_result = state
-        .build_agent_with_context(req.user_id.as_deref(), req.session_id.as_deref())
+        .build_agent_with_context(
+            req.user_id.as_deref(),
+            req.session_id.as_deref(),
+            req.persona_id.as_deref(),
+        )
         .await;
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
@@ -1149,6 +1160,220 @@ async fn update_web_search_config(
     state.auto_save().await;
 
     Ok(Json(dto))
+}
+
+// ─── Persona Handlers ─────────────────────────────────────────────
+
+/// List all personas.
+async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaDto>> {
+    let personas = state.personas.read().await;
+    let list: Vec<PersonaDto> = personas
+        .values()
+        .map(|p| PersonaDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+            is_active: p.is_active,
+        })
+        .collect();
+    Json(list)
+}
+
+/// Get a specific persona by ID.
+async fn get_persona(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<PersonaDto>, StatusCode> {
+    let personas = state.personas.read().await;
+    match personas.get(&id) {
+        Some(p) => Ok(Json(PersonaDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+            is_active: p.is_active,
+        })),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Create a new persona with an auto-generated UUID.
+async fn create_persona(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreatePersonaRequest>,
+) -> Result<Json<PersonaDto>, (StatusCode, Json<serde_json::Value>)> {
+    // Validate that prompt is not empty
+    if req.prompt.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Persona prompt cannot be empty" })),
+        ));
+    }
+
+    // Validate name is not empty
+    if req.name.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Persona name cannot be empty" })),
+        ));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let stored = crate::api::state::StoredPersona {
+        id: id.clone(),
+        name: req.name.clone(),
+        description: req.description.clone(),
+        prompt: req.prompt.clone(),
+        is_active: req.is_active,
+    };
+
+    {
+        let mut personas = state.personas.write().await;
+        personas.insert(id.clone(), stored);
+    }
+
+    tracing::info!(
+        persona_id = %id,
+        persona_name = %req.name,
+        is_active = req.is_active,
+        "Persona created"
+    );
+
+    state.auto_save().await;
+
+    Ok(Json(PersonaDto {
+        id,
+        name: req.name,
+        description: req.description,
+        prompt: req.prompt,
+        is_active: req.is_active,
+    }))
+}
+
+/// Update an existing persona by ID.
+async fn update_persona(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdatePersonaRequest>,
+) -> Result<Json<PersonaDto>, (StatusCode, Json<serde_json::Value>)> {
+    let mut personas = state.personas.write().await;
+
+    let persona = personas.get_mut(&id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Persona not found" })),
+        )
+    })?;
+
+    // Update fields if provided
+    if let Some(name) = &req.name {
+        if name.trim().is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "Persona name cannot be empty" })),
+            ));
+        }
+        persona.name = name.clone();
+    }
+
+    if let Some(description) = &req.description {
+        persona.description = description.clone();
+    }
+
+    if let Some(prompt) = &req.prompt {
+        if prompt.trim().is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "Persona prompt cannot be empty" })),
+            ));
+        }
+        persona.prompt = prompt.clone();
+    }
+
+    if let Some(is_active) = &req.is_active {
+        persona.is_active = *is_active;
+    }
+
+    let dto = PersonaDto {
+        id: persona.id.clone(),
+        name: persona.name.clone(),
+        description: persona.description.clone(),
+        prompt: persona.prompt.clone(),
+        is_active: persona.is_active,
+    };
+
+    tracing::info!(persona_id = %id, "Persona updated");
+
+    drop(personas);
+    state.auto_save().await;
+
+    Ok(Json(dto))
+}
+
+/// Delete a persona by ID.
+async fn delete_persona(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let mut personas = state.personas.write().await;
+    if personas.remove(&id).is_some() {
+        tracing::info!(persona_id = %id, "Persona deleted");
+        drop(personas);
+        state.auto_save().await;
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Persona not found" })),
+        ))
+    }
+}
+
+/// Activate a persona by ID, deactivating all other personas.
+async fn activate_persona(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<PersonaDto>, (StatusCode, Json<serde_json::Value>)> {
+    let mut personas = state.personas.write().await;
+
+    // Check if the persona exists
+    if !personas.contains_key(&id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Persona not found" })),
+        ));
+    }
+
+    // Deactivate all personas
+    for p in personas.values_mut() {
+        p.is_active = false;
+    }
+
+    // Activate the requested persona
+    if let Some(p) = personas.get_mut(&id) {
+        p.is_active = true;
+        let dto = PersonaDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+            is_active: p.is_active,
+        };
+
+        tracing::info!(persona_id = %id, persona_name = %p.name, "Persona activated (others deactivated)");
+
+        drop(personas);
+        state.auto_save().await;
+
+        Ok(Json(dto))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Persona not found" })),
+        ))
+    }
 }
 
 /// WebSocket日志推送处理器

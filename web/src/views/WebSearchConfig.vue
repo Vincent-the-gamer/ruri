@@ -352,12 +352,9 @@ const searchEngines = computed(() => [
             </h3>
             <p class="learn-more-desc">
                 {{ t("webSearchConfig.learnMoreDesc") }}
-                <a
-                    href="https://docs.astrbot.app/use/websearch.html"
-                    target="_blank"
-                    class="learn-more-link"
-                    >{{ t("webSearchConfig.viewDocs") }}</a
-                >
+                <a href="" target="_blank" class="learn-more-link">{{
+                    t("webSearchConfig.viewDocs")
+                }}</a>
             </p>
         </div>
     </div>

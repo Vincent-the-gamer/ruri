@@ -183,6 +183,8 @@ pub struct ChatRequestDto {
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u64>,
 }
@@ -278,6 +280,50 @@ pub struct UpdateAcpConfigRequest {
     pub active_provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
+}
+
+// ─── Persona Models ──────────────────────────────────────────────
+
+/// Persona configuration returned to the client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaDto {
+    /// Unique identifier for this persona.
+    pub id: String,
+    /// The display name of the persona (e.g., "Assistant", "Coder", "Teacher").
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+    /// Whether this persona is currently active.
+    pub is_active: bool,
+}
+
+/// Request body for creating or updating a persona.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePersonaRequest {
+    /// The display name of the persona.
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+    /// Whether to activate this persona immediately.
+    #[serde(default)]
+    pub is_active: bool,
+}
+
+/// Request body for partially updating a persona.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatePersonaRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_active: Option<bool>,
 }
 
 // ─── Computer Use Config Models ─────────────────────────────────────
