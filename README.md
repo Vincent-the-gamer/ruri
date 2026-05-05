@@ -1,6 +1,10 @@
-# Ruri 琉璃
+<div align="center">Ruri 琉璃</div>
 
-A customizable AI Agent, written in Rust + Vue.
+<div align="center">
+    <b>A customizable AI Agent, written in Rust + Vue.</b<
+</div>
+
+[English](README.md) | [中文](README.zh-CN.md)
 
 > [!WARNING]
 > This project is under construction, it cannot be used in production for now.
@@ -36,6 +40,10 @@ cargo run
 ```
 
 Opens the web UI at `http://localhost:3000`.
+
+## Preview
+
+![preview](.github/preview.png)
 
 ## License
 
