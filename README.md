@@ -37,7 +37,7 @@ Documentation will be added soon...
 cargo run
 ```
 
-Opens the web UI at `http://localhost:3000`.
+Open the web UI at `http://localhost:3000`.
 
 ## Preview
 
