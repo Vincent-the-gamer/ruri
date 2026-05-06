@@ -492,6 +492,73 @@ impl ComputerUseConfigDto {
     }
 }
 
+// ─── config profile Models ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigProfileDto {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
+    pub web_search_enabled: bool,
+    pub computer_use_enabled: bool,
+    pub acp_enabled: bool,
+    pub active_skill_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateConfigProfileRequest {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
+    pub web_search_enabled: bool,
+    pub computer_use_enabled: bool,
+    pub acp_enabled: bool,
+    #[serde(default)]
+    pub active_skill_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfigProfileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_search_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acp_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_skill_names: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigProfileProviderResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ProviderDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigProfilePersonaResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona: Option<PersonaDto>,
+}
+
 // ─── Web Search Config Models ─────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

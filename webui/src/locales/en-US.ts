@@ -35,6 +35,7 @@ export default {
     webSearch: 'Web Search',
     apiTest: 'API Test',
     personas: 'Personas',
+    configs: 'Configs',
   },
 
   // Personas
@@ -464,6 +465,45 @@ export default {
     learnMore: 'Learn More',
     learnMoreDesc: 'Web search integration enables the AI to access real-time information from the internet. This is especially useful for questions about current events, recent information, or topics not in the model\'s training data.',
     viewDocs: 'View Documentation',
+  },
+
+  // Config Profiles
+  config: {
+    title: 'Config Profiles',
+    subtitle: 'Manage multiple config profiles, each with independent settings for models, personas, and capabilities',
+    addConfig: 'Add Config',
+    noConfigs: 'No config profiles yet',
+    noConfigsDesc: 'Create config profiles to manage different AI configurations',
+    addFirstConfig: 'Create First Config',
+    activate: 'Activate',
+    deleteConfirm: 'Delete this config?',
+    deleteConfirmDesc: 'This action cannot be undone. Are you sure you want to delete this config profile?',
+    none: 'None',
+    unknown: 'Unknown',
+    form: {
+      createTitle: 'Create Config Profile',
+      editTitle: 'Edit Config Profile',
+      basicInfo: 'Basic Info',
+      name: 'Config Name',
+      namePlaceholder: 'e.g., Default Config',
+      description: 'Description',
+      descriptionPlaceholder: 'Describe the purpose of this config...',
+      modelProvider: 'Model Provider',
+      selectProvider: 'Select Model Provider',
+      noProvider: '(None)',
+      persona: 'Persona',
+      selectPersona: 'Select Persona',
+      noPersona: '(None)',
+      capabilities: 'Capabilities',
+      webSearch: 'Web Search',
+      webSearchDesc: 'Enable web search capability, AI can access internet information',
+      computerUse: 'Computer Use',
+      computerUseDesc: 'Enable computer use capability, AI can execute commands and access files',
+      acp: 'ACP Mode',
+      acpDesc: 'Enable ACP protocol support, use in IDEs',
+      skills: 'Skills',
+      noSkillsAvailable: 'No skills available',
+    },
   },
 
   // Error messages

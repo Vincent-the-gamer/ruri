@@ -15,6 +15,7 @@
 - [x] ACP (Agent Client Protocol)
 - [x] Persona
 - [ ] MCP (Model Context Protocol)
+- [ ] Sub Agent
 - [ ] Chat - Discord
 - [ ] Chat - OneBot V11
 - [ ] Chat - WeChat(Wechat ClawBot)

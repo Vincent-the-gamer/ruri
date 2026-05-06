@@ -12,15 +12,15 @@ use axum::{
 use chrono::Utc;
 use tracing::{debug, error};
 // futures::sink::SinkExt is not needed for axum WebSocket
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 use uuid::Uuid;
 use zip::ZipArchive;
 
 use crate::api::models::*;
-use crate::api::state::AppState;
+use crate::api::state::{AppState, StoredConfigProfile};
 
 // ─── SKILL.md Frontmatter Parsing ─────────────────────────────────
 
@@ -134,6 +134,29 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             get(get_persona).put(update_persona).delete(delete_persona),
         )
         .route("/api/personas/{id}/activate", patch(activate_persona))
+        // Config profiles
+        .route(
+            "/api/config-profiles",
+            get(list_config_profiles).post(create_config_profile),
+        )
+        .route(
+            "/api/config-profiles/{id}",
+            get(get_config_profile)
+                .put(update_config_profile)
+                .delete(delete_config_profile),
+        )
+        .route(
+            "/api/config-profiles/{id}/activate",
+            post(activate_config_profile),
+        )
+        .route(
+            "/api/config-profiles/{id}/provider",
+            get(get_config_profile_provider),
+        )
+        .route(
+            "/api/config-profiles/{id}/persona",
+            get(get_config_profile_persona),
+        )
         // ACP config
         .route(
             "/api/acp/config",
@@ -1374,6 +1397,303 @@ async fn activate_persona(
             Json(json!({ "error": "Persona not found" })),
         ))
     }
+}
+
+// ─── Config Profile Handlers ─────────────────────────────────────
+
+/// List all config profiles
+async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<ConfigProfileDto>> {
+    let profiles = state.config_profiles.read().await;
+    let dtos: Vec<ConfigProfileDto> = profiles
+        .values()
+        .map(|p| ConfigProfileDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            is_active: p.is_active,
+            created_at: p.created_at.to_rfc3339().to_string(),
+            updated_at: p.updated_at.to_rfc3339().to_string(),
+            provider_id: p.provider_id.clone(),
+            persona_id: p.persona_id.clone(),
+            web_search_enabled: p.web_search_enabled,
+            computer_use_enabled: p.computer_use_enabled,
+            acp_enabled: p.acp_enabled,
+            active_skill_names: p.active_skill_names.clone(),
+        })
+        .collect();
+    Json(dtos)
+}
+
+/// Get a specific config profile by ID
+async fn get_config_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    let profiles = state.config_profiles.read().await;
+    if let Some(p) = profiles.get(&id) {
+        let dto = ConfigProfileDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            is_active: p.is_active,
+            created_at: p.created_at.to_rfc3339().to_string(),
+            updated_at: p.updated_at.to_rfc3339().to_string(),
+            provider_id: p.provider_id.clone(),
+            persona_id: p.persona_id.clone(),
+            web_search_enabled: p.web_search_enabled,
+            computer_use_enabled: p.computer_use_enabled,
+            acp_enabled: p.acp_enabled,
+            active_skill_names: p.active_skill_names.clone(),
+        };
+        Ok(Json(dto))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Config profile not found" })),
+        ))
+    }
+}
+
+/// Create a new config profile
+async fn create_config_profile(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateConfigProfileRequest>,
+) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now();
+
+    // Check if any active profile exists
+    let profiles = state.config_profiles.read().await;
+    let has_active = profiles.values().any(|p| p.is_active);
+    drop(profiles);
+
+    // Create the profile - make it active if no other profile is active
+    let is_active = !has_active;
+    let profile = StoredConfigProfile {
+        id: id.clone(),
+        name: req.name.clone(),
+        description: req.description.clone(),
+        is_active,
+        created_at: now,
+        updated_at: now,
+        provider_id: req.provider_id.clone(),
+        persona_id: req.persona_id.clone(),
+        web_search_enabled: req.web_search_enabled,
+        computer_use_enabled: req.computer_use_enabled,
+        acp_enabled: req.acp_enabled,
+        active_skill_names: req.active_skill_names.clone(),
+    };
+
+    // Insert the profile
+    let mut profiles = state.config_profiles.write().await;
+    profiles.insert(id.clone(), profile);
+    drop(profiles);
+
+    // Build response directly
+    let dto = ConfigProfileDto {
+        id: id.clone(),
+        name: req.name,
+        description: req.description,
+        is_active,
+        created_at: now.to_rfc3339().to_string(),
+        updated_at: now.to_rfc3339().to_string(),
+        provider_id: req.provider_id,
+        persona_id: req.persona_id,
+        web_search_enabled: req.web_search_enabled,
+        computer_use_enabled: req.computer_use_enabled,
+        acp_enabled: req.acp_enabled,
+        active_skill_names: req.active_skill_names,
+    };
+
+    state.auto_save().await;
+
+    tracing::info!(profile_id = %id, profile_name = %dto.name, is_active = %is_active, "Config profile created");
+
+    Ok(Json(dto))
+}
+
+/// Update an existing config profile
+async fn update_config_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateConfigProfileRequest>,
+) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    let mut profiles = state.config_profiles.write().await;
+
+    if let Some(profile) = profiles.get_mut(&id) {
+        // Update fields
+        if let Some(name) = req.name {
+            profile.name = name;
+        }
+        if let Some(description) = req.description {
+            profile.description = description;
+        }
+        if let Some(provider_id) = req.provider_id {
+            profile.provider_id = provider_id;
+        }
+        if let Some(persona_id) = req.persona_id {
+            profile.persona_id = persona_id;
+        }
+        if let Some(web_search_enabled) = req.web_search_enabled {
+            profile.web_search_enabled = web_search_enabled;
+        }
+        if let Some(computer_use_enabled) = req.computer_use_enabled {
+            profile.computer_use_enabled = computer_use_enabled;
+        }
+        if let Some(acp_enabled) = req.acp_enabled {
+            profile.acp_enabled = acp_enabled;
+        }
+        if let Some(active_skill_names) = req.active_skill_names {
+            profile.active_skill_names = active_skill_names;
+        }
+        profile.updated_at = Utc::now();
+
+        let dto = ConfigProfileDto {
+            id: profile.id.clone(),
+            name: profile.name.clone(),
+            description: profile.description.clone(),
+            is_active: profile.is_active,
+            created_at: profile.created_at.to_rfc3339().to_string(),
+            updated_at: profile.updated_at.to_rfc3339().to_string(),
+            provider_id: profile.provider_id.clone(),
+            persona_id: profile.persona_id.clone(),
+            web_search_enabled: profile.web_search_enabled,
+            computer_use_enabled: profile.computer_use_enabled,
+            acp_enabled: profile.acp_enabled,
+            active_skill_names: profile.active_skill_names.clone(),
+        };
+
+        drop(profiles);
+        state.auto_save().await;
+
+        tracing::info!(profile_id = %id, profile_name = %dto.name, "Config profile updated");
+
+        Ok(Json(dto))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Config profile not found" })),
+        ))
+    }
+}
+
+/// Delete a config profile
+async fn delete_config_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let mut profiles = state.config_profiles.write().await;
+
+    if let Some(profile) = profiles.remove(&id) {
+        // If we deleted an active profile, activate another one if available
+        if profile.is_active {
+            if let Some(first) = profiles.values_mut().next() {
+                first.is_active = true;
+            }
+        }
+
+        drop(profiles);
+        state.auto_save().await;
+
+        tracing::info!(profile_id = %id, profile_name = %profile.name, "Config profile deleted");
+
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Config profile not found" })),
+        ))
+    }
+}
+
+/// Activate a specific config profile
+async fn activate_config_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    let mut profiles = state.config_profiles.write().await;
+
+    if profiles.contains_key(&id) {
+        let now = Utc::now();
+        // Set all profiles to inactive, then activate the target profile and update its timestamp
+        for p in profiles.values_mut() {
+            let is_target = p.id == id;
+            p.is_active = is_target;
+            if is_target {
+                p.updated_at = now;
+            }
+        }
+
+        let profile = profiles.get(&id).unwrap();
+
+        let dto = ConfigProfileDto {
+            id: profile.id.clone(),
+            name: profile.name.clone(),
+            description: profile.description.clone(),
+            is_active: profile.is_active,
+            created_at: profile.created_at.to_rfc3339().to_string(),
+            updated_at: profile.updated_at.to_rfc3339().to_string(),
+            provider_id: profile.provider_id.clone(),
+            persona_id: profile.persona_id.clone(),
+            web_search_enabled: profile.web_search_enabled,
+            computer_use_enabled: profile.computer_use_enabled,
+            acp_enabled: profile.acp_enabled,
+            active_skill_names: profile.active_skill_names.clone(),
+        };
+
+        drop(profiles);
+        state.auto_save().await;
+
+        tracing::info!(profile_id = %id, profile_name = %dto.name, "Config profile activated");
+
+        Ok(Json(dto))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Config profile not found" })),
+        ))
+    }
+}
+
+/// Get the provider associated with a config profile
+async fn get_config_profile_provider(
+    State(state): State<Arc<AppState>>,
+    Path(profile_id): Path<String>,
+) -> Json<ConfigProfileProviderResponse> {
+    let profiles = state.config_profiles.read().await;
+    let providers = state.providers.read().await;
+    let active_provider_id = state.active_provider_id.read().await;
+
+    let provider = profiles
+        .get(&profile_id)
+        .and_then(|p| p.provider_id.as_ref())
+        .and_then(|provider_id| providers.get(provider_id))
+        .map(|p| stored_provider_to_dto(p, active_provider_id.as_deref()));
+
+    Json(ConfigProfileProviderResponse { provider })
+}
+
+/// Get the persona associated with a config profile
+async fn get_config_profile_persona(
+    State(state): State<Arc<AppState>>,
+    Path(profile_id): Path<String>,
+) -> Json<ConfigProfilePersonaResponse> {
+    let profiles = state.config_profiles.read().await;
+    let personas = state.personas.read().await;
+
+    let persona = profiles
+        .get(&profile_id)
+        .and_then(|p| p.persona_id.as_ref())
+        .and_then(|persona_id| personas.get(persona_id))
+        .map(|p| PersonaDto {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+            is_active: p.is_active,
+        });
+
+    Json(ConfigProfilePersonaResponse { persona })
 }
 
 /// WebSocket日志推送处理器

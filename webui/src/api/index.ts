@@ -6,6 +6,8 @@ import type {
   ChatResponse,
   ChatMessage,
   ComputerUseConfig,
+  ConfigProfile,
+  CreateConfigProfileRequest,
   CreateProviderRequest,
   CreateSkillRequest,
   CreatePersonaRequest,
@@ -16,6 +18,7 @@ import type {
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
+  UpdateConfigProfileRequest,
   UpdatePersonaRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
@@ -211,4 +214,45 @@ export async function deletePersona(id: string): Promise<void> {
 export async function activatePersona(id: string): Promise<Persona> {
   const res = await client.patch(`/api/personas/${id}/activate`)
   return res.data
+}
+
+// ─── Config Profiles ─────────────────────────────────────────────
+
+export async function getConfigProfiles(): Promise<ConfigProfile[]> {
+  const res = await client.get('/api/config-profiles')
+  return res.data
+}
+
+export async function getConfigProfile(id: string): Promise<ConfigProfile> {
+  const res = await client.get(`/api/config-profiles/${id}`)
+  return res.data
+}
+
+export async function createConfigProfile(data: CreateConfigProfileRequest): Promise<ConfigProfile> {
+  const res = await client.post('/api/config-profiles', data)
+  return res.data
+}
+
+export async function updateConfigProfile(id: string, data: UpdateConfigProfileRequest): Promise<ConfigProfile> {
+  const res = await client.put(`/api/config-profiles/${id}`, data)
+  return res.data
+}
+
+export async function deleteConfigProfile(id: string): Promise<void> {
+  await client.delete(`/api/config-profiles/${id}`)
+}
+
+export async function activateConfigProfile(id: string): Promise<ConfigProfile> {
+  const res = await client.post(`/api/config-profiles/${id}/activate`)
+  return res.data
+}
+
+export async function getConfigProfileProvider(profileId: string): Promise<Provider | null> {
+  const res = await client.get(`/api/config-profiles/${profileId}/provider`)
+  return res.data.provider || null
+}
+
+export async function getConfigProfilePersona(profileId: string): Promise<Persona | null> {
+  const res = await client.get(`/api/config-profiles/${profileId}/persona`)
+  return res.data.persona || null
 }

@@ -288,6 +288,47 @@ export interface UpdatePersonaRequest {
   is_active?: boolean
 }
 
+// ─── Config Profile Types ───────────────────────────────────────
+
+export interface ConfigProfile {
+  id: string
+  name: string
+  description: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  // 关联的配置
+  provider_id: string | null
+  persona_id: string | null
+  web_search_enabled: boolean
+  computer_use_enabled: boolean
+  acp_enabled: boolean
+  // 技能配置
+  active_skill_names: string[]
+}
+
+export interface CreateConfigProfileRequest {
+  name: string
+  description: string
+  provider_id: string | null
+  persona_id: string | null
+  web_search_enabled: boolean
+  computer_use_enabled: boolean
+  acp_enabled: boolean
+  active_skill_names: string[]
+}
+
+export interface UpdateConfigProfileRequest {
+  name?: string
+  description?: string
+  provider_id?: string | null
+  persona_id?: string | null
+  web_search_enabled?: boolean
+  computer_use_enabled?: boolean
+  acp_enabled?: boolean
+  active_skill_names?: string[]
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

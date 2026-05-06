@@ -46,6 +46,26 @@ pub struct PersistedPersona {
     pub is_active: bool,
 }
 
+/// Config profile persisted to disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedConfigProfile {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
+    pub web_search_enabled: bool,
+    pub computer_use_enabled: bool,
+    pub acp_enabled: bool,
+    #[serde(default)]
+    pub active_skill_names: Vec<String>,
+}
+
 /// ACP-specific configuration stored alongside the main config.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AcpConfig {
@@ -72,9 +92,28 @@ pub struct PersistedConfig {
     pub web_search_config: crate::types::WebSearchConfig,
     #[serde(default)]
     pub personas: HashMap<String, PersistedPersona>,
+    #[serde(default)]
+    pub config_profiles: HashMap<String, PersistedConfigProfile>,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
+
+/// Information about a stored config profile.
+#[derive(Debug, Clone)]
+pub struct StoredConfigProfile {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub provider_id: Option<String>,
+    pub persona_id: Option<String>,
+    pub web_search_enabled: bool,
+    pub computer_use_enabled: bool,
+    pub acp_enabled: bool,
+    pub active_skill_names: Vec<String>,
+}
 
 /// Information about a stored provider configuration.
 #[derive(Debug, Clone)]
@@ -158,6 +197,8 @@ pub struct AppState {
     pub skills: RwLock<HashMap<String, StoredSkill>>,
     /// All configured personas, keyed by ID.
     pub personas: RwLock<HashMap<String, StoredPersona>>,
+    /// All configured config profiles, keyed by ID.
+    pub config_profiles: RwLock<HashMap<String, StoredConfigProfile>>,
     /// ACP-specific configuration.
     pub acp_config: RwLock<AcpConfig>,
     /// Computer use configuration.
@@ -204,6 +245,7 @@ impl AppState {
             active_provider_id,
             skills,
             personas,
+            config_profiles,
             acp_config,
             computer_use_config,
             web_search_config,
@@ -265,11 +307,42 @@ impl AppState {
                     })
                     .collect();
 
+                let config_profiles = config
+                    .config_profiles
+                    .into_iter()
+                    .map(|(id, p)| {
+                        let created_at = DateTime::parse_from_rfc3339(&p.created_at)
+                            .map(|dt| dt.to_utc())
+                            .unwrap_or_else(|_| Utc::now());
+                        let updated_at = DateTime::parse_from_rfc3339(&p.updated_at)
+                            .map(|dt| dt.to_utc())
+                            .unwrap_or_else(|_| Utc::now());
+                        (
+                            id.clone(),
+                            StoredConfigProfile {
+                                id,
+                                name: p.name,
+                                description: p.description,
+                                is_active: p.is_active,
+                                created_at,
+                                updated_at,
+                                provider_id: p.provider_id,
+                                persona_id: p.persona_id,
+                                web_search_enabled: p.web_search_enabled,
+                                computer_use_enabled: p.computer_use_enabled,
+                                acp_enabled: p.acp_enabled,
+                                active_skill_names: p.active_skill_names,
+                            },
+                        )
+                    })
+                    .collect();
+
                 (
                     providers,
                     config.active_provider_id,
                     skills,
                     personas,
+                    config_profiles,
                     config.acp_config,
                     config.computer_use_config,
                     config.web_search_config,
@@ -284,6 +357,7 @@ impl AppState {
                 (
                     HashMap::new(),
                     None,
+                    HashMap::new(),
                     HashMap::new(),
                     HashMap::new(),
                     AcpConfig::default(),
@@ -324,6 +398,7 @@ impl AppState {
             active_provider_id: RwLock::new(active_provider_id),
             skills: RwLock::new(skills),
             personas: RwLock::new(personas),
+            config_profiles: RwLock::new(config_profiles),
             acp_config: RwLock::new(acp_config),
             computer_use_config: RwLock::new(computer_use_config),
             web_search_config: std::sync::Arc::new(RwLock::new(web_search_config)),
@@ -423,6 +498,7 @@ impl AppState {
         let active_provider_id = self.active_provider_id.read().await;
         let skills = self.skills.read().await;
         let personas = self.personas.read().await;
+        let config_profiles = self.config_profiles.read().await;
         let acp_config = self.acp_config.read().await;
         let computer_use_config = self.computer_use_config.read().await;
         let web_search_config = self.web_search_config.read().await;
@@ -475,11 +551,35 @@ impl AppState {
             })
             .collect();
 
+        let persisted_config_profiles: HashMap<String, PersistedConfigProfile> = config_profiles
+            .iter()
+            .map(|(id, p)| {
+                (
+                    id.clone(),
+                    PersistedConfigProfile {
+                        id: p.id.clone(),
+                        name: p.name.clone(),
+                        description: p.description.clone(),
+                        is_active: p.is_active,
+                        created_at: p.created_at.to_rfc3339().to_string(),
+                        updated_at: p.updated_at.to_rfc3339().to_string(),
+                        provider_id: p.provider_id.clone(),
+                        persona_id: p.persona_id.clone(),
+                        web_search_enabled: p.web_search_enabled,
+                        computer_use_enabled: p.computer_use_enabled,
+                        acp_enabled: p.acp_enabled,
+                        active_skill_names: p.active_skill_names.clone(),
+                    },
+                )
+            })
+            .collect();
+
         PersistedConfig {
             providers: persisted_providers,
             active_provider_id: active_provider_id.clone(),
             skills: persisted_skills,
             personas: persisted_personas,
+            config_profiles: persisted_config_profiles,
             acp_config: acp_config.clone(),
             computer_use_config: computer_use_config.clone(),
             web_search_config: web_search_config.clone(),

@@ -35,6 +35,11 @@ const navItems = computed(() => [
         icon: "lucide:users",
     },
     {
+        path: "/configs",
+        label: t("nav.configs"),
+        icon: "lucide:layers",
+    },
+    {
         path: "/skills",
         label: t("nav.skills"),
         icon: "lucide:sparkles",

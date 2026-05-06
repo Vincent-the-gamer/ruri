@@ -376,7 +376,7 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
         </div>
 
         <!-- Form Modal -->
-        <div v-if="showForm" class="modal-overlay" @click="handleCancel">
+        <div v-if="showForm" class="modal-overlay">
             <div class="modal-content glass" @click.stop>
                 <div class="modal-header">
                     <h2 class="modal-title">
