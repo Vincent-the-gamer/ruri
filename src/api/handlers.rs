@@ -12,7 +12,7 @@ use axum::{
 use chrono::Utc;
 use tracing::{debug, error};
 // futures::sink::SinkExt is not needed for axum WebSocket
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
@@ -175,6 +175,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Logs
         .route("/api/logs", get(get_logs).delete(clear_logs))
         .route("/api/logs/stream", get(ws_logs_upgrade))
+        // Conversations
+        .route(
+            "/api/conversations",
+            get(list_conversations).post(create_conversation),
+        )
+        .route(
+            "/api/conversations/{id}",
+            get(get_conversation).delete(delete_conversation),
+        )
+        .route(
+            "/api/conversations/{id}/messages",
+            post(add_message).get(get_conversation_messages),
+        )
         .with_state(state)
 }
 
@@ -826,22 +839,56 @@ async fn send_chat_message(
         )
     })?;
 
-    // Store in history
-    let user_msg = crate::types::ChatMessage::user(&req.message);
-    state.chat_history.write().await.push(user_msg);
+    // Ensure we have an active conversation
+    let conversation_id = state.ensure_chat_conversation().await.map_err(|e| {
+        tracing::error!("Failed to ensure chat conversation: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to initialize conversation: {}", e) })),
+        )
+    })?;
+
+    // Add user message to conversation database
+    let conv_db = state.conversation_db.read().await;
+    if let Some(db) = conv_db.as_ref() {
+        if let Err(e) = db
+            .add_message(crate::conversation::models::AddMessageRequest {
+                conversation_id: conversation_id.clone(),
+                role: "user".to_string(),
+                content: req.message.clone(),
+            })
+            .await
+        {
+            tracing::error!("Failed to add user message to database: {}", e);
+        }
+    }
+    drop(conv_db);
 
     // Get the assistant message from the response
     let choice = &response.choices[0];
-    state
-        .chat_history
-        .write()
-        .await
-        .push(choice.message.clone());
+    let assistant_content = choice
+        .message
+        .content
+        .as_ref()
+        .and_then(|c| c.as_text())
+        .unwrap_or("")
+        .to_string();
 
-    // Persist chat history
-    if let Err(e) = state.save_chat_history().await {
-        tracing::warn!("Failed to save chat history after message: {}", e);
+    // Add assistant message to conversation database
+    let conv_db = state.conversation_db.read().await;
+    if let Some(db) = conv_db.as_ref() {
+        if let Err(e) = db
+            .add_message(crate::conversation::models::AddMessageRequest {
+                conversation_id: conversation_id.clone(),
+                role: "assistant".to_string(),
+                content: assistant_content,
+            })
+            .await
+        {
+            tracing::error!("Failed to add assistant message to database: {}", e);
+        }
     }
+    drop(conv_db);
 
     // Convert response
     let message_dto = ChatMessageDto::from(&choice.message);
@@ -871,9 +918,39 @@ async fn send_chat_message(
 }
 
 async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMessageDto>> {
-    let history = state.chat_history.read().await;
-    let list: Vec<ChatMessageDto> = history.iter().map(ChatMessageDto::from).collect();
-    Json(list)
+    // Ensure we have an active conversation
+    let conversation_id = match state.ensure_chat_conversation().await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("Failed to ensure chat conversation: {}", e);
+            return Json(Vec::new());
+        }
+    };
+
+    // Get messages from database
+    let conv_db = state.conversation_db.read().await;
+    if let Some(db) = conv_db.as_ref() {
+        match db.get_conversation_messages(&conversation_id).await {
+            Ok(messages) => {
+                // Convert database messages to DTOs
+                let list: Vec<ChatMessageDto> = messages
+                    .iter()
+                    .map(|m| ChatMessageDto {
+                        role: m.role.clone(),
+                        content: m.content.clone(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    })
+                    .collect();
+                return Json(list);
+            }
+            Err(e) => {
+                tracing::error!("Failed to get conversation messages from database: {}", e);
+            }
+        }
+    }
+
+    Json(Vec::new())
 }
 
 async fn clear_chat_history(State(state): State<Arc<AppState>>) -> StatusCode {
@@ -1714,6 +1791,268 @@ async fn ws_logs_handler(mut socket: WebSocket, state: Arc<AppState>) {
             {
                 break;
             }
+        }
+    }
+}
+
+// ─── Conversation Handlers ──────────────────────────────────────
+
+/// List all conversations with optional filters
+async fn list_conversations(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<ListConversationsRequest>,
+) -> Result<Json<Vec<ConversationDto>>, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    let chat_type = if let Some(ref ct) = query.chat_type {
+        match ct.to_lowercase().as_str() {
+            "group" => Some(crate::conversation::models::ChatType::Group),
+            "private" => Some(crate::conversation::models::ChatType::Private),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let filter = if query.bot_name.is_some() || query.chat_type.is_some() || query.keyword.is_some()
+    {
+        Some(crate::conversation::models::ConversationFilter {
+            bot_name: query.bot_name.clone(),
+            chat_type,
+            keyword: query.keyword.clone(),
+        })
+    } else {
+        None
+    };
+
+    match db.list_conversations(filter).await {
+        Ok(conversations) => {
+            let dtos: Vec<ConversationDto> = conversations
+                .iter()
+                .map(|c| ConversationDto {
+                    id: c.id.clone(),
+                    bot_name: c.bot_name.clone(),
+                    chat_type: match c.chat_type {
+                        crate::conversation::models::ChatType::Group => "group".to_string(),
+                        crate::conversation::models::ChatType::Private => "private".to_string(),
+                    },
+                    chat_id: c.chat_id.clone(),
+                    title: c.title.clone(),
+                    created_at: c.created_at.to_rfc3339().to_string(),
+                    updated_at: c.updated_at.to_rfc3339().to_string(),
+                })
+                .collect();
+            Ok(Json(dtos))
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to list conversations");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to list conversations: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Create a new conversation
+async fn create_conversation(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateConversationRequestDto>,
+) -> Result<Json<ConversationDto>, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    let chat_type = match req.chat_type.to_lowercase().as_str() {
+        "group" => crate::conversation::models::ChatType::Group,
+        "private" => crate::conversation::models::ChatType::Private,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "Invalid chat_type. Must be 'group' or 'private'", })),
+            ));
+        }
+    };
+
+    let create_req = crate::conversation::models::CreateConversationRequest {
+        bot_name: req.bot_name,
+        chat_type,
+        chat_id: req.chat_id,
+        title: req.title,
+    };
+
+    match db.create_conversation(create_req).await {
+        Ok(conversation) => {
+            let dto = ConversationDto {
+                id: conversation.id.clone(),
+                bot_name: conversation.bot_name.clone(),
+                chat_type: match conversation.chat_type {
+                    crate::conversation::models::ChatType::Group => "group".to_string(),
+                    crate::conversation::models::ChatType::Private => "private".to_string(),
+                },
+                chat_id: conversation.chat_id.clone(),
+                title: conversation.title.clone(),
+                created_at: conversation.created_at.to_rfc3339().to_string(),
+                updated_at: conversation.updated_at.to_rfc3339().to_string(),
+            };
+            debug!("Created conversation with id: {}", dto.id);
+            Ok(Json(dto))
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to create conversation");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to create conversation: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Get a specific conversation by ID
+async fn get_conversation(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<ConversationDto>, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    match db.get_conversation_by_id(&id).await {
+        Ok(conversation) => {
+            let dto = ConversationDto {
+                id: conversation.id.clone(),
+                bot_name: conversation.bot_name.clone(),
+                chat_type: match conversation.chat_type {
+                    crate::conversation::models::ChatType::Group => "group".to_string(),
+                    crate::conversation::models::ChatType::Private => "private".to_string(),
+                },
+                chat_id: conversation.chat_id.clone(),
+                title: conversation.title.clone(),
+                created_at: conversation.created_at.to_rfc3339().to_string(),
+                updated_at: conversation.updated_at.to_rfc3339().to_string(),
+            };
+            Ok(Json(dto))
+        }
+        Err(e) => {
+            error!(error = %e, conversation_id = %id, "Failed to get conversation");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get conversation: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Delete a conversation
+async fn delete_conversation(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    match db.delete_conversation(&id).await {
+        Ok(_) => {
+            debug!("Deleted conversation with id: {}", id);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(e) => {
+            error!(error = %e, conversation_id = %id, "Failed to delete conversation");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to delete conversation: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Add a message to a conversation
+async fn add_message(
+    State(state): State<Arc<AppState>>,
+    Path(conversation_id): Path<String>,
+    Json(req): Json<AddMessageRequestDto>,
+) -> Result<Json<MessageDto>, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    // Use conversation_id from path parameter
+    let convo_id = conversation_id.clone(); // Clone for error logging
+    let add_req = crate::conversation::models::AddMessageRequest {
+        conversation_id,
+        role: req.role,
+        content: req.content,
+    };
+
+    match db.add_message(add_req).await {
+        Ok(message) => {
+            let dto = MessageDto {
+                id: message.id.clone(),
+                conversation_id: message.conversation_id.clone(),
+                role: message.role.clone(),
+                content: message.content.clone(),
+                created_at: message.created_at.to_rfc3339().to_string(),
+            };
+            debug!(
+                "Added message with id: {} to conversation: {}",
+                dto.id, dto.conversation_id
+            );
+            Ok(Json(dto))
+        }
+        Err(e) => {
+            error!(error = %e, conversation_id = %convo_id, "Failed to add message");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to add message: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Get all messages in a conversation
+async fn get_conversation_messages(
+    State(state): State<Arc<AppState>>,
+    Path(conversation_id): Path<String>,
+) -> Result<Json<Vec<MessageDto>>, (StatusCode, Json<Value>)> {
+    let conversation_db = state.conversation_db.read().await;
+    let db = conversation_db.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "Conversation database not initialized" })),
+    ))?;
+
+    match db.get_conversation_messages(&conversation_id).await {
+        Ok(messages) => {
+            let dtos: Vec<MessageDto> = messages
+                .iter()
+                .map(|m| MessageDto {
+                    id: m.id.clone(),
+                    conversation_id: m.conversation_id.clone(),
+                    role: m.role.clone(),
+                    content: m.content.clone(),
+                    created_at: m.created_at.to_rfc3339().to_string(),
+                })
+                .collect();
+            Ok(Json(dtos))
+        }
+        Err(e) => {
+            error!(error = %e, conversation_id = %conversation_id, "Failed to get conversation messages");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get conversation messages: {}", e) })),
+            ))
         }
     }
 }

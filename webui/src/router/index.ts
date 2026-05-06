@@ -69,6 +69,11 @@ const router = createRouter({
       name: 'Configs',
       component: () => import('../views/Configs.vue'),
     },
+    {
+      path: '/conversation-history',
+      name: 'ConversationHistory',
+      component: () => import('../views/ConversationHistory.vue'),
+    },
   ],
 })
 

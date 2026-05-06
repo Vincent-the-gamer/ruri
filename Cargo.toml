@@ -67,6 +67,10 @@ tempfile = "3"
 # Multipart file upload
 multer = "3"
 
+# SQLite database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # HTML parsing for web search
 scraper = "0.20"
 url = "2.5"

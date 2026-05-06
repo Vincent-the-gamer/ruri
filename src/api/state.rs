@@ -209,8 +209,10 @@ pub struct AppState {
     pub workspace_manager: std::sync::Arc<crate::computer_use::WorkspaceManager>,
     /// Tool definitions (read-only, set at startup).
     pub tool_definitions: Vec<crate::types::ToolDefinition>,
-    /// Chat history.
+    /// Chat history (legacy, kept for backward compatibility).
     pub chat_history: RwLock<Vec<ChatMessage>>,
+    /// ID of the current active conversation for chat messages.
+    pub chat_conversation_id: RwLock<Option<String>>,
     /// Server start time.
     pub start_time: DateTime<Utc>,
     /// Path to the config file.
@@ -219,6 +221,10 @@ pub struct AppState {
     pub(crate) chat_history_path: PathBuf,
     /// Log manager for real-time log broadcasting.
     pub log_manager: std::sync::Arc<crate::logging::LogManager>,
+    /// Conversation database (initialized after AppState creation).
+    pub conversation_db: std::sync::Arc<
+        tokio::sync::RwLock<Option<std::sync::Arc<crate::conversation::ConversationDatabase>>>,
+    >,
 }
 
 impl AppState {
@@ -367,27 +373,6 @@ impl AppState {
             }
         };
 
-        // Load chat history from the default chat history file path
-        let chat_history_file_path = chat_history_path();
-        let chat_history = match Self::load_chat_history_sync(&chat_history_file_path) {
-            Ok(history) => {
-                tracing::info!(
-                    "Loaded chat history from {} ({} messages)",
-                    chat_history_file_path.display(),
-                    history.len()
-                );
-                history
-            }
-            Err(e) => {
-                tracing::info!(
-                    "Could not load chat history from {}: {}",
-                    chat_history_file_path.display(),
-                    e
-                );
-                Vec::new()
-            }
-        };
-
         // Create workspace manager with data directory
         let data_dir = crate::computer_use::workspace::default_data_dir();
         let workspace_manager =
@@ -404,11 +389,13 @@ impl AppState {
             web_search_config: std::sync::Arc::new(RwLock::new(web_search_config)),
             workspace_manager,
             tool_definitions: Vec::new(),
-            chat_history: RwLock::new(chat_history),
+            chat_history: RwLock::new(Vec::new()),
             start_time: Utc::now(),
             config_path: config_path.to_path_buf(),
-            chat_history_path: chat_history_file_path,
+            chat_history_path: chat_history_path(),
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
+            conversation_db: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+            chat_conversation_id: RwLock::new(None),
         }
     }
 
@@ -490,6 +477,44 @@ impl AppState {
 
         tracing::debug!("Chat history saved to {}", self.chat_history_path.display());
         Ok(())
+    }
+
+    /// Ensure there is an active conversation for chat messages.
+    /// Returns the conversation ID, creating a new one if necessary.
+    pub async fn ensure_chat_conversation(&self) -> anyhow::Result<String> {
+        // Check if we already have an active conversation ID
+        {
+            let conv_id = self.chat_conversation_id.read().await;
+            if let Some(id) = conv_id.as_ref() {
+                return Ok(id.clone());
+            }
+        }
+
+        // No active conversation, need to create one
+        let conv_db = self.conversation_db.read().await;
+        let db = conv_db
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Conversation database not initialized"))?;
+
+        // Create or get a default conversation
+        let conversation = db
+            .get_or_create_conversation(
+                "webui".to_string(),
+                crate::conversation::models::ChatType::Private,
+                "default".to_string(),
+            )
+            .await?;
+
+        // Save the conversation ID
+        let mut conv_id = self.chat_conversation_id.write().await;
+        *conv_id = Some(conversation.id.clone());
+
+        tracing::info!(
+            "Created/loaded default conversation for chat: {}",
+            conversation.id
+        );
+
+        Ok(conversation.id)
     }
 
     /// Build a PersistedConfig from the current in-memory state.

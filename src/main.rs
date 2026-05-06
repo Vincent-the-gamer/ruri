@@ -5,6 +5,7 @@ mod acp;
 mod agent;
 mod api;
 mod computer_use;
+mod conversation;
 mod logging;
 mod provider;
 mod transport;
@@ -138,6 +139,28 @@ async fn main() -> anyhow::Result<()> {
         ..temp_state
     });
 
+    // ── Initialize conversation database ─────────────────────────
+    let config_dir = if let Some(dir) = dirs::home_dir() {
+        dir.join(".ruri")
+    } else {
+        std::path::PathBuf::from(".ruri")
+    };
+    let db_path = config_dir.join("conversations.db");
+
+    match conversation::ConversationDatabase::new(db_path).await {
+        Ok(db) => {
+            tracing::info!(
+                "Conversation database initialized at: {:?}",
+                config_dir.join("conversations.db")
+            );
+            *state.conversation_db.write().await = Some(std::sync::Arc::new(db));
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize conversation database: {}", e);
+            tracing::warn!("Conversation history features will be unavailable");
+        }
+    }
+
     // ── Create the API router ────────────────────────────────────
     let api_router = api::create_router(state.clone());
 
@@ -153,6 +176,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  POST   /api/chat              Send a chat message");
     tracing::info!("  GET    /api/chat/history       Get chat history");
     tracing::info!("  DELETE /api/chat/history       Clear chat history");
+    tracing::info!("  GET    /api/conversations      List conversations");
+    tracing::info!("  POST   /api/conversations      Create conversation");
+    tracing::info!("  GET    /api/conversations/:id  Get conversation");
+    tracing::info!("  DELETE /api/conversations/:id  Delete conversation");
+    tracing::info!("  POST   /api/conversations/:id/messages  Add message");
+    tracing::info!("  GET    /api/conversations/:id/messages  Get messages");
     tracing::info!("  GET    /api/providers          List providers");
     tracing::info!("  POST   /api/providers          Create provider");
     tracing::info!("  GET    /api/providers/:id      Get provider");

@@ -599,3 +599,46 @@ impl From<&types::WebSearchConfig> for WebSearchConfigDto {
         }
     }
 }
+
+// ─── Conversation DTOs ─────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ConversationDto {
+    pub id: String,
+    pub bot_name: String,
+    pub chat_type: String,
+    pub chat_id: String,
+    pub title: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MessageDto {
+    pub id: String,
+    pub conversation_id: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListConversationsRequest {
+    pub bot_name: Option<String>,
+    pub chat_type: Option<String>,
+    pub keyword: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateConversationRequestDto {
+    pub bot_name: String,
+    pub chat_type: String,
+    pub chat_id: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddMessageRequestDto {
+    pub role: String,
+    pub content: String,
+}

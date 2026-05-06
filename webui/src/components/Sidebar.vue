@@ -60,6 +60,11 @@ const navItems = computed(() => [
         icon: "lucide:scroll-text",
     },
     {
+        path: "/conversation-history",
+        label: t("nav.conversationHistory"),
+        icon: "lucide:history",
+    },
+    {
         path: "/acp-config",
         label: t("nav.agentConfig"),
         icon: "lucide:bot",
