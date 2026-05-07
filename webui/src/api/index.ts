@@ -8,10 +8,12 @@ import type {
   ComputerUseConfig,
   ConfigProfile,
   CreateConfigProfileRequest,
+  CreateMcpServerRequest,
   CreateProviderRequest,
   CreateSkillRequest,
   CreatePersonaRequest,
   LogEntry,
+  McpServerConfig,
   Persona,
   Provider,
   Skill,
@@ -19,6 +21,7 @@ import type {
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
   UpdateConfigProfileRequest,
+  UpdateMcpServerRequest,
   UpdatePersonaRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
@@ -255,4 +258,35 @@ export async function getConfigProfileProvider(profileId: string): Promise<Provi
 export async function getConfigProfilePersona(profileId: string): Promise<Persona | null> {
   const res = await client.get(`/api/config-profiles/${profileId}/persona`)
   return res.data.persona || null
+}
+
+// ─── MCP ─────────────────────────────────────────────────────────
+
+export async function getMcpServers(): Promise<McpServerConfig[]> {
+  const res = await client.get('/api/mcp/servers')
+  return res.data
+}
+
+export async function getMcpServer(id: string): Promise<McpServerConfig> {
+  const res = await client.get(`/api/mcp/servers/${id}`)
+  return res.data
+}
+
+export async function createMcpServer(data: CreateMcpServerRequest): Promise<McpServerConfig> {
+  const res = await client.post('/api/mcp/servers', data)
+  return res.data
+}
+
+export async function updateMcpServer(id: string, data: UpdateMcpServerRequest): Promise<McpServerConfig> {
+  const res = await client.put(`/api/mcp/servers/${id}`, data)
+  return res.data
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  await client.delete(`/api/mcp/servers/${id}`)
+}
+
+export async function toggleMcpServer(id: string): Promise<McpServerConfig> {
+  const res = await client.post(`/api/mcp/servers/${id}/toggle`)
+  return res.data
 }

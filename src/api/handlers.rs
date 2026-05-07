@@ -21,6 +21,7 @@ use zip::ZipArchive;
 
 use crate::api::models::*;
 use crate::api::state::{AppState, StoredConfigProfile};
+use crate::mcp::types::McpServerConfig;
 
 // ─── SKILL.md Frontmatter Parsing ─────────────────────────────────
 
@@ -188,6 +189,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/conversations/{id}/messages",
             post(add_message).get(get_conversation_messages),
         )
+        // MCP servers
+        .route(
+            "/api/mcp/servers",
+            get(list_mcp_servers).post(create_mcp_server),
+        )
+        .route(
+            "/api/mcp/servers/{id}",
+            get(get_mcp_server)
+                .put(update_mcp_server)
+                .delete(delete_mcp_server),
+        )
+        .route("/api/mcp/servers/{id}/toggle", post(toggle_mcp_server))
         .with_state(state)
 }
 
@@ -2052,6 +2065,228 @@ async fn get_conversation_messages(
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": format!("Failed to get conversation messages: {}", e) })),
+            ))
+        }
+    }
+}
+
+// ─── MCP Server Configuration ─────────────────────────────────────
+
+/// List all MCP server configurations
+async fn list_mcp_servers(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<McpServerConfig>>, (StatusCode, Json<Value>)> {
+    let mcp_config = state.mcp_config.read().await;
+    let mcp_config = mcp_config.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.list_servers().await {
+        Ok(servers) => Ok(Json(servers)),
+        Err(e) => {
+            error!(error = %e, "Failed to list MCP servers");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to list MCP servers: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Get a specific MCP server configuration
+async fn get_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<McpServerConfig>, (StatusCode, Json<Value>)> {
+    let mcp_config = state.mcp_config.read().await;
+    let mcp_config = mcp_config.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.get_server(&id).await {
+        Ok(Some(server)) => Ok(Json(server)),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("MCP server not found: {}", id) })),
+        )),
+        Err(e) => {
+            error!(error = %e, %id, "Failed to get MCP server");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get MCP server: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Create a new MCP server configuration
+async fn create_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<crate::api::models::CreateMcpServerRequest>,
+) -> Result<Json<McpServerConfig>, (StatusCode, Json<Value>)> {
+    let server = McpServerConfig {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: req.name,
+        transport_type: req.transport_type,
+        transport_config: req.transport_config,
+        enabled: Some(req.enabled),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+
+    let mut mcp_config = state.mcp_config.write().await;
+    let mcp_config = mcp_config.as_mut().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.create_server(&server).await {
+        Ok(_) => {
+            debug!("Created MCP server: {}", server.name);
+            Ok(Json(server))
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to create MCP server");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to create MCP server: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Update an existing MCP server configuration
+async fn update_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<crate::api::models::UpdateMcpServerRequest>,
+) -> Result<Json<McpServerConfig>, (StatusCode, Json<Value>)> {
+    // Get existing server first
+    let existing = {
+        let mcp_config = state.mcp_config.read().await;
+        let mcp_config = mcp_config.as_ref().ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "MCP config not initialized" })),
+        ))?;
+        mcp_config.get_server(&id).await.map_err(|e| {
+            error!(error = %e, %id, "Failed to get MCP server for update");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get MCP server: {}", e) })),
+            )
+        })?
+    };
+
+    let existing = existing.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": format!("MCP server not found: {}", id) })),
+    ))?;
+
+    // Merge: only update fields that are provided
+    let server = McpServerConfig {
+        id: id.clone(),
+        name: req.name.unwrap_or(existing.name),
+        transport_type: req.transport_type.unwrap_or(existing.transport_type),
+        transport_config: req.transport_config.unwrap_or(existing.transport_config),
+        enabled: req.enabled.map(Some).unwrap_or(existing.enabled),
+        created_at: existing.created_at,
+        updated_at: chrono::Utc::now(),
+    };
+
+    let mut mcp_config = state.mcp_config.write().await;
+    let mcp_config = mcp_config.as_mut().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.update_server(&server).await {
+        Ok(_) => {
+            debug!("Updated MCP server: {}", server.name);
+            Ok(Json(server))
+        }
+        Err(e) => {
+            error!(error = %e, %id, "Failed to update MCP server");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to update MCP server: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Delete an MCP server configuration
+async fn delete_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let mut mcp_config = state.mcp_config.write().await;
+    let mcp_config = mcp_config.as_mut().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.delete_server(&id).await {
+        Ok(_) => {
+            debug!("Deleted MCP server: {}", id);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(e) => {
+            error!(error = %e, %id, "Failed to delete MCP server");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to delete MCP server: {}", e) })),
+            ))
+        }
+    }
+}
+
+/// Toggle MCP server enabled/disabled status
+async fn toggle_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<McpServerConfig>, (StatusCode, Json<Value>)> {
+    // First get the current state
+    let mcp_config = state.mcp_config.read().await;
+    let mcp_config = mcp_config.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    let server = mcp_config.get_server(&id).await.map_err(|e| {
+        error!(error = %e, %id, "Failed to get MCP server");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to get MCP server: {}", e) })),
+        )
+    })?;
+
+    let server = server.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": format!("MCP server not found: {}", id) })),
+    ))?;
+
+    let new_enabled = !server.enabled.unwrap_or(true);
+    let _ = mcp_config;
+
+    // Update the enabled state
+    let mut mcp_config = state.mcp_config.write().await;
+    let mcp_config = mcp_config.as_mut().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({ "error": "MCP config not initialized" })),
+    ))?;
+    match mcp_config.set_enabled(&id, new_enabled).await {
+        Ok(_) => {
+            debug!("Toggled MCP server: {} - enabled: {}", id, new_enabled);
+            // Fetch the updated server
+            match mcp_config.get_server(&id).await {
+                Ok(Some(updated_server)) => Ok(Json(updated_server)),
+                _ => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Failed to fetch updated server" })),
+                )),
+            }
+        }
+        Err(e) => {
+            error!(error = %e, %id, "Failed to toggle MCP server");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to toggle MCP server: {}", e) })),
             ))
         }
     }

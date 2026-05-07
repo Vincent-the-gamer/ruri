@@ -64,19 +64,6 @@ async function handleActivate(id: string) {
     }
 }
 
-const providerTypeIcon = (type: string) => {
-    switch (type) {
-        case "openai":
-            return "🟢";
-        case "anthropic":
-            return "🟣";
-        case "custom":
-            return "⚙️";
-        default:
-            return "🔌";
-    }
-};
-
 const providerTypeLabel = (type: string) => {
     switch (type) {
         case "openai":

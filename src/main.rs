@@ -7,6 +7,7 @@ mod api;
 mod computer_use;
 mod conversation;
 mod logging;
+mod mcp;
 mod provider;
 mod transport;
 mod types;
@@ -25,6 +26,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use rust_embed::RustEmbed;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
 
 /// Embedded frontend assets from the compiled Vue build.
@@ -158,6 +160,49 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             tracing::warn!("Failed to initialize conversation database: {}", e);
             tracing::warn!("Conversation history features will be unavailable");
+        }
+    }
+
+    // ── Initialize MCP configuration database ───────────────────────
+    let mcp_db_path = config_dir.join("mcp_servers.db");
+
+    // Ensure database directory exists
+    if let Some(parent) = mcp_db_path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            tracing::warn!(
+                "Failed to create MCP database directory {:?}: {}",
+                parent,
+                e
+            );
+            tracing::warn!("MCP server configuration features will be unavailable");
+        } else {
+            // Use correct connection string with mode=rwc
+            let mcp_db_url = format!("sqlite:{}?mode=rwc", mcp_db_path.display());
+
+            match SqlitePoolOptions::new()
+                .max_connections(5)
+                .connect(&mcp_db_url)
+                .await
+            {
+                Ok(pool) => {
+                    let mcp_config_manager = mcp::config::McpConfigManager::new(pool);
+
+                    // Initialize MCP database schema
+                    if let Err(e) = mcp_config_manager.init().await {
+                        tracing::warn!("Failed to initialize MCP database schema: {}", e);
+                    }
+
+                    *state.mcp_config.write().await = Some(mcp_config_manager);
+                    tracing::info!(
+                        "MCP configuration database initialized at: {:?}",
+                        mcp_db_path
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize MCP configuration database: {}", e);
+                    tracing::warn!("MCP server configuration features will be unavailable");
+                }
+            }
         }
     }
 

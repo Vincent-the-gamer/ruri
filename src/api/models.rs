@@ -642,3 +642,22 @@ pub struct AddMessageRequestDto {
     pub role: String,
     pub content: String,
 }
+
+// ─── MCP Server Models ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMcpServerRequest {
+    pub name: String,
+    pub transport_type: crate::mcp::types::TransportType,
+    pub transport_config: crate::mcp::types::TransportConfig,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMcpServerRequest {
+    pub name: Option<String>,
+    pub transport_type: Option<crate::mcp::types::TransportType>,
+    pub transport_config: Option<crate::mcp::types::TransportConfig>,
+    pub enabled: Option<bool>,
+}

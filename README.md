@@ -12,9 +12,9 @@
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search
-- [x] ACP (Agent Client Protocol)
+- [x] ACP (Agent Client Protocol) Server
 - [x] Persona
-- [ ] MCP (Model Context Protocol)
+- [x] MCP (Model Context Protocol) Client
 - [ ] Sub Agent
 - [ ] Chat - Discord
 - [ ] Chat - OneBot V11
@@ -39,6 +39,22 @@ cargo run
 ```
 
 Open the web UI at `http://localhost:3000`.
+
+### ACP (Agent Client Protocol)
+
+Config example in Zed:
+
+```json
+{
+  "agent_servers": {
+    "ruri": {
+      "type": "custom",
+      "command": "/<path_to>/ruri",
+      "args": ["--acp"]
+    }
+  }
+}
+```
 
 ## Preview
 

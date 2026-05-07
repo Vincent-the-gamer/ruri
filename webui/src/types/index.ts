@@ -329,6 +329,69 @@ export interface UpdateConfigProfileRequest {
   active_skill_names?: string[]
 }
 
+// ─── MCP Types ──────────────────────────────────────────────────
+
+export type TransportType = 'stdio' | 'sse' | 'websocket' | 'http'
+
+export interface StdioTransportConfig {
+  type: 'stdio'
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export interface SSETransportConfig {
+  type: 'sse'
+  url: string
+  headers?: Record<string, string>
+}
+
+export interface WebSocketTransportConfig {
+  type: 'websocket'
+  url: string
+  headers?: Record<string, string>
+}
+
+export interface HttpTransportConfig {
+  type: 'http'
+  url: string
+  headers?: Record<string, string>
+}
+
+export type TransportConfig = StdioTransportConfig | SSETransportConfig | WebSocketTransportConfig | HttpTransportConfig
+
+export interface McpServerConfig {
+  id: string
+  name: string
+  transport_type: TransportType
+  transport_config: TransportConfig
+  enabled?: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMcpServerRequest {
+  name: string
+  transport_type: TransportType
+  transport_config: TransportConfig
+  enabled?: boolean
+}
+
+export interface UpdateMcpServerRequest {
+  name?: string
+  transport_type?: TransportType
+  transport_config?: TransportConfig
+  enabled?: boolean
+}
+
+export interface McpServerStatus {
+  id: string
+  name: string
+  connected: boolean
+  tools_count?: number
+  error?: string
+}
+
 // ─── API Response ────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

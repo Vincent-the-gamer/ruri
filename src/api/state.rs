@@ -225,6 +225,9 @@ pub struct AppState {
     pub conversation_db: std::sync::Arc<
         tokio::sync::RwLock<Option<std::sync::Arc<crate::conversation::ConversationDatabase>>>,
     >,
+    /// MCP configuration manager (initialized after AppState creation).
+    pub mcp_config:
+        std::sync::Arc<tokio::sync::RwLock<Option<crate::mcp::config::McpConfigManager>>>,
 }
 
 impl AppState {
@@ -396,6 +399,7 @@ impl AppState {
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
             conversation_db: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             chat_conversation_id: RwLock::new(None),
+            mcp_config: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
@@ -915,18 +919,11 @@ impl AppState {
 
         // Register WebSearchTool only if properly configured (enabled and has API key if needed)
         let web_search_config = self.web_search_config.read().await;
-        let web_search_available = web_search_config.enabled && {
-            match web_search_config.search_engine {
-                crate::types::SearchEngine::DuckDuckGo => {
-                    // DuckDuckGo doesn't require an API key
-                    true
-                }
-                _ => {
-                    // Other engines require an API key
-                    web_search_config.api_key.is_some()
-                }
-            }
-        };
+        let web_search_available = web_search_config.enabled
+            && match web_search_config.search_engine {
+                crate::types::SearchEngine::DuckDuckGo => true,
+                _ => web_search_config.api_key.is_some(),
+            };
         drop(web_search_config);
 
         if web_search_available {

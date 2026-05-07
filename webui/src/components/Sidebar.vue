@@ -80,6 +80,11 @@ const navItems = computed(() => [
         icon: "lucide:search",
     },
     {
+        path: "/mcp-config",
+        label: t("nav.mcpConfig"),
+        icon: "lucide:hard-drive",
+    },
+    {
         path: "/api-test",
         label: t("nav.apiTest"),
         icon: "lucide:flask-conical",

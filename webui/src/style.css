@@ -34,6 +34,9 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
+    /* Success */
+    --success: 142 76% 36%;
+
     /* Code & Border */
     --code: 24 9.8% 10%;
     --border: 240 5.9% 90%;
@@ -89,6 +92,15 @@
     --color-success-soft: hsl(142 76% 36% / 0.1);
     --color-success-text: hsl(142 76% 30%);
     --color-text-dim: hsl(var(--muted-foreground) / 0.7);
+
+    /* Additional variables for McpConfig component */
+    --color-surface: hsl(var(--card));
+    --color-surface-alt: hsl(var(--accent));
+    --color-primary-bg: hsl(var(--primary) / 0.1);
+    --color-success-bg: hsl(142 76% 36% / 0.1);
+    --color-error: hsl(var(--destructive));
+    --color-error-bg: hsl(var(--destructive) / 0.1);
+    --color-text-muted-bg: hsl(var(--muted) / 0.3);
 }
 
 /* Dark Theme  */
@@ -116,6 +128,8 @@
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 85.7% 97.3%;
+
+    --success: 142 76% 50%;
 
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
@@ -149,6 +163,15 @@
     --color-success-soft: hsl(142 76% 36% / 0.15);
     --color-success-text: hsl(142 76% 70%);
     --color-text-dim: hsl(var(--muted-foreground) / 0.6);
+
+    /* Additional variables for McpConfig component */
+    --color-surface: hsl(var(--card));
+    --color-surface-alt: hsl(var(--accent));
+    --color-primary-bg: hsl(var(--primary) / 0.15);
+    --color-success-bg: hsl(142 76% 36% / 0.15);
+    --color-error: hsl(var(--destructive));
+    --color-error-bg: hsl(var(--destructive) / 0.15);
+    --color-text-muted-bg: hsl(var(--muted) / 0.3);
 }
 
 /* ═══════════════════════════════════════════════════════════════

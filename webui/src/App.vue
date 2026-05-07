@@ -27,7 +27,7 @@ onMounted(() => {
 
 <template>
     <div
-        class="app-container min-h-screen flex flex-col bg-background font-sans-rounded"
+        class="app-container h-screen flex flex-col bg-background font-sans-rounded"
     >
         <!-- Floating orbs background animation -->
         <div class="bg-orbs">
@@ -36,52 +36,55 @@ onMounted(() => {
             <div class="orb orb-3"></div>
         </div>
 
-        <!-- Header -->
-        <header
-            class="sticky top-0 z-20 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300"
-        >
-            <div
-                class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
-            >
-                <!-- Logo -->
-                <router-link
-                    to="/"
-                    class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
-                >
-                    <span class="text-primary">◈</span>
-                    <span>Ruri</span>
-                </router-link>
-
-                <!-- Right side: Locale & Theme Toggle -->
-                <div class="flex items-center gap-3">
-                    <LocaleSwitcher />
-                    <ThemeToggle />
-                </div>
-            </div>
-        </header>
-
         <!-- Main Content Area -->
-        <div class="flex flex-1">
-            <!-- Sidebar - Left Navigation -->
-            <Sidebar />
+        <div class="flex flex-1 overflow-hidden flex-col">
+            <!-- Header -->
+            <header
+                class="sticky top-0 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300"
+            >
+                <div
+                    class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
+                >
+                    <!-- Logo -->
+                    <router-link
+                        to="/"
+                        class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
+                    >
+                        <span class="text-primary">◈</span>
+                        <span>Ruri</span>
+                    </router-link>
 
-            <!-- Main Content -->
-            <main class="flex-1 overflow-auto">
-                <div class="max-w-[1440px] mx-auto w-full p-6">
-                    <router-view v-slot="{ Component, route }">
-                        <keep-alive v-if="route.meta.keepAlive">
-                            <transition name="fade" mode="out-in">
-                                <component :is="Component" />
-                            </transition>
-                        </keep-alive>
-                        <template v-else>
-                            <transition name="fade" mode="out-in">
-                                <component :is="Component" />
-                            </transition>
-                        </template>
-                    </router-view>
+                    <!-- Right side: Locale & Theme Toggle -->
+                    <div class="flex items-center gap-3">
+                        <LocaleSwitcher />
+                        <ThemeToggle />
+                    </div>
                 </div>
-            </main>
+            </header>
+
+            <!-- Sidebar and Main Content -->
+            <div class="flex flex-1 overflow-hidden">
+                <!-- Sidebar - Left Navigation -->
+                <Sidebar />
+
+                <!-- Main Content -->
+                <main class="flex-1 overflow-y-auto">
+                    <div class="max-w-[1440px] mx-auto w-full p-6">
+                        <router-view v-slot="{ Component, route }">
+                            <keep-alive v-if="route.meta.keepAlive">
+                                <transition name="fade" mode="out-in">
+                                    <component :is="Component" />
+                                </transition>
+                            </keep-alive>
+                            <template v-else>
+                                <transition name="fade" mode="out-in">
+                                    <component :is="Component" />
+                                </transition>
+                            </template>
+                        </router-view>
+                    </div>
+                </main>
+            </div>
         </div>
     </div>
 </template>
@@ -161,14 +164,7 @@ onMounted(() => {
         );
 }
 
-.app-container > header {
-    position: relative;
-    z-index: 20;
-    backdrop-filter: blur(20px) saturate(1.5);
-    -webkit-backdrop-filter: blur(20px) saturate(1.5);
-}
-
-.app-container > .flex {
+.app-container > .flex:first-child {
     position: relative;
     z-index: 1;
 }
