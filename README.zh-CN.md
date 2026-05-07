@@ -39,6 +39,22 @@ cargo run
 
 在 `http://localhost:3000` 打开 Web UI。
 
+### ACP (Agent Client Protocol，Agent客户端协议)
+
+Zed配置范例:
+
+```json
+{
+  "agent_servers": {
+    "ruri": {
+      "type": "custom",
+      "command": "/<path_to>/ruri",
+      "args": ["--acp"]
+    }
+  }
+}
+```
+
 ## 预览
 
 ![preview](.github/preview.png)
