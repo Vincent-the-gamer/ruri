@@ -15,14 +15,15 @@
 - [x] ACP (Agent Client Protocol) Server
 - [x] Persona
 - [x] MCP (Model Context Protocol) Client
+- [ ] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
 - [ ] Sub Agent
-- [ ] Chat - Discord
+- [x] Chat - Discord
 - [ ] Chat - OneBot V11
 - [ ] Chat - WeChat(Wechat ClawBot)
 - [ ] Chat - Matrix
 - [ ] Chat - VoceChat
 - [ ] Chat - QQ
-- [ ] Chat - DingTalk
+- [x] Chat - DingTalk
 - [ ] Chat - WeCom
 - [ ] Chat - Custom API(You can write your own program to talk to Ruri)
 

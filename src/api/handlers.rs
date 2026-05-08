@@ -201,6 +201,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .delete(delete_mcp_server),
         )
         .route("/api/mcp/servers/{id}/toggle", post(toggle_mcp_server))
+        // Platforms
+        .route("/api/platforms", get(list_platforms).post(create_platform))
+        .route(
+            "/api/platforms/{id}",
+            get(get_platform)
+                .put(update_platform)
+                .delete(delete_platform),
+        )
+        .route("/api/platforms/{id}/toggle", post(toggle_platform))
+        // System
+        .route("/api/system/restart", post(restart_system))
+        .route("/api/platforms/reload", post(reload_platforms))
         .with_state(state)
 }
 
@@ -1509,6 +1521,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             computer_use_enabled: p.computer_use_enabled,
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
+            active_platform_ids: p.active_platform_ids.clone(),
         })
         .collect();
     Json(dtos)
@@ -1534,6 +1547,7 @@ async fn get_config_profile(
             computer_use_enabled: p.computer_use_enabled,
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
+            active_platform_ids: p.active_platform_ids.clone(),
         };
         Ok(Json(dto))
     } else {
@@ -1572,6 +1586,7 @@ async fn create_config_profile(
         computer_use_enabled: req.computer_use_enabled,
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names.clone(),
+        active_platform_ids: req.active_platform_ids.clone(),
     };
 
     // Insert the profile
@@ -1593,6 +1608,7 @@ async fn create_config_profile(
         computer_use_enabled: req.computer_use_enabled,
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names,
+        active_platform_ids: req.active_platform_ids,
     };
 
     state.auto_save().await;
@@ -1636,6 +1652,9 @@ async fn update_config_profile(
         if let Some(active_skill_names) = req.active_skill_names {
             profile.active_skill_names = active_skill_names;
         }
+        if let Some(active_platform_ids) = req.active_platform_ids {
+            profile.active_platform_ids = active_platform_ids;
+        }
         profile.updated_at = Utc::now();
 
         let dto = ConfigProfileDto {
@@ -1651,6 +1670,7 @@ async fn update_config_profile(
             computer_use_enabled: profile.computer_use_enabled,
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
+            active_platform_ids: profile.active_platform_ids.clone(),
         };
 
         drop(profiles);
@@ -1729,6 +1749,7 @@ async fn activate_config_profile(
             computer_use_enabled: profile.computer_use_enabled,
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
+            active_platform_ids: profile.active_platform_ids.clone(),
         };
 
         drop(profiles);
@@ -2288,6 +2309,405 @@ async fn toggle_mcp_server(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": format!("Failed to toggle MCP server: {}", e) })),
             ))
+        }
+    }
+}
+
+// ─── Platform Handlers ───────────────────────────────────────────
+
+use crate::api::models::{CreatePlatformRequest, PlatformInstanceDto, UpdatePlatformRequest};
+use crate::platform::manager::PlatformInstanceConfig;
+use axum::response::IntoResponse;
+
+async fn list_platforms(State(state): State<Arc<AppState>>) -> Json<Vec<PlatformInstanceDto>> {
+    let configs = state.platform_configs.read().await;
+    let statuses = state.platform_statuses_async().await;
+    let list: Vec<PlatformInstanceDto> = configs
+        .iter()
+        .map(|c| PlatformInstanceDto {
+            id: c.id.clone(),
+            platform_type: c.platform_type.clone(),
+            enable: c.enable,
+            config: c.extra.clone(),
+            status: statuses.get(&c.id).cloned().unwrap_or_else(|| {
+                if c.enable {
+                    "pending".to_string()
+                } else {
+                    "stopped".to_string()
+                }
+            }),
+        })
+        .collect();
+    Json(list)
+}
+
+async fn get_platform(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    let configs = state.platform_configs.read().await;
+    let statuses = state.platform_statuses_async().await;
+    match configs.iter().find(|c| c.id == id) {
+        Some(c) => Json(PlatformInstanceDto {
+            id: c.id.clone(),
+            platform_type: c.platform_type.clone(),
+            enable: c.enable,
+            config: c.extra.clone(),
+            status: statuses.get(&c.id).cloned().unwrap_or_else(|| {
+                if c.enable {
+                    "pending".to_string()
+                } else {
+                    "stopped".to_string()
+                }
+            }),
+        })
+        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn create_platform(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreatePlatformRequest>,
+) -> Response {
+    // Validate the platform type
+    match req.platform_type.as_str() {
+        "dingtalk" | "discord" => {}
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Unknown platform type: {}", other)})),
+            )
+                .into_response();
+        }
+    }
+
+    let mut configs = state.platform_configs.write().await;
+
+    // Check for duplicate ID
+    if configs.iter().any(|c| c.id == req.id) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Platform with this ID already exists"})),
+        )
+            .into_response();
+    }
+
+    let platform_id = req.id.clone();
+    let config = PlatformInstanceConfig {
+        platform_type: req.platform_type.clone(),
+        id: req.id,
+        enable: req.enable,
+        extra: req.config,
+    };
+
+    // Start the platform adapter if enabled
+    if config.enable {
+        let mut pm = state.platform_manager.write().await;
+        if let Err(e) = pm.add_platform(config.clone()).await {
+            tracing::error!("Failed to start platform adapter: {}", e);
+            // Still save the config even if the adapter fails to start
+        }
+    }
+
+    configs.push(config);
+
+    // Save to file (release write lock first)
+    drop(configs);
+    state.save_platforms_config().await.ok();
+
+    // Return the created platform
+    let statuses = state.platform_statuses_async().await;
+    let configs = state.platform_configs.read().await;
+    match configs.iter().find(|c| c.id == platform_id) {
+        Some(c) => Json(PlatformInstanceDto {
+            id: c.id.clone(),
+            platform_type: c.platform_type.clone(),
+            enable: c.enable,
+            config: c.extra.clone(),
+            status: statuses.get(&c.id).cloned().unwrap_or_else(|| {
+                if c.enable {
+                    "pending".to_string()
+                } else {
+                    "stopped".to_string()
+                }
+            }),
+        })
+        .into_response(),
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to create platform"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn update_platform(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdatePlatformRequest>,
+) -> Response {
+    let mut configs = state.platform_configs.write().await;
+
+    let index = match configs.iter().position(|c| c.id == id) {
+        Some(i) => i,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Platform not found"})),
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(ref new_id) = req.id {
+        // Check for duplicate ID if changing
+        if new_id != &id && configs.iter().any(|c| c.id == *new_id) {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"error": "Platform with this ID already exists"})),
+            )
+                .into_response();
+        }
+    }
+
+    let config = &mut configs[index];
+
+    // Track the old ID for adapter management
+    let old_id = config.id.clone();
+
+    if let Some(new_id) = req.id {
+        config.id = new_id;
+    }
+    if let Some(pt) = req.platform_type {
+        config.platform_type = pt;
+    }
+    let was_enabled = config.enable;
+    if let Some(enable) = req.enable {
+        config.enable = enable;
+    }
+    if let Some(extra) = req.config {
+        config.extra = extra;
+    }
+
+    let updated_config = config.clone();
+    let updated_id = config.id.clone();
+    drop(configs);
+
+    // Restart the platform adapter with the new config
+    // This handles: config changed, enable/disable, id change
+    if was_enabled || updated_config.enable {
+        let mut pm = state.platform_manager.write().await;
+        // Stop the old adapter (by old ID in case ID changed)
+        if pm.is_running(&old_id) {
+            if let Err(e) = pm.remove_platform(&old_id).await {
+                tracing::warn!("Failed to stop old platform adapter {}: {}", old_id, e);
+            }
+        }
+        // Also try to stop by updated ID (in case it was already running)
+        if old_id != updated_id && pm.is_running(&updated_id) {
+            if let Err(e) = pm.remove_platform(&updated_id).await {
+                tracing::warn!("Failed to stop old platform adapter {}: {}", updated_id, e);
+            }
+        }
+        // Start the adapter if enabled
+        if updated_config.enable {
+            if let Err(e) = pm.add_platform(updated_config.clone()).await {
+                tracing::error!("Failed to restart platform adapter: {}", e);
+            }
+        }
+    }
+
+    state.save_platforms_config().await.ok();
+
+    let statuses = state.platform_statuses_async().await;
+    let configs = state.platform_configs.read().await;
+    match configs.iter().find(|c| c.id == updated_id) {
+        Some(c) => Json(PlatformInstanceDto {
+            id: c.id.clone(),
+            platform_type: c.platform_type.clone(),
+            enable: c.enable,
+            config: c.extra.clone(),
+            status: statuses.get(&c.id).cloned().unwrap_or_else(|| {
+                if c.enable {
+                    "pending".to_string()
+                } else {
+                    "stopped".to_string()
+                }
+            }),
+        })
+        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found after update"})),
+        )
+            .into_response(),
+    }
+}
+
+async fn delete_platform(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    // Stop the platform adapter first
+    {
+        let mut pm = state.platform_manager.write().await;
+        if pm.is_running(&id) {
+            if let Err(e) = pm.remove_platform(&id).await {
+                tracing::warn!("Failed to stop platform adapter {}: {}", id, e);
+            }
+        }
+    }
+
+    let mut configs = state.platform_configs.write().await;
+    let len_before = configs.len();
+    configs.retain(|c| c.id != id);
+    if configs.len() == len_before {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response();
+    }
+    drop(configs);
+    state.save_platforms_config().await.ok();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn toggle_platform(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    let mut configs = state.platform_configs.write().await;
+    match configs.iter_mut().find(|c| c.id == id) {
+        Some(config) => {
+            config.enable = !config.enable;
+            let updated_config = config.clone();
+            let dto = PlatformInstanceDto {
+                id: config.id.clone(),
+                platform_type: config.platform_type.clone(),
+                enable: config.enable,
+                config: config.extra.clone(),
+                status: "pending".to_string(), // Will be updated below
+            };
+            drop(configs);
+
+            // Start or stop the platform adapter
+            let mut pm = state.platform_manager.write().await;
+            if updated_config.enable {
+                // Start the adapter
+                if !pm.is_running(&updated_config.id) {
+                    if let Err(e) = pm.add_platform(updated_config.clone()).await {
+                        tracing::error!("Failed to start platform adapter: {}", e);
+                    }
+                }
+            } else {
+                // Stop the adapter
+                if pm.is_running(&updated_config.id) {
+                    if let Err(e) = pm.remove_platform(&updated_config.id).await {
+                        tracing::error!("Failed to stop platform adapter: {}", e);
+                    }
+                }
+            }
+            drop(pm);
+
+            state.save_platforms_config().await.ok();
+
+            // Get the actual status
+            let statuses = state.platform_statuses_async().await;
+            let dto = PlatformInstanceDto {
+                status: statuses.get(&dto.id).cloned().unwrap_or_else(|| {
+                    if dto.enable {
+                        "pending".to_string()
+                    } else {
+                        "stopped".to_string()
+                    }
+                }),
+                ..dto
+            };
+            Json(dto).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response(),
+    }
+}
+
+// ─── System endpoints ──────────────────────────────────────────
+
+/// Restart the entire server process by re-executing the current binary.
+async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
+    tracing::info!("System restart requested via API");
+
+    // Save all configs before restarting
+    if let Err(e) = state.save_to_file(&state.config_path).await {
+        tracing::warn!("Failed to save config before restart: {}", e);
+    }
+    if let Err(e) = state.save_platforms_config().await {
+        tracing::warn!("Failed to save platforms config before restart: {}", e);
+    }
+
+    // Shutdown all platform adapters gracefully
+    {
+        let mut pm = state.platform_manager.write().await;
+        pm.shutdown_all().await;
+    }
+
+    // Spawn the restart in a separate task so we can respond first
+    tokio::spawn(async move {
+        // Give the HTTP response time to be sent
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        tracing::info!("Restarting Ruri server...");
+
+        // Re-execute the current binary
+        let current_exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(e) => {
+                tracing::error!("Failed to get current executable path: {}", e);
+                return;
+            }
+        };
+
+        let args: Vec<String> = std::env::args().skip(1).collect();
+
+        match tokio::process::Command::new(current_exe)
+            .args(&args)
+            .spawn()
+        {
+            Ok(_) => {
+                tracing::info!("New server instance started, shutting down current instance");
+                // Exit the current process
+                std::process::exit(0);
+            }
+            Err(e) => {
+                tracing::error!("Failed to restart server: {}", e);
+            }
+        }
+    });
+
+    Json(json!({"message": "Server is restarting"})).into_response()
+}
+
+/// Reload all platform adapters from the config file (hot-reload).
+async fn reload_platforms(State(state): State<Arc<AppState>>) -> Response {
+    tracing::info!("Platform reload requested via API");
+
+    // Reload platform configs from file
+    state.load_platforms_config().await;
+
+    // Reload the adapters
+    let platforms_path = state.platforms_config_path.clone();
+    let mut pm = state.platform_manager.write().await;
+    match pm.reload_from_file(&platforms_path).await {
+        Ok(()) => {
+            tracing::info!("Platforms reloaded successfully");
+            Json(json!({"message": "Platforms reloaded successfully"})).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to reload platforms: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to reload platforms: {}", e)})),
+            )
+                .into_response()
         }
     }
 }

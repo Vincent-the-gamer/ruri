@@ -510,6 +510,8 @@ pub struct ConfigProfileDto {
     pub computer_use_enabled: bool,
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
+    #[serde(default)]
+    pub active_platform_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -525,6 +527,8 @@ pub struct CreateConfigProfileRequest {
     pub acp_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    #[serde(default)]
+    pub active_platform_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -545,6 +549,8 @@ pub struct UpdateConfigProfileRequest {
     pub acp_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_platform_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -660,4 +666,36 @@ pub struct UpdateMcpServerRequest {
     pub transport_type: Option<crate::mcp::types::TransportType>,
     pub transport_config: Option<crate::mcp::types::TransportConfig>,
     pub enabled: Option<bool>,
+}
+
+// ─── Platform Types ──────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+pub struct PlatformInstanceDto {
+    pub id: String,
+    pub platform_type: String,
+    pub enable: bool,
+    pub config: serde_json::Value,
+    pub status: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreatePlatformRequest {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub platform_type: String,
+    #[serde(default = "default_true")]
+    pub enable: bool,
+    #[serde(flatten)]
+    pub config: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePlatformRequest {
+    pub id: Option<String>,
+    #[serde(rename = "type")]
+    pub platform_type: Option<String>,
+    pub enable: Option<bool>,
+    #[serde(flatten)]
+    pub config: Option<serde_json::Value>,
 }

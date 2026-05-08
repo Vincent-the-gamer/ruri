@@ -193,6 +193,37 @@ onUnmounted(() => {
 
 <template>
     <div class="terminal-page">
+        <!-- Page Header -->
+        <div class="page-header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                        />
+                        <path d="M14 2v6h6" />
+                        <line x1="16" x2="8" y1="13" y2="13" />
+                        <line x1="16" x2="8" y1="17" y2="17" />
+                        <line x1="10" x2="8" y1="9" y2="9" />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">{{ t("logs.title") }}</h1>
+                    <p class="header-desc">{{ t("logs.subtitle") }}</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Terminal Toolbar -->
         <div class="terminal-toolbar">
             <div class="toolbar-left">
@@ -356,6 +387,62 @@ onUnmounted(() => {
     font-family:
         "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", "Monaco",
         "Menlo", "Courier New", monospace;
+}
+
+/* ── Page Header ── */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.header-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.header-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
+}
+
+.header-desc {
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
 }
 
 /* ── Toolbar ── */
@@ -655,6 +742,13 @@ onUnmounted(() => {
     .terminal-status {
         gap: 8px;
         font-size: 11px;
+    }
+}
+
+@media (max-width: 640px) {
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }
 </style>

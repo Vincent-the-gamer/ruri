@@ -305,6 +305,8 @@ export interface ConfigProfile {
   acp_enabled: boolean
   // 技能配置
   active_skill_names: string[]
+  // 平台配置
+  active_platform_ids: string[]
 }
 
 export interface CreateConfigProfileRequest {
@@ -316,6 +318,7 @@ export interface CreateConfigProfileRequest {
   computer_use_enabled: boolean
   acp_enabled: boolean
   active_skill_names: string[]
+  active_platform_ids: string[]
 }
 
 export interface UpdateConfigProfileRequest {
@@ -327,6 +330,7 @@ export interface UpdateConfigProfileRequest {
   computer_use_enabled?: boolean
   acp_enabled?: boolean
   active_skill_names?: string[]
+  active_platform_ids?: string[]
 }
 
 // ─── MCP Types ──────────────────────────────────────────────────
@@ -398,4 +402,60 @@ export interface ApiResponse<T = unknown> {
   success: boolean
   data?: T
   error?: string
+}
+
+// ─── Platform Types ──────────────────────────────────────────
+
+export type PlatformType = 'dingtalk' | 'discord'
+
+export type PlatformStatus = 'running' | 'stopped' | 'pending' | 'error'
+
+export interface DingtalkPlatformConfig {
+  client_id: string
+  client_secret: string
+}
+
+export interface DiscordPlatformConfig {
+  token: string
+  proxy?: string
+  pre_response_reactions?: boolean
+  reaction_emojis?: string[]
+}
+
+export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig
+
+export interface PlatformInstance {
+  id: string
+  platform_type: PlatformType
+  enable: boolean
+  config: PlatformConfig
+  status: PlatformStatus
+}
+
+export interface CreatePlatformRequest {
+  id: string
+  type: PlatformType
+  enable: boolean
+  // DingTalk fields
+  client_id?: string
+  client_secret?: string
+  // Discord fields
+  token?: string
+  proxy?: string
+  pre_response_reactions?: boolean
+  reaction_emojis?: string[]
+}
+
+export interface UpdatePlatformRequest {
+  id?: string
+  type?: PlatformType
+  enable?: boolean
+  // DingTalk fields
+  client_id?: string
+  client_secret?: string
+  // Discord fields
+  token?: string
+  proxy?: string
+  pre_response_reactions?: boolean
+  reaction_emojis?: string[]
 }

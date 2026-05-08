@@ -9,12 +9,14 @@ import type {
   ConfigProfile,
   CreateConfigProfileRequest,
   CreateMcpServerRequest,
+  CreatePlatformRequest,
   CreateProviderRequest,
   CreateSkillRequest,
   CreatePersonaRequest,
   LogEntry,
   McpServerConfig,
   Persona,
+  PlatformInstance,
   Provider,
   Skill,
   Tool,
@@ -23,6 +25,7 @@ import type {
   UpdateConfigProfileRequest,
   UpdateMcpServerRequest,
   UpdatePersonaRequest,
+  UpdatePlatformRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
   WebSearchConfig,
@@ -288,5 +291,48 @@ export async function deleteMcpServer(id: string): Promise<void> {
 
 export async function toggleMcpServer(id: string): Promise<McpServerConfig> {
   const res = await client.post(`/api/mcp/servers/${id}/toggle`)
+  return res.data
+}
+
+// ─── Platforms ──────────────────────────────────────────────────
+
+export async function getPlatforms(): Promise<PlatformInstance[]> {
+  const res = await client.get('/api/platforms')
+  return res.data
+}
+
+export async function getPlatform(id: string): Promise<PlatformInstance> {
+  const res = await client.get(`/api/platforms/${id}`)
+  return res.data
+}
+
+export async function createPlatform(data: CreatePlatformRequest): Promise<PlatformInstance> {
+  const res = await client.post('/api/platforms', data)
+  return res.data
+}
+
+export async function updatePlatform(id: string, data: UpdatePlatformRequest): Promise<PlatformInstance> {
+  const res = await client.put(`/api/platforms/${id}`, data)
+  return res.data
+}
+
+export async function deletePlatform(id: string): Promise<void> {
+  await client.delete(`/api/platforms/${id}`)
+}
+
+export async function togglePlatform(id: string): Promise<PlatformInstance> {
+  const res = await client.post(`/api/platforms/${id}/toggle`)
+  return res.data
+}
+
+// ─── System ─────────────────────────────────────────────────────
+
+export async function restartSystem(): Promise<{ message: string }> {
+  const res = await client.post('/api/system/restart')
+  return res.data
+}
+
+export async function reloadPlatforms(): Promise<{ message: string }> {
+  const res = await client.post('/api/platforms/reload')
   return res.data
 }

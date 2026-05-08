@@ -103,9 +103,31 @@ const searchEngines = computed(() => [
 <template>
     <div class="page">
         <div class="page-header">
-            <div class="header-info">
-                <h1 class="header-title">{{ t("webSearchConfig.title") }}</h1>
-                <p class="header-desc">{{ t("webSearchConfig.subtitle") }}</p>
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">
+                        {{ t("webSearchConfig.title") }}
+                    </h1>
+                    <p class="header-desc">
+                        {{ t("webSearchConfig.subtitle") }}
+                    </p>
+                </div>
             </div>
         </div>
 
@@ -368,21 +390,58 @@ const searchEngines = computed(() => [
 }
 
 .page-header {
-    margin-bottom: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.header-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
 }
 
 .header-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--color-text);
-    margin-bottom: 0.5rem;
-    letter-spacing: -0.01em;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
 }
 
 .header-desc {
-    color: var(--color-text-muted);
     font-size: 0.875rem;
-    margin-top: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
 }
 
 .config-section {
@@ -737,6 +796,11 @@ const searchEngines = computed(() => [
 @media (max-width: 640px) {
     .page {
         padding: 1rem;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .save-row {

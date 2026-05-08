@@ -90,11 +90,31 @@ const hasChanges = computed(() => {
     <div class="page">
         <!-- Header -->
         <div class="page-header">
-            <div class="header-info">
-                <h1 class="header-title">{{ t("acpConfig.title") }}</h1>
-                <p class="header-desc">
-                    {{ t("acpConfig.subtitle") }}
-                </p>
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M12 8V4H8" />
+                        <rect width="16" height="12" x="4" y="8" rx="2" />
+                        <path d="M2 14h2" />
+                        <path d="M20 14h2" />
+                        <path d="M15 13v2" />
+                        <path d="M9 13v2" />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">{{ t("acpConfig.title") }}</h1>
+                    <p class="header-desc">{{ t("acpConfig.subtitle") }}</p>
+                </div>
             </div>
         </div>
 
@@ -298,22 +318,57 @@ const hasChanges = computed(() => {
 /* Header */
 .page-header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.header-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
 }
 
 .header-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--color-text);
-    letter-spacing: -0.01em;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
 }
 
 .header-desc {
     font-size: 0.875rem;
-    color: var(--color-text-muted);
-    margin-top: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
 }
 
 /* Section */
@@ -669,6 +724,11 @@ const hasChanges = computed(() => {
 @media (max-width: 640px) {
     .page {
         padding: 1rem;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .skill-option {

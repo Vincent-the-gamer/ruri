@@ -14,14 +14,15 @@
 - [x] 网络搜索
 - [x] ACP (Agent Client Protocol)
 - [x] 人设系统
-- [ ] MCP (Model Context Protocol)
-- [ ] 聊天 - Discord
+- [x] MCP (Model Context Protocol)
+- [ ] 基于RAG的知识库 (嵌入模型 + 重排序模型) 支持
+- [x] 聊天 - Discord
 - [ ] 聊天 - OneBot V11
 - [ ] 聊天 - 微信 (Wechat ClawBot)
 - [ ] 聊天 - Matrix
 - [ ] 聊天 - VoceChat
 - [ ] 聊天 - QQ
-- [ ] 聊天 - 钉钉
+- [x] 聊天 - 钉钉
 - [ ] 聊天 - 企业微信
 - [ ] 聊天 - 自定义 API（你可以编写自己的程序与琉璃对话）
 
@@ -57,7 +58,7 @@ Zed配置范例:
 
 ## 预览
 
-![preview](.github/preview.png)
+![preview](.github/preview-cn.png)
 
 ## 许可证
 

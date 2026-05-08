@@ -127,6 +127,7 @@ export const useConfigStore = defineStore('config', () => {
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
   const acpEnabled = computed(() => activeConfigProfile.value?.acp_enabled ?? false)
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
+  const activePlatformIds = computed(() => activeConfigProfile.value?.active_platform_ids ?? [])
 
   return {
     configProfiles,
@@ -138,6 +139,7 @@ export const useConfigStore = defineStore('config', () => {
     computerUseEnabled,
     acpEnabled,
     activeSkillNames,
+    activePlatformIds,
     loading,
     error,
     fetchConfigProfiles,

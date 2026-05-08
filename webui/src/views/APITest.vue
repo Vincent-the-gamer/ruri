@@ -170,9 +170,36 @@ const methodColor = (method: string) => {
 
 <template>
     <div class="api-test-view">
-        <div class="header">
-            <h1 class="header-title">{{ t("apiTest.title") }}</h1>
-            <p class="header-desc">{{ t("apiTest.subtitle") }}</p>
+        <div class="page-header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M9 3h1v3H9z" />
+                        <path d="M14 3h1v3h-1z" />
+                        <path d="M8 14h8" />
+                        <path d="M8 18h5" />
+                        <path d="M8 10h8" />
+                        <path d="M3 6h18" />
+                        <path
+                            d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2"
+                        />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">{{ t("apiTest.title") }}</h1>
+                    <p class="header-desc">{{ t("apiTest.subtitle") }}</p>
+                </div>
+            </div>
         </div>
 
         <!-- Tabs -->
@@ -453,21 +480,59 @@ const methodColor = (method: string) => {
     }
 }
 
-.header {
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.header-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
 }
 
 .header-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--color-text);
-    line-height: 1.3;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
 }
 
 .header-desc {
     font-size: 0.875rem;
-    color: var(--color-text-muted);
-    margin-top: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
 }
 
 /* Tabs */
@@ -854,6 +919,13 @@ const methodColor = (method: string) => {
 @media (max-width: 768px) {
     .main-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }
 </style>

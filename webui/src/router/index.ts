@@ -70,6 +70,11 @@ const router = createRouter({
       component: () => import('../views/McpConfig.vue'),
     },
     {
+      path: '/platform-config',
+      name: 'Platform Config',
+      component: () => import('../views/PlatformConfig.vue'),
+    },
+    {
       path: '/configs',
       name: 'Configs',
       component: () => import('../views/Configs.vue'),

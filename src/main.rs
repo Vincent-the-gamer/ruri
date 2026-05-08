@@ -1,13 +1,13 @@
 //! Ruri - AI Agent application
-#![allow(dead_code)] // Allow unused code for future features
-
 mod acp;
 mod agent;
 mod api;
 mod computer_use;
 mod conversation;
+mod db;
 mod logging;
 mod mcp;
+mod platform;
 mod provider;
 mod transport;
 mod types;
@@ -26,7 +26,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use rust_embed::RustEmbed;
-use sqlx::sqlite::SqlitePoolOptions;
 use std::sync::Arc;
 
 /// Embedded frontend assets from the compiled Vue build.
@@ -141,69 +140,202 @@ async fn main() -> anyhow::Result<()> {
         ..temp_state
     });
 
-    // ── Initialize conversation database ─────────────────────────
-    let config_dir = if let Some(dir) = dirs::home_dir() {
-        dir.join(".ruri")
-    } else {
-        std::path::PathBuf::from(".ruri")
-    };
-    let db_path = config_dir.join("conversations.db");
+    // Load platform configs into state for API access
+    state.load_platforms_config().await;
 
-    match conversation::ConversationDatabase::new(db_path).await {
-        Ok(db) => {
-            tracing::info!(
-                "Conversation database initialized at: {:?}",
-                config_dir.join("conversations.db")
-            );
-            *state.conversation_db.write().await = Some(std::sync::Arc::new(db));
+    // ── Initialize unified database (ruri.db) ────────────────────────
+    let db_path = db::database_path();
+
+    match db::init(db_path.clone()).await {
+        Ok(pool) => {
+            tracing::info!("Unified database initialized at: {:?}", db_path);
+
+            // Store the shared pool in AppState
+            *state.db_pool.write().await = Some(pool.clone());
+
+            // ── Conversation sub-module ─────────────────────────────
+            match conversation::ConversationDatabase::new(pool.clone()).await {
+                Ok(conv_db) => {
+                    *state.conversation_db.write().await = Some(std::sync::Arc::new(conv_db));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize conversation database: {}", e);
+                    tracing::warn!("Conversation history features will be unavailable");
+                }
+            }
+
+            // ── MCP configuration sub-module ───────────────────────
+            let mcp_config_manager = mcp::config::McpConfigManager::new(pool.clone());
+            if let Err(e) = mcp_config_manager.init().await {
+                tracing::warn!("Failed to verify MCP database schema: {}", e);
+            }
+            *state.mcp_config.write().await = Some(mcp_config_manager);
         }
         Err(e) => {
-            tracing::warn!("Failed to initialize conversation database: {}", e);
-            tracing::warn!("Conversation history features will be unavailable");
+            tracing::warn!("Failed to initialize unified database: {}", e);
+            tracing::warn!("All database features will be unavailable");
         }
     }
 
-    // ── Initialize MCP configuration database ───────────────────────
-    let mcp_db_path = config_dir.join("mcp_servers.db");
-
-    // Ensure database directory exists
-    if let Some(parent) = mcp_db_path.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            tracing::warn!(
-                "Failed to create MCP database directory {:?}: {}",
-                parent,
-                e
-            );
-            tracing::warn!("MCP server configuration features will be unavailable");
+    // ── Initialize chat platform adapters ────────────────────────
+    {
+        let mut pm = state.platform_manager.write().await;
+        let platforms_path = api::state::ruri_config_dir().join("platforms.yaml");
+        if platforms_path.exists() {
+            tracing::info!("Loading platform config from: {:?}", platforms_path);
+            if let Err(e) = pm.load_from_file(&platforms_path).await {
+                tracing::warn!("Failed to load platform config: {}", e);
+            }
         } else {
-            // Use correct connection string with mode=rwc
-            let mcp_db_url = format!("sqlite:{}?mode=rwc", mcp_db_path.display());
+            tracing::info!("No platform config found at {:?}, skipping", platforms_path);
+        }
+        if !pm.is_empty() {
+            tracing::info!("Active platform adapters: {}", pm.len());
+        }
+    }
 
-            match SqlitePoolOptions::new()
-                .max_connections(5)
-                .connect(&mcp_db_url)
-                .await
-            {
-                Ok(pool) => {
-                    let mcp_config_manager = mcp::config::McpConfigManager::new(pool);
+    // Spawn a task to process incoming platform messages and route them to the agent.
+    let state_for_platform = state.clone();
+    let platform_manager_ref = state.platform_manager.clone();
+    tokio::spawn(async move {
+        // Get the initial event receiver
+        let mut event_receiver = {
+            let mut pm = platform_manager_ref.write().await;
+            pm.take_event_receiver()
+                .expect("event receiver should be available at startup")
+        };
 
-                    // Initialize MCP database schema
-                    if let Err(e) = mcp_config_manager.init().await {
-                        tracing::warn!("Failed to initialize MCP database schema: {}", e);
-                    }
-
-                    *state.mcp_config.write().await = Some(mcp_config_manager);
+        while let Some(event) = event_receiver.recv().await {
+            match event {
+                platform::PlatformEvent::Message(msg) => {
                     tracing::info!(
-                        "MCP configuration database initialized at: {:?}",
-                        mcp_db_path
+                        message_type = %msg.message_type,
+                        sender = %msg.sender.user_id,
+                        text = %msg.message_str.chars().take(80).collect::<String>(),
+                        "Received platform message"
+                    );
+
+                    // Build an agent and process the incoming message
+                    match state_for_platform
+                        .build_agent_with_context(
+                            Some(&msg.sender.user_id),
+                            Some(&msg.session_id),
+                            None,
+                        )
+                        .await
+                    {
+                        Ok(mut agent) => {
+                            match agent.chat(&msg.message_str).await {
+                                Ok(response) => {
+                                    if let Some(content) = response
+                                        .choices
+                                        .first()
+                                        .and_then(|c| c.message.content.as_ref())
+                                        .and_then(|c| c.as_text())
+                                    {
+                                        tracing::info!(
+                                            response_len = content.len(),
+                                            "Agent replied to platform message"
+                                        );
+                                        // Send the reply back to the originating platform
+                                        let pm = platform_manager_ref.read().await;
+                                        if let Err(e) = pm
+                                            .send_text_to_platform(
+                                                &msg.platform_id,
+                                                msg.message_type,
+                                                &msg.session_id,
+                                                content,
+                                            )
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                error = %e,
+                                                "Failed to send reply to platform"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Agent failed to process platform message");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Failed to build agent for platform message");
+                        }
+                    }
+                }
+                platform::PlatformEvent::StatusChanged {
+                    platform_id,
+                    status,
+                } => {
+                    tracing::info!(
+                        platform_id = %platform_id,
+                        status = %status,
+                        "Platform adapter status changed"
                     );
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to initialize MCP configuration database: {}", e);
-                    tracing::warn!("MCP server configuration features will be unavailable");
+                platform::PlatformEvent::Error {
+                    platform_id,
+                    message,
+                } => {
+                    tracing::error!(
+                        platform_id = %platform_id,
+                        error = %message,
+                        "Platform adapter error"
+                    );
                 }
             }
         }
+    });
+
+    // ── Watch platforms.yaml for changes (hot-reload) ────────────
+    {
+        let state_for_watcher = state.clone();
+        let platforms_path = api::state::ruri_config_dir().join("platforms.yaml");
+
+        tokio::spawn(async move {
+            // Use a simple polling approach for file watching
+            // Check every 5 seconds for file modification time changes
+            let mut last_modified: Option<std::time::SystemTime> = None;
+
+            // Initialize with the current modification time
+            if let Ok(metadata) = std::fs::metadata(&platforms_path) {
+                last_modified = metadata.modified().ok();
+            }
+
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                let current_modified = std::fs::metadata(&platforms_path)
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+
+                match (last_modified, current_modified) {
+                    (Some(last), Some(current)) if current > last => {
+                        tracing::info!("Detected change in platforms.yaml, reloading...");
+
+                        // Reload configs
+                        state_for_watcher.load_platforms_config().await;
+
+                        // Reload adapters
+                        let mut pm = state_for_watcher.platform_manager.write().await;
+                        if let Err(e) = pm.reload_from_file(&platforms_path).await {
+                            tracing::error!("Failed to hot-reload platforms: {}", e);
+                        } else {
+                            tracing::info!("Platforms hot-reloaded successfully");
+                        }
+
+                        last_modified = Some(current);
+                    }
+                    (_, Some(current)) => {
+                        // Update last_modified even if no change detected
+                        last_modified = Some(current);
+                    }
+                    _ => {}
+                }
+            }
+        });
     }
 
     // ── Create the API router ────────────────────────────────────
@@ -242,6 +374,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  GET    /api/agent/status       Get agent status");
     tracing::info!("  GET    /api/acp/config         Get ACP mode config");
     tracing::info!("  PUT    /api/acp/config         Update ACP mode config");
+    tracing::info!("  GET    /api/platforms           List platforms");
+    tracing::info!("  POST   /api/platforms           Create platform");
+    tracing::info!("  GET    /api/platforms/:id       Get platform");
+    tracing::info!("  PUT    /api/platforms/:id       Update platform");
+    tracing::info!("  DELETE /api/platforms/:id       Delete platform");
+    tracing::info!("  POST   /api/platforms/:id/toggle  Toggle platform");
+    tracing::info!("  POST   /api/system/restart     Restart server");
+    tracing::info!("  POST   /api/platforms/reload   Hot-reload platforms");
     tracing::info!("");
     tracing::info!("ACP (Agent Client Protocol) mode:");
     tracing::info!("  Run with --acp to start in ACP mode (stdio transport)");

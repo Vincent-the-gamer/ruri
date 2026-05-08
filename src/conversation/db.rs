@@ -4,8 +4,7 @@ use crate::conversation::models::{
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
-use std::path::PathBuf;
+use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, info};
 
 /// 对话数据库管理器
@@ -14,74 +13,26 @@ pub struct ConversationDatabase {
 }
 
 impl ConversationDatabase {
-    /// 创建新的对话数据库实例
-    pub async fn new(db_path: PathBuf) -> Result<Self> {
-        // 确保数据库文件的父目录存在
-        if let Some(parent) = db_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("Failed to create database directory: {:?}", parent))?;
-        }
-
-        // 确保数据库文件可以创建（如果不存在）
-        let db_url = format!(
-            "sqlite:{}?mode=rwc", // rwc = read-write-create
-            db_path.display()
-        );
-        info!("Connecting to conversation database at: {}", db_url);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect(&db_url)
-            .await
-            .context("Failed to connect to conversation database")?;
-
+    /// Create a new ConversationDatabase using a **shared** SqlitePool.
+    ///
+    /// The pool is typically obtained from `crate::db::init()` so that all
+    /// features (conversations, MCP, …) share the same `ruri.db`.
+    ///
+    /// Schema creation is **not** performed here – it is handled centrally by
+    /// `crate::db::init_schema()`.  This constructor only runs a lightweight
+    /// check to make sure the required tables exist.
+    pub async fn new(pool: SqlitePool) -> Result<Self> {
         let db = Self { pool };
 
-        // 初始化数据库表结构
-        db.init_database().await?;
+        // Quick sanity-check: ensure the conversations table is reachable.
+        // If the shared `db::init()` has already run this will be a no-op.
+        sqlx::query("SELECT 1 FROM conversations LIMIT 1")
+            .execute(&db.pool)
+            .await
+            .context("Conversations table not found – did db::init() run?")?;
 
+        info!("ConversationDatabase ready (shared pool)");
         Ok(db)
-    }
-
-    /// 初始化数据库表结构
-    async fn init_database(&self) -> Result<()> {
-        sqlx::query(
-            r#"
-            -- 创建会话表
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                bot_name TEXT NOT NULL,
-                chat_type TEXT NOT NULL,
-                chat_id TEXT NOT NULL,
-                title TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            -- 创建消息表
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-            );
-
-            -- 创建索引以提高查询性能
-            CREATE INDEX IF NOT EXISTS idx_conversations_bot_name ON conversations(bot_name);
-            CREATE INDEX IF NOT EXISTS idx_conversations_chat_type ON conversations(chat_type);
-            CREATE INDEX IF NOT EXISTS idx_conversations_chat_id ON conversations(chat_id);
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .context("Failed to initialize database schema")?;
-
-        info!("Database schema initialized successfully");
-        Ok(())
     }
 
     /// 创建新会话

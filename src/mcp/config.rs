@@ -16,25 +16,16 @@ impl McpConfigManager {
         Self { pool }
     }
 
-    /// Initialize database schema for MCP servers
+    /// Verify that the MCP servers table is available.
+    ///
+    /// Schema creation is handled centrally by `crate::db::init_schema()`.
+    /// This method only performs a lightweight existence check.
     pub async fn init(&self) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS mcp_servers (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                transport_type TEXT NOT NULL,
-                transport_config TEXT NOT NULL,
-                enabled INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("SELECT 1 FROM mcp_servers LIMIT 1")
+            .execute(&self.pool)
+            .await?;
 
-        info!("MCP servers table initialized");
+        info!("MCP servers table verified");
 
         Ok(())
     }

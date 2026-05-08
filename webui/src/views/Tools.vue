@@ -33,9 +33,30 @@ const paramTypeColor = (type: string) => {
 <template>
     <div class="tools-view">
         <!-- Header -->
-        <div class="header">
-            <h1 class="header-title">{{ t("tools.title") }}</h1>
-            <p class="header-desc">{{ t("tools.subtitle") }}</p>
+        <div class="page-header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                        />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">{{ t("tools.title") }}</h1>
+                    <p class="header-desc">{{ t("tools.subtitle") }}</p>
+                </div>
+            </div>
         </div>
 
         <!-- Error -->
@@ -184,21 +205,59 @@ const paramTypeColor = (type: string) => {
     }
 }
 
-.header {
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    flex-shrink: 0;
+}
+
+.header-icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
 }
 
 .header-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--color-text);
-    line-height: 1.3;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
 }
 
 .header-desc {
     font-size: 0.875rem;
-    color: var(--color-text-muted);
-    margin-top: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
 }
 
 .error-banner {
@@ -438,5 +497,11 @@ const paramTypeColor = (type: string) => {
     margin-top: 0.75rem;
     font-size: 0.75rem;
     color: var(--color-text-dim);
+}
+@media (max-width: 640px) {
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 </style>

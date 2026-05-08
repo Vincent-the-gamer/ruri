@@ -1,5 +1,6 @@
 use crate::agent::runner::{Agent, AgentConfig};
 use crate::agent::skill::{ContextPrefixSkill, MemorySkill, Skill, SystemPromptSkill};
+use crate::platform::types::PlatformStatus;
 use crate::provider::Provider;
 use crate::types::ChatMessage;
 use chrono::{DateTime, Utc};
@@ -64,6 +65,8 @@ pub struct PersistedConfigProfile {
     pub acp_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    #[serde(default)]
+    pub active_platform_ids: Vec<String>,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -113,6 +116,7 @@ pub struct StoredConfigProfile {
     pub computer_use_enabled: bool,
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
+    pub active_platform_ids: Vec<String>,
 }
 
 /// Information about a stored provider configuration.
@@ -221,6 +225,9 @@ pub struct AppState {
     pub(crate) chat_history_path: PathBuf,
     /// Log manager for real-time log broadcasting.
     pub log_manager: std::sync::Arc<crate::logging::LogManager>,
+    /// Shared database pool for the unified `ruri.db`.
+    /// Initialized once in `main()` and shared across all sub-modules.
+    pub db_pool: std::sync::Arc<tokio::sync::RwLock<Option<sqlx::SqlitePool>>>,
     /// Conversation database (initialized after AppState creation).
     pub conversation_db: std::sync::Arc<
         tokio::sync::RwLock<Option<std::sync::Arc<crate::conversation::ConversationDatabase>>>,
@@ -228,6 +235,12 @@ pub struct AppState {
     /// MCP configuration manager (initialized after AppState creation).
     pub mcp_config:
         std::sync::Arc<tokio::sync::RwLock<Option<crate::mcp::config::McpConfigManager>>>,
+    /// Platform instance configurations.
+    pub platform_configs: RwLock<Vec<crate::platform::manager::PlatformInstanceConfig>>,
+    /// Path to the platforms config file.
+    pub(crate) platforms_config_path: PathBuf,
+    /// Shared platform manager for runtime control of adapters.
+    pub platform_manager: std::sync::Arc<tokio::sync::RwLock<crate::platform::PlatformManager>>,
 }
 
 impl AppState {
@@ -341,6 +354,7 @@ impl AppState {
                                 computer_use_enabled: p.computer_use_enabled,
                                 acp_enabled: p.acp_enabled,
                                 active_skill_names: p.active_skill_names,
+                                active_platform_ids: p.active_platform_ids,
                             },
                         )
                     })
@@ -397,9 +411,15 @@ impl AppState {
             config_path: config_path.to_path_buf(),
             chat_history_path: chat_history_path(),
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
+            db_pool: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             conversation_db: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             chat_conversation_id: RwLock::new(None),
             mcp_config: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+            platform_configs: RwLock::new(Vec::new()),
+            platforms_config_path: ruri_config_dir().join("platforms.yaml"),
+            platform_manager: std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::platform::PlatformManager::new(),
+            )),
         }
     }
 
@@ -453,6 +473,93 @@ impl AppState {
         if let Err(e) = self.save_chat_history().await {
             tracing::warn!("Failed to auto-save chat history: {}", e);
         }
+    }
+
+    // ─── Platform Config Persistence ────────────────────────────
+
+    /// Load platform instance configurations from the platforms.yaml file.
+    pub async fn load_platforms_config(&self) {
+        let path = &self.platforms_config_path;
+        if path.exists() {
+            match tokio::fs::read_to_string(path).await {
+                Ok(content) => {
+                    match serde_yaml::from_str::<crate::platform::manager::PlatformConfigFile>(
+                        &content,
+                    ) {
+                        Ok(file_config) => {
+                            tracing::info!(
+                                "Loaded {} platform config(s) from {}",
+                                file_config.platforms.len(),
+                                path.display()
+                            );
+                            *self.platform_configs.write().await = file_config.platforms;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to parse platforms config from {}: {}",
+                                path.display(),
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to read platforms config from {}: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    /// Save platform instance configurations to the platforms.yaml file.
+    pub async fn save_platforms_config(&self) -> anyhow::Result<()> {
+        let path = &self.platforms_config_path;
+        ensure_parent_dir(path).await?;
+
+        let configs = self.platform_configs.read().await;
+        let file_config = crate::platform::manager::PlatformConfigFile {
+            platforms: configs.clone(),
+        };
+        let content = serde_yaml::to_string(&file_config)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize platforms config: {}", e))?;
+
+        tokio::fs::write(path, content)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to write platforms config file: {}", e))?;
+
+        tracing::debug!("Platforms config saved to {}", path.display());
+        Ok(())
+    }
+
+    /// Returns a map of platform_id -> status string.
+    /// Queries live adapter status from the PlatformManager when possible.
+    pub async fn platform_statuses_async(&self) -> HashMap<String, String> {
+        let pm = self.platform_manager.read().await;
+        let live_statuses: HashMap<String, PlatformStatus> = pm.statuses().into_iter().collect();
+        drop(pm);
+
+        let configs = self.platform_configs.read().await;
+        configs
+            .iter()
+            .map(|c| {
+                let status = if let Some(ps) = live_statuses.get(&c.id) {
+                    match ps {
+                        PlatformStatus::Pending => "pending",
+                        PlatformStatus::Running => "running",
+                        PlatformStatus::Error => "error",
+                        PlatformStatus::Stopped => "stopped",
+                    }
+                } else if c.enable {
+                    "pending"
+                } else {
+                    "stopped"
+                };
+                (c.id.clone(), status.to_string())
+            })
+            .collect()
     }
 
     // ─── Chat History Persistence ─────────────────────────────────
@@ -598,6 +705,7 @@ impl AppState {
                         computer_use_enabled: p.computer_use_enabled,
                         acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names.clone(),
+                        active_platform_ids: p.active_platform_ids.clone(),
                     },
                 )
             })
