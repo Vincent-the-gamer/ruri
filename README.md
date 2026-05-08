@@ -17,7 +17,7 @@
 - [x] MCP (Model Context Protocol) Client
 - [ ] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
 - [ ] Sub Agent
-- [x] Chat - Discord
+- [ ] Chat - Discord
 - [ ] Chat - OneBot V11
 - [ ] Chat - WeChat(Wechat ClawBot)
 - [ ] Chat - Matrix
