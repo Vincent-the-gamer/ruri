@@ -1,1404 +1,1554 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, computed, watch } from "vue";
+import { onMounted, ref, reactive, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useMcpStore } from "../stores/mcp";
-import { Icon } from "@iconify/vue";
-import type { McpServerConfig, TransportType, TransportConfig } from "../types";
+import type {
+    McpServerConfig,
+    TransportType,
+    TransportConfig,
+    CreateMcpServerRequest,
+    UpdateMcpServerRequest,
+} from "../types";
 
 const { t } = useI18n();
 const mcpStore = useMcpStore();
 
-// ── Modal state ──────────────────────────────────────────────────
-const showModal = ref(false);
-const isEditMode = ref(false);
+const showForm = ref(false);
 const editingServer = ref<McpServerConfig | null>(null);
-const isSaving = ref(false);
-const saveSuccess = ref(false);
-const saveError = ref<string | null>(null);
 
-// ── Form fields ──────────────────────────────────────────────────
-const formName = ref("");
-const formTransportType = ref<TransportType>("stdio");
-const formEnabled = ref(true);
-// STDIO fields
-const formCommand = ref("");
-const formArgs = ref("");
-const formEnv = ref("");
-// URL-based fields (SSE / WebSocket / HTTP)
-const formUrl = ref("");
-const formHeaders = ref("");
-
-const formErrors = ref<Record<string, string>>({});
-
-// ── Computed ─────────────────────────────────────────────────────
-const isUrlBasedTransport = computed(
-  () =>
-    formTransportType.value === "sse" ||
-    formTransportType.value === "websocket" ||
-    formTransportType.value === "http",
-);
-
-const transportOptions: {
-  value: TransportType;
-  label: string;
-  icon: string;
-}[] = [
-  { value: "stdio", label: "STDIO", icon: "lucide:terminal" },
-  { value: "sse", label: "SSE", icon: "lucide:radio" },
-  { value: "websocket", label: "WebSocket", icon: "lucide:plug" },
-  { value: "http", label: "HTTP", icon: "lucide:globe" },
-];
-
-// ── Lifecycle ────────────────────────────────────────────────────
-onMounted(() => {
-  mcpStore.fetchServers();
+const formData = reactive({
+    name: "",
+    transport_type: "stdio" as TransportType,
+    // Stdio fields
+    command: "",
+    args: "",
+    envEntries: [] as { key: string; value: string }[],
+    // URL-based fields (SSE, WebSocket, HTTP)
+    url: "",
+    headerEntries: [] as { key: string; value: string }[],
+    enabled: true,
 });
 
-// ── Helpers ──────────────────────────────────────────────────────
-function getTransportTypeLabel(type: TransportType): string {
-  const map: Record<TransportType, string> = {
-    stdio: "STDIO",
-    sse: "SSE",
-    websocket: "WebSocket",
-    http: "HTTP",
-  };
-  return map[type] ?? type.toUpperCase();
+const isStdio = computed(() => formData.transport_type === "stdio");
+const isUrlBased = computed(() =>
+    ["sse", "websocket", "http"].includes(formData.transport_type),
+);
+
+onMounted(() => {
+    mcpStore.fetchServers();
+});
+
+function resetForm() {
+    formData.name = "";
+    formData.transport_type = "stdio";
+    formData.command = "";
+    formData.args = "";
+    formData.envEntries = [];
+    formData.url = "";
+    formData.headerEntries = [];
+    formData.enabled = true;
 }
 
-function getTransportTypeIcon(type: TransportType): string {
-  const map: Record<TransportType, string> = {
-    stdio: "lucide:terminal",
-    sse: "lucide:radio",
-    websocket: "lucide:plug",
-    http: "lucide:globe",
-  };
-  return map[type] ?? "lucide:hard-drive";
+function openCreate() {
+    editingServer.value = null;
+    resetForm();
+    showForm.value = true;
 }
 
-function getTransportConfigDisplay(server: McpServerConfig): string {
-  if (server.transport_config.type === "stdio") {
-    const cmd = server.transport_config.command;
-    const args = server.transport_config.args?.join(" ") ?? "";
-    return args ? `${cmd} ${args}` : cmd;
-  }
-  return "url" in server.transport_config ? server.transport_config.url : "";
-}
+function openEdit(server: McpServerConfig) {
+    editingServer.value = server;
+    formData.name = server.name;
+    formData.transport_type = server.transport_type;
+    formData.enabled = server.enabled ?? true;
 
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleString();
-  } catch {
-    return dateStr;
-  }
-}
-
-// ── Form helpers ─────────────────────────────────────────────────
-function parseArgs(text: string): string[] | undefined {
-  const arr = text
-    .trim()
-    .split(/\s+/)
-    .filter((s) => s.length > 0);
-  return arr.length > 0 ? arr : undefined;
-}
-
-function parseEnv(text: string): Record<string, string> | undefined {
-  const result: Record<string, string> = {};
-  text.split("\n").forEach((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx > 0) {
-      const key = trimmed.slice(0, eqIdx).trim();
-      const val = trimmed.slice(eqIdx + 1).trim();
-      if (key) result[key] = val;
+    // Parse transport config
+    if (server.transport_type === "stdio") {
+        const cfg = server.transport_config as Extract<
+            TransportConfig,
+            { type: "stdio" }
+        >;
+        formData.command = cfg.command;
+        formData.args = cfg.args?.join(" ") ?? "";
+        formData.envEntries = cfg.env
+            ? Object.entries(cfg.env).map(([key, value]) => ({ key, value }))
+            : [];
+        formData.url = "";
+        formData.headerEntries = [];
+    } else {
+        const cfg = server.transport_config as Extract<
+            TransportConfig,
+            { type: "sse" } | { type: "websocket" } | { type: "http" }
+        >;
+        formData.url = cfg.url;
+        formData.headerEntries = cfg.headers
+            ? Object.entries(cfg.headers).map(([key, value]) => ({
+                  key,
+                  value,
+              }))
+            : [];
+        formData.command = "";
+        formData.args = "";
+        formData.envEntries = [];
     }
-  });
-  return Object.keys(result).length > 0 ? result : undefined;
-}
 
-function parseHeaders(text: string): Record<string, string> | undefined {
-  const result: Record<string, string> = {};
-  text.split("\n").forEach((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    const sepIdx = trimmed.indexOf(":");
-    if (sepIdx > 0) {
-      const key = trimmed.slice(0, sepIdx).trim();
-      const val = trimmed.slice(sepIdx + 1).trim();
-      if (key) result[key] = val;
-    }
-  });
-  return Object.keys(result).length > 0 ? result : undefined;
+    showForm.value = true;
 }
 
 function buildTransportConfig(): TransportConfig {
-  if (formTransportType.value === "stdio") {
-    return {
-      type: "stdio",
-      command: formCommand.value.trim(),
-      args: parseArgs(formArgs.value),
-      env: parseEnv(formEnv.value),
-    };
-  }
-  if (formTransportType.value === "sse") {
-    return {
-      type: "sse",
-      url: formUrl.value.trim(),
-      headers: parseHeaders(formHeaders.value),
-    };
-  }
-  if (formTransportType.value === "websocket") {
-    return {
-      type: "websocket",
-      url: formUrl.value.trim(),
-      headers: parseHeaders(formHeaders.value),
-    };
-  }
-  // http
-  return {
-    type: "http",
-    url: formUrl.value.trim(),
-    headers: parseHeaders(formHeaders.value),
-  };
-}
-
-// ── Validation ───────────────────────────────────────────────────
-function validateForm(): boolean {
-  formErrors.value = {};
-  if (!formName.value.trim()) {
-    formErrors.value.name =
-      t("mcpConfig.serverName") + " " + t("common.required");
-  }
-  if (formTransportType.value === "stdio") {
-    if (!formCommand.value.trim()) {
-      formErrors.value.command =
-        t("mcpConfig.command") + " " + t("common.required");
-    }
-  } else {
-    if (!formUrl.value.trim()) {
-      formErrors.value.url = t("mcpConfig.url") + " " + t("common.required");
-    }
-  }
-  return Object.keys(formErrors.value).length === 0;
-}
-
-// ── Modal actions ────────────────────────────────────────────────
-function openCreateModal() {
-  isEditMode.value = false;
-  editingServer.value = null;
-  resetForm();
-  showModal.value = true;
-}
-
-function openEditModal(server: McpServerConfig) {
-  try {
-    isEditMode.value = true;
-    editingServer.value = server;
-
-    formName.value = server.name || "";
-    formTransportType.value = server.transport_type || "stdio";
-    formEnabled.value = server.enabled ?? true;
-
-    const config = server.transport_config;
-    if (config && config.type === "stdio") {
-      formCommand.value = config.command || "";
-      formArgs.value = config.args?.join(" ") ?? "";
-      formEnv.value = config.env
-        ? Object.entries(config.env)
-            .map(([k, v]) => `${k}=${v}`)
-            .join("\n")
-        : "";
-      formUrl.value = "";
-      formHeaders.value = "";
+    if (formData.transport_type === "stdio") {
+        const args = formData.args.trim()
+            ? formData.args.trim().split(/\s+/).filter(Boolean)
+            : undefined;
+        const env =
+            formData.envEntries.length > 0
+                ? Object.fromEntries(
+                      formData.envEntries
+                          .filter((e) => e.key.trim())
+                          .map((e) => [e.key.trim(), e.value]),
+                  )
+                : undefined;
+        return {
+            type: "stdio",
+            command: formData.command,
+            ...(args ? { args } : {}),
+            ...(env ? { env } : {}),
+        };
     } else {
-      formUrl.value = config && "url" in config ? config.url : "";
-      formHeaders.value =
-        config && "headers" in config && config.headers
-          ? Object.entries(config.headers)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join("\n")
-          : "";
-      formCommand.value = "";
-      formArgs.value = "";
-      formEnv.value = "";
+        const headers =
+            formData.headerEntries.length > 0
+                ? Object.fromEntries(
+                      formData.headerEntries
+                          .filter((e) => e.key.trim())
+                          .map((e) => [e.key.trim(), e.value]),
+                  )
+                : undefined;
+        const base = {
+            url: formData.url,
+            ...(headers ? { headers } : {}),
+        };
+        switch (formData.transport_type) {
+            case "sse":
+                return { type: "sse", ...base };
+            case "websocket":
+                return { type: "websocket", ...base };
+            case "http":
+                return { type: "http", ...base };
+            default:
+                return { type: "sse", ...base };
+        }
     }
-
-    formErrors.value = {};
-    saveSuccess.value = false;
-    saveError.value = null;
-    showModal.value = true;
-  } catch (err) {
-    console.error("Failed to open edit modal:", err);
-    saveError.value = "Failed to load server configuration";
-    showModal.value = true;
-  }
 }
 
-function closeModal() {
-  showModal.value = false;
-  resetForm();
-}
-
-function resetForm() {
-  formName.value = "";
-  formTransportType.value = "stdio";
-  formEnabled.value = true;
-  formCommand.value = "";
-  formArgs.value = "";
-  formEnv.value = "";
-  formUrl.value = "";
-  formHeaders.value = "";
-  formErrors.value = {};
-  saveSuccess.value = false;
-  saveError.value = null;
-}
-
-// ── Save / Delete / Toggle ───────────────────────────────────────
 async function handleSave() {
-  if (!validateForm()) return;
-
-  isSaving.value = true;
-  saveSuccess.value = false;
-  saveError.value = null;
-
-  try {
-    const serverData = {
-      name: formName.value.trim(),
-      transport_type: formTransportType.value,
-      transport_config: buildTransportConfig(),
-      enabled: formEnabled.value,
-    };
-
-    if (isEditMode.value && editingServer.value) {
-      await mcpStore.updateServer(editingServer.value.id, serverData);
-    } else {
-      await mcpStore.createServer(serverData);
+    try {
+        const transportConfig = buildTransportConfig();
+        if (editingServer.value) {
+            await mcpStore.updateServer(editingServer.value.id, {
+                name: formData.name,
+                transport_type: formData.transport_type,
+                transport_config: transportConfig,
+                enabled: formData.enabled,
+            } as UpdateMcpServerRequest);
+        } else {
+            await mcpStore.createServer({
+                name: formData.name,
+                transport_type: formData.transport_type,
+                transport_config: transportConfig,
+                enabled: formData.enabled,
+            } as CreateMcpServerRequest);
+        }
+        showForm.value = false;
+        editingServer.value = null;
+    } catch {
+        // error is in store
     }
-
-    saveSuccess.value = true;
-    setTimeout(() => closeModal(), 1200);
-  } catch (err: unknown) {
-    saveError.value =
-      err instanceof Error ? err.message : t("common.saveFailed");
-  } finally {
-    isSaving.value = false;
-  }
 }
 
-async function handleDelete(server: McpServerConfig) {
-  if (!confirm(`${t("common.deleteConfirm")}: ${server.name}?`)) return;
-  try {
-    await mcpStore.deleteServer(server.id);
-  } catch (err: unknown) {
-    console.error("Failed to delete server:", err);
-  }
+function handleCancel() {
+    showForm.value = false;
+    editingServer.value = null;
+}
+
+async function handleDelete(id: string) {
+    if (!confirm(t("common.deleteConfirm"))) return;
+    try {
+        await mcpStore.deleteServer(id);
+        await mcpStore.fetchServers();
+    } catch {
+        // error is in store
+    }
 }
 
 async function handleToggle(server: McpServerConfig) {
-  try {
-    await mcpStore.toggleServerEnabled(server.id);
-  } catch (err: unknown) {
-    console.error("Failed to toggle server:", err);
-  }
+    try {
+        await mcpStore.toggleServer(server.id);
+        await mcpStore.fetchServers();
+    } catch {
+        // error is in store
+    }
 }
 
-// Close modal on Escape - proper cleanup
-const escapeHandler = (e: KeyboardEvent) => {
-  if (e.key === "Escape") closeModal();
-};
+function addEnvEntry() {
+    formData.envEntries.push({ key: "", value: "" });
+}
 
-const modalWatcher = watch(showModal, (val) => {
-  if (val) {
-    document.body.style.overflow = "hidden";
-    document.addEventListener("keydown", escapeHandler);
-  } else {
-    document.body.style.overflow = "";
-    document.removeEventListener("keydown", escapeHandler);
-  }
-});
+function removeEnvEntry(index: number) {
+    formData.envEntries.splice(index, 1);
+}
 
-onBeforeUnmount(() => {
-  document.removeEventListener("keydown", escapeHandler);
-  document.body.style.overflow = "";
-  modalWatcher();
-});
+function addHeaderEntry() {
+    formData.headerEntries.push({ key: "", value: "" });
+}
+
+function removeHeaderEntry(index: number) {
+    formData.headerEntries.splice(index, 1);
+}
+
+function getTransportLabel(type: TransportType): string {
+    switch (type) {
+        case "stdio":
+            return "STDIO";
+        case "sse":
+            return "SSE";
+        case "websocket":
+            return "WebSocket";
+        case "http":
+            return "HTTP";
+        default:
+            return type;
+    }
+}
+
+function getTransportIcon(type: TransportType): string {
+    switch (type) {
+        case "stdio":
+            return "⌨️";
+        case "sse":
+            return "📡";
+        case "websocket":
+            return "🔌";
+        case "http":
+            return "🌐";
+        default:
+            return "🔗";
+    }
+}
+
+function getServerSummary(server: McpServerConfig): string {
+    if (server.transport_type === "stdio") {
+        const cfg = server.transport_config as Extract<
+            TransportConfig,
+            { type: "stdio" }
+        >;
+        let summary = cfg.command;
+        if (cfg.args && cfg.args.length > 0) {
+            summary += " " + cfg.args.join(" ");
+        }
+        return summary;
+    } else {
+        const cfg = server.transport_config as Extract<
+            TransportConfig,
+            { type: "sse" } | { type: "websocket" } | { type: "http" }
+        >;
+        return cfg.url;
+    }
+}
+
+function truncateText(text: string, maxLen: number = 80): string {
+    if (!text) return "";
+    return text.length > maxLen ? text.slice(0, maxLen) + "..." : text;
+}
+
+function formatDate(dateString: string): string {
+    return new Date(dateString).toLocaleDateString();
+}
+
+function onTransportTypeChange() {
+    // Reset relevant fields when transport type changes
+    if (formData.transport_type === "stdio") {
+        formData.url = "";
+        formData.headerEntries = [];
+    } else {
+        formData.command = "";
+        formData.args = "";
+        formData.envEntries = [];
+    }
+}
 </script>
 
 <template>
-  <div class="mcp-page">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-content">
-        <h1 class="page-title">{{ t("mcpConfig.title") }}</h1>
-        <p class="page-subtitle">{{ t("mcpConfig.subtitle") }}</p>
-      </div>
-      <button @click="openCreateModal" class="btn btn-primary">
-        <Icon icon="lucide:plus" class="btn-icon" />
-        {{ t("mcpConfig.addServer") }}
-      </button>
-    </div>
-
-    <!-- Info Banner -->
-    <div class="info-banner">
-      <div class="info-content">
-        <Icon icon="lucide:info" class="info-icon" />
-        <span>{{ t("mcpConfig.infoBanner") }}</span>
-      </div>
-      <a
-        href="https://modelcontextprotocol.io"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="learn-more-link"
-      >
-        {{ t("mcpConfig.learnMore") }}
-        <Icon icon="lucide:external-link" class="link-icon" />
-      </a>
-    </div>
-
-    <!-- Error Banner -->
-    <div v-if="mcpStore.error" class="error-banner">
-      <Icon icon="lucide:alert-circle" class="error-icon" />
-      <span>{{ mcpStore.error }}</span>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="mcpStore.loading" class="loading-state">
-      <Icon icon="lucide:loader-2" class="spin-icon" />
-      <span>{{ t("common.loading") }}</span>
-    </div>
-
-    <!-- Empty State -->
-    <div v-else-if="mcpStore.servers.length === 0" class="empty-state">
-      <Icon icon="lucide:server" class="empty-icon" />
-      <p class="empty-title">{{ t("mcpConfig.noServers") }}</p>
-      <button @click="openCreateModal" class="btn btn-accent">
-        <Icon icon="lucide:plus" class="btn-icon" />
-        {{ t("mcpConfig.addServer") }}
-      </button>
-    </div>
-
-    <!-- Server List -->
-    <div v-else class="server-list">
-      <div
-        v-for="server in mcpStore.servers"
-        :key="server.id"
-        class="server-card card"
-        :class="{ 'server-card--disabled': !server.enabled }"
-      >
-        <div class="server-header">
-          <div class="server-info">
-            <div class="server-name-row">
-              <Icon
-                :icon="getTransportTypeIcon(server.transport_type)"
-                class="transport-icon"
-              />
-              <h3 class="server-name">{{ server.name }}</h3>
-              <span
-                :class="[
-                  'badge',
-                  `badge-transport`,
-                  `badge-transport--${server.transport_type}`,
-                ]"
-              >
-                {{ getTransportTypeLabel(server.transport_type) }}
-              </span>
+    <div class="page">
+        <!-- Header -->
+        <div class="page-header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <path
+                            d="M12 2L2 7l10 5 10-5-10-5z"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                        <path
+                            d="M2 17l10 5 10-5"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                        <path
+                            d="M2 12l10 5 10-5"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1 class="header-title">{{ t("mcpConfig.title") }}</h1>
+                    <p class="header-desc">{{ t("mcpConfig.subtitle") }}</p>
+                </div>
             </div>
-            <code class="server-endpoint">{{
-              getTransportConfigDisplay(server)
-            }}</code>
-          </div>
-          <div class="server-actions">
-            <button
-              @click="handleToggle(server)"
-              class="btn btn-ghost btn-sm"
-              :title="server.enabled ? t('common.disable') : t('common.enable')"
-            >
-              <Icon
-                :icon="
-                  server.enabled ? 'lucide:toggle-right' : 'lucide:toggle-left'
-                "
-                :class="server.enabled ? 'text-primary' : 'text-muted'"
-                class="action-icon"
-              />
-            </button>
-            <button
-              @click="openEditModal(server)"
-              class="btn btn-ghost btn-sm"
-              :title="t('common.edit')"
-            >
-              <Icon icon="lucide:pencil" class="action-icon" />
-            </button>
-            <button
-              @click="handleDelete(server)"
-              class="btn btn-danger-ghost btn-sm"
-              :title="t('common.delete')"
-            >
-              <Icon icon="lucide:trash-2" class="action-icon" />
-            </button>
-          </div>
-        </div>
-        <div class="server-meta">
-          <span class="meta-item">
-            <Icon icon="lucide:clock" class="meta-icon" />
-            {{ formatDate(server.created_at) }}
-          </span>
-          <span
-            :class="[
-              'status-indicator',
-              server.enabled ? 'status-indicator--on' : 'status-indicator--off',
-            ]"
-          >
-            <span class="status-dot" />
-            {{ server.enabled ? t("common.enabled") : t("common.disabled") }}
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Modal ────────────────────────────────────────────── -->
-    <Teleport to="body">
-      <div v-if="showModal" class="mcp-modal-overlay" @click.self="closeModal">
-        <div class="mcp-modal-content" @click.stop>
-          <!-- Modal Header -->
-          <div class="modal-header">
-            <h2 class="modal-title">
-              {{
-                isEditMode
-                  ? t("mcpConfig.editServer")
-                  : t("mcpConfig.createServer")
-              }}
-            </h2>
-            <button @click="closeModal" class="modal-close">
-              <Icon icon="lucide:x" />
-            </button>
-          </div>
-
-          <!-- Modal Body -->
-          <div class="modal-body">
-            <!-- Success / Error alerts -->
-            <div v-if="saveSuccess" class="alert alert-success">
-              <Icon icon="lucide:check-circle" />
-              <span>{{ t("common.saveSuccess") }}</span>
-            </div>
-            <div v-if="saveError" class="alert alert-error">
-              <Icon icon="lucide:alert-circle" />
-              <span>{{ saveError }}</span>
-            </div>
-
-            <!-- Server Name -->
-            <div class="form-group" :class="{ 'has-error': formErrors.name }">
-              <label class="form-label">
-                {{ t("mcpConfig.serverName") }}
-                <span class="required">*</span>
-              </label>
-              <input
-                v-model="formName"
-                class="form-input"
-                :placeholder="t('mcpConfig.serverName')"
-                @input="formErrors.name = ''"
-              />
-              <span v-if="formErrors.name" class="form-error">{{
-                formErrors.name
-              }}</span>
-            </div>
-
-            <!-- Transport Type Tabs -->
-            <div class="form-group">
-              <label class="form-label">{{
-                t("mcpConfig.transportType")
-              }}</label>
-              <div class="transport-tabs">
-                <button
-                  v-for="opt in transportOptions"
-                  :key="opt.value"
-                  :class="[
-                    'tab',
-                    {
-                      active: formTransportType === opt.value,
-                    },
-                  ]"
-                  @click="formTransportType = opt.value"
+            <button class="btn btn-accent" @click="openCreate">
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
                 >
-                  <Icon :icon="opt.icon" class="tab-icon" />
-                  {{ opt.label }}
-                </button>
-              </div>
-            </div>
-
-            <!-- STDIO Config -->
-            <div v-if="formTransportType === 'stdio'" class="config-section">
-              <h3 class="section-title">
-                <Icon icon="lucide:terminal" />
-                STDIO {{ t("mcpConfig.transportConfig") }}
-              </h3>
-              <div
-                class="form-group"
-                :class="{ 'has-error': formErrors.command }"
-              >
-                <label class="form-label">
-                  {{ t("mcpConfig.command") }}
-                  <span class="required">*</span>
-                </label>
-                <input
-                  v-model="formCommand"
-                  class="form-input"
-                  placeholder="e.g., npx"
-                  @input="formErrors.command = ''"
-                />
-                <p class="form-hint">
-                  {{ t("mcpConfig.commandHint") }}
-                </p>
-                <span v-if="formErrors.command" class="form-error">{{
-                  formErrors.command
-                }}</span>
-              </div>
-              <div class="form-group">
-                <label class="form-label">{{ t("mcpConfig.args") }}</label>
-                <input
-                  v-model="formArgs"
-                  class="form-input"
-                  placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
-                />
-                <p class="form-hint">
-                  {{ t("mcpConfig.argPlaceholder") }}
-                </p>
-              </div>
-              <div class="form-group">
-                <label class="form-label">{{
-                  t("mcpConfig.transportConfig")
-                }}</label>
-                <textarea
-                  v-model="formEnv"
-                  class="form-textarea"
-                  rows="3"
-                  placeholder="KEY=value"
-                />
-                <p class="form-hint">KEY=VALUE per line</p>
-              </div>
-            </div>
-
-            <!-- URL-based Config (SSE / WebSocket / HTTP) -->
-            <div v-if="isUrlBasedTransport" class="config-section">
-              <h3 class="section-title">
-                <Icon :icon="getTransportTypeIcon(formTransportType)" />
-                {{ getTransportTypeLabel(formTransportType) }}
-                {{ t("mcpConfig.transportConfig") }}
-              </h3>
-              <div class="form-group" :class="{ 'has-error': formErrors.url }">
-                <label class="form-label">
-                  {{ t("mcpConfig.url") }}
-                  <span class="required">*</span>
-                </label>
-                <input
-                  v-model="formUrl"
-                  class="form-input"
-                  :placeholder="t('mcpConfig.urlPlaceholder')"
-                  @input="formErrors.url = ''"
-                />
-                <span v-if="formErrors.url" class="form-error">{{
-                  formErrors.url
-                }}</span>
-              </div>
-              <div class="form-group">
-                <label class="form-label">{{ t("mcpConfig.headers") }}</label>
-                <textarea
-                  v-model="formHeaders"
-                  class="form-textarea"
-                  rows="3"
-                  :placeholder="
-                    t('mcpConfig.headerKeyPlaceholder') +
-                    ': ' +
-                    t('mcpConfig.headerValuePlaceholder')
-                  "
-                />
-                <p class="form-hint">Header-Name: value per line</p>
-              </div>
-            </div>
-
-            <!-- Enabled Toggle -->
-            <div class="form-group toggle-row">
-              <label class="toggle-switch">
-                <input v-model="formEnabled" type="checkbox" />
-                <span class="toggle-track">
-                  <span class="toggle-thumb" />
-                </span>
-              </label>
-              <span class="toggle-text">
-                {{ formEnabled ? t("common.enabled") : t("common.disabled") }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Modal Footer -->
-          <div class="modal-footer">
-            <button @click="closeModal" class="btn btn-secondary">
-              {{ t("common.cancel") }}
+                    <path
+                        d="M12 5v14M5 12h14"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                    />
+                </svg>
+                {{ t("mcpConfig.addServer") }}
             </button>
-            <button
-              @click="handleSave"
-              class="btn btn-primary"
-              :disabled="isSaving"
-            >
-              <Icon
-                v-if="isSaving"
-                icon="lucide:loader-2"
-                class="spin-icon btn-icon"
-              />
-              <Icon v-else icon="lucide:save" class="btn-icon" />
-              <span>{{
-                isEditMode ? t("common.update") : t("common.create")
-              }}</span>
-            </button>
-          </div>
         </div>
-      </div>
-    </Teleport>
-  </div>
+
+        <!-- Info Banner -->
+        <div class="info-banner">
+            <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            <span>{{ t("mcpConfig.infoBanner") }}</span>
+        </div>
+
+        <!-- Error -->
+        <div v-if="mcpStore.error" class="error-banner">
+            <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            {{ mcpStore.error }}
+        </div>
+
+        <!-- Loading -->
+        <div
+            v-if="mcpStore.loading && mcpStore.servers.length === 0"
+            class="loading-state"
+        >
+            <div class="loading-spinner"></div>
+            <span class="loading-text">{{ t("common.loading") }}</span>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else-if="mcpStore.servers.length === 0" class="empty-state">
+            <div class="empty-illustration">
+                <div class="empty-icon-wrapper">
+                    <svg
+                        width="48"
+                        height="48"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <path
+                            d="M12 2L2 7l10 5 10-5-10-5z"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                        <path
+                            d="M2 17l10 5 10-5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                        <path
+                            d="M2 12l10 5 10-5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        />
+                    </svg>
+                </div>
+                <div class="empty-decoration">
+                    <span class="deco-dot deco-dot-1"></span>
+                    <span class="deco-dot deco-dot-2"></span>
+                    <span class="deco-dot deco-dot-3"></span>
+                </div>
+            </div>
+            <h3 class="empty-title">{{ t("mcpConfig.noServers") }}</h3>
+            <button class="btn btn-accent" @click="openCreate">
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                >
+                    <path d="M12 5v14M5 12h14" />
+                </svg>
+                {{ t("mcpConfig.addServer") }}
+            </button>
+        </div>
+
+        <!-- Server Cards -->
+        <div v-else class="card-list">
+            <div
+                v-for="(server, index) in mcpStore.servers"
+                :key="server.id"
+                class="mcp-card"
+                :class="{ 'mcp-card--enabled': server.enabled }"
+                :style="{ animationDelay: `${index * 50}ms` }"
+            >
+                <div
+                    class="card-glow"
+                    :class="{ 'card-glow--active': server.enabled }"
+                ></div>
+                <div class="card-content">
+                    <div class="card-info">
+                        <div class="card-icon">
+                            <span class="icon-emoji">{{
+                                getTransportIcon(server.transport_type)
+                            }}</span>
+                        </div>
+                        <div class="card-details">
+                            <div class="card-title-row">
+                                <h3 class="card-title">{{ server.name }}</h3>
+                                <span class="transport-badge">{{
+                                    getTransportLabel(server.transport_type)
+                                }}</span>
+                                <span
+                                    v-if="server.enabled"
+                                    class="status-badge status-badge--active"
+                                >
+                                    <span class="status-dot"></span>
+                                    {{ t("common.enabled") }}
+                                </span>
+                                <span
+                                    v-else
+                                    class="status-badge status-badge--inactive"
+                                >
+                                    <span class="status-dot"></span>
+                                    {{ t("common.disabled") }}
+                                </span>
+                            </div>
+                            <div class="card-summary">
+                                <span class="summary-label">🔗</span>
+                                <span class="summary-text">
+                                    {{ truncateText(getServerSummary(server)) }}
+                                </span>
+                            </div>
+                            <div class="card-meta">
+                                {{ t("mcpConfig.createdAt") }}:
+                                {{ formatDate(server.created_at) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-actions">
+                        <button
+                            class="btn btn-ghost btn-sm"
+                            @click="handleToggle(server)"
+                            :title="
+                                server.enabled
+                                    ? t('common.disabled')
+                                    : t('common.enabled')
+                            "
+                        >
+                            <svg
+                                v-if="server.enabled"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="4.93" y1="12" x2="19.07" y2="12" />
+                            </svg>
+                            <svg
+                                v-else
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M22 11.08V12a10 10 0 1 1 -5.93-9.14" />
+                                <polyline points="22 4 12 14.01 9 11.01" />
+                            </svg>
+                            {{
+                                server.enabled
+                                    ? t("common.disabled")
+                                    : t("common.enabled")
+                            }}
+                        </button>
+                        <button
+                            class="btn btn-ghost btn-sm"
+                            @click="openEdit(server)"
+                            :title="t('common.edit')"
+                        >
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path
+                                    d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"
+                                />
+                                <path
+                                    d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"
+                                />
+                            </svg>
+                            {{ t("common.edit") }}
+                        </button>
+                        <button
+                            class="btn btn-ghost btn-sm btn-danger-ghost"
+                            @click="handleDelete(server.id)"
+                            :title="t('common.delete')"
+                        >
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <polyline points="3 6 5 6 21 6" />
+                                <path
+                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Modal -->
+        <Teleport to="body">
+            <div v-if="showForm" class="persona-modal-overlay">
+                <div class="persona-modal-content glass" @click.stop>
+                    <div class="modal-header">
+                        <h2 class="modal-title">
+                            {{
+                                editingServer
+                                    ? t("mcpConfig.editServer")
+                                    : t("mcpConfig.createServer")
+                            }}
+                        </h2>
+                        <button class="modal-close" @click="handleCancel">
+                            <svg
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                            >
+                                <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Server Name -->
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("mcpConfig.serverName")
+                            }}</label>
+                            <input
+                                v-model="formData.name"
+                                type="text"
+                                class="form-input"
+                                :placeholder="
+                                    t('mcpConfig.serverNamePlaceholder')
+                                "
+                            />
+                        </div>
+
+                        <!-- Transport Type -->
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("mcpConfig.transportType")
+                            }}</label>
+                            <select
+                                v-model="formData.transport_type"
+                                class="form-input"
+                                @change="onTransportTypeChange"
+                            >
+                                <option value="stdio">STDIO</option>
+                                <option value="sse">SSE</option>
+                                <option value="websocket">WebSocket</option>
+                                <option value="http">HTTP</option>
+                            </select>
+                        </div>
+
+                        <!-- STDIO Config -->
+                        <template v-if="isStdio">
+                            <div class="form-section-title">
+                                {{ t("mcpConfig.stdioConfig") }}
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("mcpConfig.command")
+                                }}</label>
+                                <input
+                                    v-model="formData.command"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="
+                                        t('mcpConfig.commandPlaceholder')
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("mcpConfig.commandHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("mcpConfig.args")
+                                }}</label>
+                                <input
+                                    v-model="formData.args"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="t('mcpConfig.argPlaceholder')"
+                                />
+                                <span class="form-hint">{{
+                                    t("mcpConfig.argsHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("mcpConfig.env")
+                                }}</label>
+                                <div class="entry-list">
+                                    <div
+                                        v-for="(
+                                            _, index
+                                        ) in formData.envEntries"
+                                        :key="index"
+                                        class="entry-row"
+                                    >
+                                        <input
+                                            v-model="
+                                                formData.envEntries[index].key
+                                            "
+                                            type="text"
+                                            class="form-input entry-input"
+                                            :placeholder="
+                                                t('mcpConfig.envKeyPlaceholder')
+                                            "
+                                        />
+                                        <input
+                                            v-model="
+                                                formData.envEntries[index].value
+                                            "
+                                            type="text"
+                                            class="form-input entry-input"
+                                            :placeholder="
+                                                t(
+                                                    'mcpConfig.envValuePlaceholder',
+                                                )
+                                            "
+                                        />
+                                        <button
+                                            class="btn btn-ghost btn-sm entry-remove"
+                                            @click="removeEnvEntry(index)"
+                                            type="button"
+                                        >
+                                            <svg
+                                                width="12"
+                                                height="12"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                            >
+                                                <path
+                                                    d="M18 6L6 18M6 6l12 12"
+                                                />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <button
+                                        class="btn btn-ghost btn-sm"
+                                        @click="addEnvEntry"
+                                        type="button"
+                                    >
+                                        <svg
+                                            width="12"
+                                            height="12"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                        >
+                                            <path d="M12 5v14M5 12h14" />
+                                        </svg>
+                                        {{ t("common.add") }}
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- URL-based Config (SSE, WebSocket, HTTP) -->
+                        <template v-if="isUrlBased">
+                            <div class="form-section-title">
+                                {{
+                                    formData.transport_type === "sse"
+                                        ? t("mcpConfig.sseConfig")
+                                        : formData.transport_type ===
+                                            "websocket"
+                                          ? t("mcpConfig.websocketConfig")
+                                          : t("mcpConfig.httpConfig")
+                                }}
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("mcpConfig.url")
+                                }}</label>
+                                <input
+                                    v-model="formData.url"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="t('mcpConfig.urlPlaceholder')"
+                                />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("mcpConfig.headers")
+                                }}</label>
+                                <div class="entry-list">
+                                    <div
+                                        v-for="(
+                                            _, index
+                                        ) in formData.headerEntries"
+                                        :key="index"
+                                        class="entry-row"
+                                    >
+                                        <input
+                                            v-model="
+                                                formData.headerEntries[index]
+                                                    .key
+                                            "
+                                            type="text"
+                                            class="form-input entry-input"
+                                            :placeholder="
+                                                t(
+                                                    'mcpConfig.headerKeyPlaceholder',
+                                                )
+                                            "
+                                        />
+                                        <input
+                                            v-model="
+                                                formData.headerEntries[index]
+                                                    .value
+                                            "
+                                            type="text"
+                                            class="form-input entry-input"
+                                            :placeholder="
+                                                t(
+                                                    'mcpConfig.headerValuePlaceholder',
+                                                )
+                                            "
+                                        />
+                                        <button
+                                            class="btn btn-ghost btn-sm entry-remove"
+                                            @click="removeHeaderEntry(index)"
+                                            type="button"
+                                        >
+                                            <svg
+                                                width="12"
+                                                height="12"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                            >
+                                                <path
+                                                    d="M18 6L6 18M6 6l12 12"
+                                                />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <button
+                                        class="btn btn-ghost btn-sm"
+                                        @click="addHeaderEntry"
+                                        type="button"
+                                    >
+                                        <svg
+                                            width="12"
+                                            height="12"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                        >
+                                            <path d="M12 5v14M5 12h14" />
+                                        </svg>
+                                        {{ t("common.add") }}
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-ghost" @click="handleCancel">
+                            {{ t("common.cancel") }}
+                        </button>
+                        <button
+                            class="btn btn-accent"
+                            @click="handleSave"
+                            :disabled="
+                                !formData.name.trim() ||
+                                (isStdio && !formData.command.trim()) ||
+                                (isUrlBased && !formData.url.trim())
+                            "
+                        >
+                            {{ t("common.save") }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+    </div>
 </template>
 
 <style scoped>
-/* ── Page Layout ──────────────────────────────────────────────── */
-.mcp-page {
-  max-width: 960px;
-  margin: 0 auto;
-  animation: fadeIn 0.4s ease-out;
-  position: relative;
+.page {
+    padding: 1.5rem;
+    max-width: 960px;
+    margin: 0 auto;
+    animation: fadeIn 0.4s ease-out;
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
-/* ── Header ───────────────────────────────────────────────────── */
+/* Page Header */
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
 }
 
 .header-content {
-  flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
 }
 
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 0 0 0.375rem 0;
-  color: hsl(var(--foreground));
+.header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.2) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    );
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / 0.2);
 }
 
-.page-subtitle {
-  font-size: 0.9375rem;
-  color: hsl(var(--muted-foreground));
-  margin: 0;
+.header-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.2;
 }
 
-/* ── Info Banner ──────────────────────────────────────────────── */
+.header-desc {
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+}
+
+/* Info Banner */
 .info-banner {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.875rem 1.125rem;
-  background: linear-gradient(
-    135deg,
-    hsl(var(--primary) / 0.08) 0%,
-    hsl(var(--primary) / 0.04) 100%
-  );
-  border: 1px solid hsl(var(--primary) / 0.15);
-  border-radius: var(--radius-lg);
-  margin-bottom: 1.5rem;
-  gap: 1rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: hsl(var(--primary) / 0.06);
+    border: 1px solid hsl(var(--primary) / 0.15);
+    border-radius: 0.5rem;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+    line-height: 1.5;
 }
 
-.info-content {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  color: hsl(var(--foreground));
-  font-size: 0.9375rem;
+.info-banner svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: hsl(var(--primary));
 }
 
-.info-icon {
-  flex-shrink: 0;
-  color: hsl(var(--primary));
-  font-size: 1.25rem;
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
 }
 
-.learn-more-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  color: hsl(var(--primary));
-  text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-  white-space: nowrap;
-  transition: all 0.2s;
-  padding: 0.375rem 0.75rem;
-  border-radius: var(--radius-md);
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-.learn-more-link:hover {
-  background: hsl(var(--primary) / 0.1);
+.btn-accent {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)) 0%,
+        hsl(var(--primary) / 0.9) 100%
+    );
+    color: hsl(var(--primary-foreground));
+    border-color: hsl(var(--primary) / 0.3);
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.2);
 }
 
-.link-icon {
-  font-size: 0.875rem;
+.btn-accent:hover:not(:disabled) {
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
+    transform: translateY(-1px);
 }
 
-/* ── Error Banner ─────────────────────────────────────────────── */
-.error-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.75rem 1rem;
-  background: hsl(var(--destructive) / 0.08);
-  border: 1px solid hsl(var(--destructive) / 0.15);
-  border-radius: var(--radius-lg);
-  color: hsl(var(--destructive));
-  margin-bottom: 1.5rem;
-  font-size: 0.875rem;
+.btn-ghost {
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    border-color: transparent;
 }
 
-.error-icon {
-  flex-shrink: 0;
-  font-size: 1.125rem;
+.btn-ghost:hover {
+    background: hsl(var(--secondary) / 0.5);
+    color: hsl(var(--foreground));
 }
 
-/* ── Loading ──────────────────────────────────────────────────── */
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  padding: 3rem;
-  color: hsl(var(--muted-foreground));
+.btn-danger-ghost:hover {
+    background: hsl(var(--destructive) / 0.1);
+    color: hsl(var(--destructive));
 }
 
-.spin-icon {
-  animation: spin 1s linear infinite;
-  font-size: 1.25rem;
+.btn-sm {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Transport Badge */
+.transport-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    background: hsl(var(--secondary) / 0.5);
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border) / 0.3);
 }
 
-/* ── Empty State ──────────────────────────────────────────────── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 4rem 2rem;
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 3.5rem;
-  color: hsl(var(--muted-foreground) / 0.4);
-  margin-bottom: 1rem;
-}
-
-.empty-title {
-  font-size: 1.0625rem;
-  color: hsl(var(--muted-foreground));
-  margin: 0 0 1.5rem;
-}
-
-/* ── Server List ──────────────────────────────────────────────── */
-.server-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.server-card {
-  padding: 1.25rem;
-  transition: all 0.2s ease;
-}
-
-.server-card:hover {
-  border-color: hsl(var(--border));
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-}
-
-.server-card--disabled {
-  opacity: 0.6;
-}
-
-.server-card--disabled:hover {
-  opacity: 0.8;
-}
-
-/* ── Server Card Header ───────────────────────────────────────── */
-.server-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.server-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.server-name-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.375rem;
-  flex-wrap: wrap;
-}
-
-.transport-icon {
-  font-size: 1.125rem;
-  color: hsl(var(--primary));
-  flex-shrink: 0;
-}
-
-.server-name {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  margin: 0;
-  color: hsl(var(--foreground));
-}
-
-.badge-transport {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.badge-transport--stdio {
-  background: hsl(220 70% 50% / 0.12);
-  color: hsl(220 70% 55%);
-}
-
-.badge-transport--sse {
-  background: hsl(280 70% 50% / 0.12);
-  color: hsl(280 70% 55%);
-}
-
-.badge-transport--websocket {
-  background: hsl(160 70% 40% / 0.12);
-  color: hsl(160 70% 45%);
-}
-
-.badge-transport--http {
-  background: hsl(30 80% 50% / 0.12);
-  color: hsl(30 80% 50%);
-}
-
-:global(.dark) .badge-transport--stdio {
-  background: hsl(220 70% 60% / 0.15);
-  color: hsl(220 70% 70%);
-}
-
-:global(.dark) .badge-transport--sse {
-  background: hsl(280 70% 60% / 0.15);
-  color: hsl(280 70% 70%);
-}
-
-:global(.dark) .badge-transport--websocket {
-  background: hsl(160 70% 55% / 0.15);
-  color: hsl(160 70% 65%);
-}
-
-:global(.dark) .badge-transport--http {
-  background: hsl(30 80% 60% / 0.15);
-  color: hsl(30 80% 65%);
-}
-
-.server-endpoint {
-  display: block;
-  font-size: 0.8125rem;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--muted) / 0.4);
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-/* ── Server Actions ───────────────────────────────────────────── */
-.server-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-
-.action-icon {
-  font-size: 1.125rem;
-}
-
-.text-primary {
-  color: hsl(var(--primary));
-}
-
-.text-muted {
-  color: hsl(var(--muted-foreground));
-}
-
-/* ── Server Meta ──────────────────────────────────────────────── */
-.server-meta {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  font-size: 0.8125rem;
-  color: hsl(var(--muted-foreground));
-  padding-top: 0.75rem;
-  border-top: 1px solid hsl(var(--border) / 0.3);
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.meta-icon {
-  font-size: 0.875rem;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.status-indicator--on {
-  color: hsl(142 70% 45%);
-}
-
-.status-indicator--off {
-  color: hsl(var(--muted-foreground));
+/* Status Badge */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
 }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: hsl(var(--muted-foreground) / 0.4);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
 }
 
-.status-indicator--on .status-dot {
-  background: hsl(142 70% 45%);
-  box-shadow: 0 0 6px hsl(142 70% 45% / 0.5);
+.status-badge--active {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / 0.2);
 }
 
-.status-indicator--off .status-dot {
-  background: hsl(var(--muted-foreground) / 0.3);
+.status-badge--active .status-dot {
+    background: hsl(var(--primary));
+    box-shadow: 0 0 6px hsl(var(--primary) / 0.5);
 }
 
-/* ── Modal Overlay ────────────────────────────────────────────── */
-.mcp-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: hsl(var(--background) / 0.65);
-  backdrop-filter: blur(12px) saturate(1.6);
-  -webkit-backdrop-filter: blur(12px) saturate(1.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 1.5rem;
-  animation: modalFadeIn 0.2s ease-out;
+.status-badge--inactive {
+    background: hsl(var(--muted) / 0.3);
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border) / 0.3);
 }
 
-@keyframes modalFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.status-badge--inactive .status-dot {
+    background: hsl(var(--muted-foreground));
 }
 
-.mcp-modal-overlay .mcp-modal-content {
-  width: 100%;
-  max-width: 560px;
-  max-height: 90vh;
-  border-radius: 1rem;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-  box-shadow:
-    0 25px 50px -12px hsl(var(--foreground) / 0.25),
-    0 0 0 1px hsl(var(--border) / 0.1);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: modalSlideIn 0.25s ease-out;
+/* Error Banner */
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: hsl(var(--destructive) / 0.1);
+    border: 1px solid hsl(var(--destructive) / 0.2);
+    border-radius: 0.5rem;
+    color: hsl(var(--destructive));
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+/* Loading State */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid hsl(var(--primary) / 0.2);
+    border-top-color: hsl(var(--primary));
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.loading-text {
+    font-size: 0.875rem;
+}
+
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+.empty-illustration {
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+
+.empty-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 5rem;
+    height: 5rem;
+    border-radius: 1rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.15) 0%,
+        hsl(var(--primary) / 0.05) 100%
+    );
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / 0.15);
+}
+
+.empty-decoration {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.deco-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(var(--primary) / 0.4);
+    animation: float 3s ease-in-out infinite;
+}
+
+.deco-dot-1 {
+    top: 10%;
+    right: 15%;
+    animation-delay: 0s;
+}
+
+.deco-dot-2 {
+    bottom: 15%;
+    left: 10%;
+    animation-delay: 1s;
+}
+
+.deco-dot-3 {
+    top: 50%;
+    right: 5%;
+    animation-delay: 2s;
+}
+
+@keyframes float {
+    0%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.6;
+    }
+    50% {
+        transform: translateY(-8px);
+        opacity: 1;
+    }
+}
+
+.empty-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin: 0;
+}
+
+/* Card List */
+.card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mcp-card {
+    position: relative;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    animation: slideUp 0.4s ease-out both;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 0.75rem;
+    padding: 1px;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--border) / 0.3) 0%,
+        transparent 50%,
+        hsl(var(--border) / 0.2) 100%
+    );
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+}
+
+.card-glow--active {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.4) 0%,
+        transparent 50%,
+        hsl(var(--primary) / 0.3) 100%
+    );
+}
+
+.mcp-card:hover {
+    transform: translateY(-2px);
+    transition: transform 0.2s ease;
+}
+
+.mcp-card--enabled {
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.1);
+}
+
+.card-content {
+    position: relative;
+    background: linear-gradient(
+        180deg,
+        hsl(var(--card) / 0.95) 0%,
+        hsl(var(--card) / 0.85) 100%
+    );
+    backdrop-filter: blur(12px);
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.card-info {
+    display: flex;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.5rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.15) 0%,
+        hsl(var(--primary) / 0.08) 100%
+    );
+    flex-shrink: 0;
+}
+
+.icon-emoji {
+    font-size: 1.25rem;
+}
+
+.card-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin: 0;
+}
+
+.card-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: hsl(var(--muted) / 0.2);
+    border-radius: 0.35rem;
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.summary-label {
+    flex-shrink: 0;
+}
+
+.summary-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-meta {
+    margin-top: 0.3rem;
+    font-size: 0.7rem;
+    color: hsl(var(--muted-foreground) / 0.7);
+}
+
+/* Card Actions */
+.card-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+/* Modal */
+.persona-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: hsl(var(--background) / 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.persona-modal-overlay .persona-modal-content {
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    border-radius: 1rem;
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 25px 50px -12px hsl(var(--foreground) / 0.25);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: modalSlideIn 0.25s ease-out;
 }
 
 @keyframes modalSlideIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
 }
 
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid hsl(var(--border));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.2);
 }
 
 .modal-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin: 0;
 }
 
 .modal-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    border: none;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
 .modal-close:hover {
-  background: hsl(var(--muted) / 0.5);
-  color: hsl(var(--foreground));
+    background: hsl(var(--secondary) / 0.5);
+    color: hsl(var(--foreground));
 }
 
 .modal-body {
-  padding: 1.5rem;
-  overflow-y: auto;
-  flex: 1;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow-y: auto;
 }
 
-.modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  border-top: 1px solid hsl(var(--border));
-}
-
-/* ── Form ─────────────────────────────────────────────────────── */
 .form-group {
-  margin-bottom: 1rem;
-}
-
-.form-group.has-error .form-input,
-.form-group.has-error .form-textarea {
-  border-color: hsl(var(--destructive) / 0.5);
-}
-
-.form-group.has-error .form-input:focus,
-.form-group.has-error .form-textarea:focus {
-  border-color: hsl(var(--destructive));
-  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
 }
 
 .form-label {
-  display: block;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin-bottom: 0.375rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
 }
 
-.required {
-  color: hsl(var(--destructive));
-  margin-left: 0.125rem;
+.form-hint {
+    font-size: 0.7rem;
+    color: hsl(var(--muted-foreground) / 0.7);
 }
 
 .form-input,
 .form-textarea {
-  width: 100%;
-  padding: 0.5625rem 0.75rem;
-  font-size: 0.875rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-md);
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  outline: none;
-  transition: all 0.2s;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border) / 0.4);
+    background: hsl(var(--background) / 0.5);
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+    outline: none;
+    transition: all 0.2s ease;
 }
 
 .form-input:focus,
 .form-textarea:focus {
-  border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
 }
 
-.form-input::placeholder,
-.form-textarea::placeholder {
-  color: hsl(var(--muted-foreground) / 0.5);
+select.form-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
 }
 
-.form-textarea {
-  resize: vertical;
-  min-height: 60px;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
+.form-section-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.2);
 }
 
-.form-hint {
-  font-size: 0.75rem;
-  color: hsl(var(--muted-foreground) / 0.7);
-  margin: 0.25rem 0 0;
-}
-
-.form-error {
-  display: block;
-  font-size: 0.75rem;
-  color: hsl(var(--destructive));
-  margin-top: 0.25rem;
-}
-
-/* ── Transport Tabs ───────────────────────────────────────────── */
-.transport-tabs {
-  display: flex;
-  gap: 0.375rem;
-  flex-wrap: wrap;
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.4375rem 0.875rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tab:hover {
-  background: hsl(var(--secondary) / 0.5);
-  color: hsl(var(--foreground));
-}
-
-.tab.active {
-  background: hsl(var(--primary) / 0.12);
-  border-color: hsl(var(--primary) / 0.3);
-  color: hsl(var(--primary));
-}
-
-.tab-icon {
-  font-size: 0.875rem;
-}
-
-/* ── Config Section ───────────────────────────────────────────── */
-.config-section {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid hsl(var(--border) / 0.3);
-}
-
-.section-title {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin: 0 0 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* ── Toggle Row ───────────────────────────────────────────────── */
-.toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 1.25rem;
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-flex;
-  cursor: pointer;
-}
-
-.toggle-switch input[type="checkbox"] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-track {
-  width: 44px;
-  height: 24px;
-  background: hsl(var(--muted));
-  border-radius: 12px;
-  transition: background 0.2s ease;
-  position: relative;
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-switch input:checked + .toggle-track {
-  background: hsl(var(--primary));
-}
-
-.toggle-switch input:checked + .toggle-track .toggle-thumb {
-  transform: translateX(20px);
-}
-
-.toggle-switch:hover .toggle-track {
-  background: hsl(var(--muted-foreground) / 0.3);
-}
-
-.toggle-switch:hover input:checked + .toggle-track {
-  background: hsl(var(--primary) / 0.85);
-}
-
-.toggle-text {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: hsl(var(--foreground));
-}
-
-/* ── Alert ────────────────────────────────────────────────────── */
-.alert {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 0.875rem;
-  border-radius: var(--radius-md);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  margin-bottom: 1rem;
-}
-
-.alert-success {
-  background: hsl(142 70% 40% / 0.1);
-  border: 1px solid hsl(142 70% 40% / 0.2);
-  color: hsl(142 70% 40%);
-}
-
-.alert-error {
-  background: hsl(var(--destructive) / 0.08);
-  border: 1px solid hsl(var(--destructive) / 0.15);
-  color: hsl(var(--destructive));
-}
-
-/* ── Button Icon ──────────────────────────────────────────────── */
-.btn-icon {
-  font-size: 1rem;
-}
-
-/* ── Responsive ───────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .mcp-page {
-    padding: 0;
-  }
-
-  .page-header {
+/* Entry List (env vars, headers) */
+.entry-list {
+    display: flex;
     flex-direction: column;
-  }
-
-  .page-title {
-    font-size: 1.375rem;
-  }
-
-  .server-header {
-    flex-direction: column;
-  }
-
-  .server-actions {
-    align-self: flex-end;
-  }
-
-  .info-banner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .modal-content {
-    max-width: 100%;
-    max-height: 95vh;
-  }
-
-  .modal-body {
-    padding: 1rem;
-  }
-
-  .modal-footer {
-    flex-direction: column;
-  }
-
-  .modal-footer .btn {
-    width: 100%;
-    justify-content: center;
-  }
-}
-
-@media (max-width: 480px) {
-  .page-title {
-    font-size: 1.25rem;
-  }
-
-  .server-name-row {
-    flex-wrap: wrap;
-  }
-
-  .server-meta {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 0.5rem;
-  }
+}
 
-  .transport-tabs {
-    flex-direction: column;
-  }
+.entry-row {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+}
 
-  .tab {
-    justify-content: center;
-  }
+.entry-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.entry-remove {
+    flex-shrink: 0;
+    padding: 0.35rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.entry-remove:hover {
+    color: hsl(var(--destructive));
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid hsl(var(--border) / 0.2);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .page {
+        padding: 1rem;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .card-content {
+        flex-direction: column;
+    }
+
+    .card-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
 }
 </style>

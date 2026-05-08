@@ -55,11 +55,6 @@ const router = createRouter({
       component: () => import('../views/WebSearchConfig.vue'),
     },
     {
-      path: '/mcp-config',
-      name: 'MCP Config',
-      component: () => import('../views/McpConfig.vue'),
-    },
-    {
       path: '/api-test',
       name: 'API Test',
       component: () => import('../views/APITest.vue'),
@@ -68,6 +63,11 @@ const router = createRouter({
       path: '/logs',
       name: 'Logs',
       component: () => import('../views/Logs.vue'),
+    },
+    {
+      path: '/mcp-config',
+      name: 'MCP Config',
+      component: () => import('../views/McpConfig.vue'),
     },
     {
       path: '/configs',

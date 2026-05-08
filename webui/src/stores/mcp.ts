@@ -39,12 +39,12 @@ export const useMcpStore = defineStore('mcp', () => {
     loading.value = true
     error.value = null
     try {
-      const updatedServer = await api.updateMcpServer(id, data)
+      const updated = await api.updateMcpServer(id, data)
       const index = servers.value.findIndex(s => s.id === id)
       if (index !== -1) {
-        servers.value[index] = updatedServer
+        servers.value[index] = updated
       }
-      return updatedServer
+      return updated
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to update MCP server'
       throw e
@@ -67,22 +67,22 @@ export const useMcpStore = defineStore('mcp', () => {
     }
   }
 
-  async function toggleServerEnabled(id: string) {
+  async function toggleServer(id: string) {
+    loading.value = true
+    error.value = null
     try {
-      const updatedServer = await api.toggleMcpServer(id)
+      const updated = await api.toggleMcpServer(id)
       const index = servers.value.findIndex(s => s.id === id)
       if (index !== -1) {
-        servers.value[index] = updatedServer
+        servers.value[index] = updated
       }
-      return updatedServer
+      return updated
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to toggle MCP server'
       throw e
+    } finally {
+      loading.value = false
     }
-  }
-
-  function getServerById(id: string): McpServerConfig | undefined {
-    return servers.value.find(s => s.id === id)
   }
 
   return {
@@ -93,7 +93,6 @@ export const useMcpStore = defineStore('mcp', () => {
     createServer,
     updateServer,
     deleteServer,
-    toggleServerEnabled,
-    getServerById,
+    toggleServer,
   }
 })

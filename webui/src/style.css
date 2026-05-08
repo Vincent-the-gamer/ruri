@@ -92,15 +92,6 @@
     --color-success-soft: hsl(142 76% 36% / 0.1);
     --color-success-text: hsl(142 76% 30%);
     --color-text-dim: hsl(var(--muted-foreground) / 0.7);
-
-    /* Additional variables for McpConfig component */
-    --color-surface: hsl(var(--card));
-    --color-surface-alt: hsl(var(--accent));
-    --color-primary-bg: hsl(var(--primary) / 0.1);
-    --color-success-bg: hsl(142 76% 36% / 0.1);
-    --color-error: hsl(var(--destructive));
-    --color-error-bg: hsl(var(--destructive) / 0.1);
-    --color-text-muted-bg: hsl(var(--muted) / 0.3);
 }
 
 /* Dark Theme  */
@@ -163,15 +154,6 @@
     --color-success-soft: hsl(142 76% 36% / 0.15);
     --color-success-text: hsl(142 76% 70%);
     --color-text-dim: hsl(var(--muted-foreground) / 0.6);
-
-    /* Additional variables for McpConfig component */
-    --color-surface: hsl(var(--card));
-    --color-surface-alt: hsl(var(--accent));
-    --color-primary-bg: hsl(var(--primary) / 0.15);
-    --color-success-bg: hsl(142 76% 36% / 0.15);
-    --color-error: hsl(var(--destructive));
-    --color-error-bg: hsl(var(--destructive) / 0.15);
-    --color-text-muted-bg: hsl(var(--muted) / 0.3);
 }
 
 /* ═══════════════════════════════════════════════════════════════
