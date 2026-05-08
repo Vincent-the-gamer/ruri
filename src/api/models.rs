@@ -512,6 +512,8 @@ pub struct ConfigProfileDto {
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -529,6 +531,8 @@ pub struct CreateConfigProfileRequest {
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -551,6 +555,8 @@ pub struct UpdateConfigProfileRequest {
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_platform_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_config: Option<crate::types::ProxyConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -674,7 +680,6 @@ pub struct UpdateMcpServerRequest {
 pub struct PlatformInstanceDto {
     pub id: String,
     pub platform_type: String,
-    pub enable: bool,
     pub config: serde_json::Value,
     pub status: String,
 }
@@ -684,8 +689,6 @@ pub struct CreatePlatformRequest {
     pub id: String,
     #[serde(rename = "type")]
     pub platform_type: String,
-    #[serde(default = "default_true")]
-    pub enable: bool,
     #[serde(flatten)]
     pub config: serde_json::Value,
 }
@@ -695,7 +698,6 @@ pub struct UpdatePlatformRequest {
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub platform_type: Option<String>,
-    pub enable: Option<bool>,
     #[serde(flatten)]
     pub config: Option<serde_json::Value>,
 }

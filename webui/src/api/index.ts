@@ -18,6 +18,7 @@ import type {
   Persona,
   PlatformInstance,
   Provider,
+  ProxyConfig,
   Skill,
   Tool,
   UpdateAcpConfigRequest,
@@ -320,12 +321,9 @@ export async function deletePlatform(id: string): Promise<void> {
   await client.delete(`/api/platforms/${id}`)
 }
 
-export async function togglePlatform(id: string): Promise<PlatformInstance> {
-  const res = await client.post(`/api/platforms/${id}/toggle`)
-  return res.data
-}
 
-// ─── System ─────────────────────────────────────────────────────
+
+// ─── System ─────────────────────────────────────────────
 
 export async function restartSystem(): Promise<{ message: string }> {
   const res = await client.post('/api/system/restart')

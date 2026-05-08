@@ -67,24 +67,6 @@ export const usePlatformStore = defineStore('platform', () => {
     }
   }
 
-  async function toggleInstance(id: string) {
-    loading.value = true
-    error.value = null
-    try {
-      const updated = await api.togglePlatform(id)
-      const index = instances.value.findIndex(s => s.id === id)
-      if (index !== -1) {
-        instances.value[index] = updated
-      }
-      return updated
-    } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Failed to toggle platform instance'
-      throw e
-    } finally {
-      loading.value = false
-    }
-  }
-
   return {
     instances,
     loading,
@@ -93,6 +75,5 @@ export const usePlatformStore = defineStore('platform', () => {
     createInstance,
     updateInstance,
     deleteInstance,
-    toggleInstance,
   }
 })

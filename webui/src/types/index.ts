@@ -307,6 +307,8 @@ export interface ConfigProfile {
   active_skill_names: string[]
   // 平台配置
   active_platform_ids: string[]
+  // 代理配置
+  proxy_config: ProxyConfig
 }
 
 export interface CreateConfigProfileRequest {
@@ -319,6 +321,7 @@ export interface CreateConfigProfileRequest {
   acp_enabled: boolean
   active_skill_names: string[]
   active_platform_ids: string[]
+  proxy_config: ProxyConfig
 }
 
 export interface UpdateConfigProfileRequest {
@@ -331,6 +334,7 @@ export interface UpdateConfigProfileRequest {
   acp_enabled?: boolean
   active_skill_names?: string[]
   active_platform_ids?: string[]
+  proxy_config?: ProxyConfig
 }
 
 // ─── MCP Types ──────────────────────────────────────────────────
@@ -417,7 +421,6 @@ export interface DingtalkPlatformConfig {
 
 export interface DiscordPlatformConfig {
   token: string
-  proxy?: string
   pre_response_reactions?: boolean
   reaction_emojis?: string[]
 }
@@ -427,7 +430,6 @@ export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig
 export interface PlatformInstance {
   id: string
   platform_type: PlatformType
-  enable: boolean
   config: PlatformConfig
   status: PlatformStatus
 }
@@ -435,13 +437,11 @@ export interface PlatformInstance {
 export interface CreatePlatformRequest {
   id: string
   type: PlatformType
-  enable: boolean
   // DingTalk fields
   client_id?: string
   client_secret?: string
   // Discord fields
   token?: string
-  proxy?: string
   pre_response_reactions?: boolean
   reaction_emojis?: string[]
 }
@@ -449,13 +449,23 @@ export interface CreatePlatformRequest {
 export interface UpdatePlatformRequest {
   id?: string
   type?: PlatformType
-  enable?: boolean
   // DingTalk fields
   client_id?: string
   client_secret?: string
   // Discord fields
   token?: string
-  proxy?: string
   pre_response_reactions?: boolean
   reaction_emojis?: string[]
 }
+
+// ─── Proxy Config Types ──────────────────────────────────────────
+
+export interface ProxyConfig {
+  url: string
+  username?: string | null
+  password?: string | null
+  bypass_localhost: boolean
+  bypass_hosts: string[]
+}
+
+

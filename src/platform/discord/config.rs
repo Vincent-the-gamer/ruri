@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 ///     id: my-discord-bot
 ///     enable: true
 ///     token: "BOT_TOKEN_HERE"
-///     proxy: ""                    # optional: HTTP proxy for Discord API
 ///     pre_response_reactions: true  # optional: add a reaction while processing
 ///     reaction_emojis: ["👍", "🤔", "⏳"]  # optional: emojis for pre-response
 /// ```
@@ -17,9 +16,6 @@ use serde::{Deserialize, Serialize};
 pub struct DiscordConfig {
     /// The Discord bot token.
     pub token: String,
-    /// Optional HTTP proxy address (e.g. "http://127.0.0.1:7890").
-    #[serde(default)]
-    pub proxy: String,
     /// Whether to add a pre-response reaction to indicate the bot is processing.
     #[serde(default)]
     pub pre_response_reactions: bool,

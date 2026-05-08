@@ -5,7 +5,6 @@
 //! - Guild (server) messages and DM (direct message) messages
 //! - Text, markdown-as-embed, and image replies
 //! - Pre-response reactions (emoji added while the bot is processing a message)
-//! - Optional HTTP proxy for connecting to Discord
 //!
 //! # Configuration
 //!
@@ -17,7 +16,6 @@
 //!     id: my-discord-bot
 //!     enable: true
 //!     token: "BOT_TOKEN_HERE"
-//!     proxy: ""                     # optional
 //!     pre_response_reactions: true   # optional
 //!     reaction_emojis: ["👍", "🤔", "⏳"]  # optional
 //! ```
@@ -319,23 +317,14 @@ impl Platform for DiscordAdapter {
             | GatewayIntents::MESSAGE_CONTENT
             | GatewayIntents::GUILDS;
 
-        // Build the serenity client, with optional proxy support
-        let mut client = if config.proxy.is_empty() {
-            Client::builder(&config.token, intents)
-                .event_handler(Handler)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to create Discord client: {}", e))?
-        } else {
-            // Build a custom Http client with proxy, then pass it to the ClientBuilder
-            let http = serenity::http::HttpBuilder::new(&config.token)
-                .proxy(&config.proxy)
-                .ratelimiter_disabled(true) // proxy handles rate limiting
-                .build();
-            ClientBuilder::new_with_http(http, intents)
-                .event_handler(Handler)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to create Discord client with proxy: {}", e))?
-        };
+        // Build the serenity client
+        // Note: serenity does not support WebSocket proxy, so we always connect directly.
+        // If you are behind a firewall that blocks direct WebSocket connections,
+        // you may need to configure your system proxy or use a VPN instead.
+        let mut client = Client::builder(&config.token, intents)
+            .event_handler(Handler)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create Discord client: {}", e))?;
 
         // Insert shared data into the client's TypeMap
         {

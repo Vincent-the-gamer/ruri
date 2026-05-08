@@ -14,16 +14,9 @@ pub struct PlatformInstanceConfig {
     /// Instance ID (unique across all platforms).
     #[serde(default)]
     pub id: String,
-    /// Whether this platform instance is enabled.
-    #[serde(default = "default_true")]
-    pub enable: bool,
     /// Platform-specific configuration (passed to the adapter).
     #[serde(flatten)]
     pub extra: serde_json::Value,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Configuration file that can hold multiple platform instances.
@@ -81,15 +74,6 @@ impl PlatformManager {
 
     /// Add and start a platform adapter from config.
     pub async fn add_platform(&mut self, config: PlatformInstanceConfig) -> Result<(), String> {
-        if !config.enable {
-            tracing::info!(
-                platform_id = %config.id,
-                platform_type = %config.platform_type,
-                "Platform instance is disabled, skipping"
-            );
-            return Ok(());
-        }
-
         let instance_id = if config.id.is_empty() {
             config.platform_type.clone()
         } else {

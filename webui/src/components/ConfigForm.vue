@@ -9,6 +9,7 @@ import type {
     ConfigProfile,
     CreateConfigProfileRequest,
     UpdateConfigProfileRequest,
+    ProxyConfig,
 } from "../types";
 
 interface Props {
@@ -48,6 +49,13 @@ const formData = ref({
     acp_enabled: false,
     active_skill_names: [] as string[],
     active_platform_ids: [] as string[],
+    proxy_config: {
+        url: "",
+        username: null,
+        password: null,
+        bypass_localhost: true,
+        bypass_hosts: [] as string[],
+    } as ProxyConfig,
 });
 
 // Initialize form when config changes
@@ -65,6 +73,16 @@ watch(
                 acp_enabled: config.acp_enabled,
                 active_skill_names: [...config.active_skill_names],
                 active_platform_ids: [...config.active_platform_ids],
+                proxy_config: {
+                    url: config.proxy_config?.url || "",
+                    username: config.proxy_config?.username || null,
+                    password: config.proxy_config?.password || null,
+                    bypass_localhost:
+                        config.proxy_config?.bypass_localhost ?? true,
+                    bypass_hosts: config.proxy_config?.bypass_hosts
+                        ? [...config.proxy_config.bypass_hosts]
+                        : [],
+                },
             };
         } else {
             // Reset for new config
@@ -78,6 +96,13 @@ watch(
                 acp_enabled: false,
                 active_skill_names: [],
                 active_platform_ids: [],
+                proxy_config: {
+                    url: "",
+                    username: null,
+                    password: null,
+                    bypass_localhost: true,
+                    bypass_hosts: [],
+                },
             };
         }
     },
@@ -85,6 +110,21 @@ watch(
 );
 
 const isEdit = computed(() => props.config !== null);
+
+// Proxy bypass hosts input
+const proxyBypassHostInput = ref("");
+
+function addBypassHost() {
+    const host = proxyBypassHostInput.value.trim();
+    if (host && !formData.value.proxy_config.bypass_hosts.includes(host)) {
+        formData.value.proxy_config.bypass_hosts.push(host);
+        proxyBypassHostInput.value = "";
+    }
+}
+
+function removeBypassHost(index: number) {
+    formData.value.proxy_config.bypass_hosts.splice(index, 1);
+}
 const formTitle = computed(() =>
     isEdit.value ? t("config.form.editTitle") : t("config.form.createTitle"),
 );
@@ -330,6 +370,98 @@ function handleSubmit() {
                     </div>
                 </div>
             </div>
+
+            <!-- Proxy Configuration -->
+            <div class="form-section">
+                <h3 class="section-title">
+                    {{ t("config.form.proxyConfig") }}
+                </h3>
+
+                <div class="form-group">
+                    <label class="form-label">{{
+                        t("config.form.proxyUrl")
+                    }}</label>
+                    <input
+                        v-model="formData.proxy_config.url"
+                        type="text"
+                        class="form-input"
+                        :placeholder="t('config.form.proxyUrlPlaceholder')"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">{{
+                        t("config.form.proxyUsername")
+                    }}</label>
+                    <input
+                        v-model="formData.proxy_config.username"
+                        type="text"
+                        class="form-input"
+                        :placeholder="t('config.form.proxyUsernamePlaceholder')"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">{{
+                        t("config.form.proxyPassword")
+                    }}</label>
+                    <input
+                        v-model="formData.proxy_config.password"
+                        type="password"
+                        class="form-input"
+                        :placeholder="t('config.form.proxyPasswordPlaceholder')"
+                    />
+                </div>
+
+                <div class="toggle-group">
+                    <label class="toggle-label">
+                        <input
+                            v-model="formData.proxy_config.bypass_localhost"
+                            type="checkbox"
+                            class="toggle-input"
+                        />
+                        <span class="toggle-text">{{
+                            t("config.form.bypassLocalhost")
+                        }}</span>
+                        <span class="toggle-description">{{
+                            t("config.form.bypassLocalhostDesc")
+                        }}</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">{{
+                        t("config.form.bypassHosts")
+                    }}</label>
+                    <input
+                        v-model="proxyBypassHostInput"
+                        type="text"
+                        class="form-input"
+                        :placeholder="t('config.form.bypassHostsPlaceholder')"
+                        @keyup.enter="addBypassHost"
+                    />
+                    <div
+                        v-if="formData.proxy_config.bypass_hosts.length > 0"
+                        class="bypass-hosts-list"
+                    >
+                        <span
+                            v-for="(host, index) in formData.proxy_config
+                                .bypass_hosts"
+                            :key="index"
+                            class="bypass-host-tag"
+                        >
+                            {{ host }}
+                            <button
+                                type="button"
+                                class="remove-host-btn"
+                                @click="removeBypassHost(index)"
+                            >
+                                ×
+                            </button>
+                        </span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="form-footer">
@@ -452,6 +584,50 @@ function handleSubmit() {
     align-items: flex-start;
     gap: 0.75rem;
     cursor: pointer;
+}
+
+/* Proxy Configuration Styles */
+.bypass-hosts-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.bypass-host-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background-color: hsl(var(--muted));
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.remove-host-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    margin-left: 0.25rem;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition:
+        background-color 0.2s,
+        color 0.2s;
+}
+
+.remove-host-btn:hover {
+    background-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
 }
 
 .toggle-input {

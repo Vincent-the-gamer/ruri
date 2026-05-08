@@ -67,6 +67,8 @@ pub struct PersistedConfigProfile {
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -117,6 +119,7 @@ pub struct StoredConfigProfile {
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
     pub active_platform_ids: Vec<String>,
+    pub proxy_config: crate::types::ProxyConfig,
 }
 
 /// Information about a stored provider configuration.
@@ -176,11 +179,6 @@ pub fn default_config_path() -> PathBuf {
     ruri_config_dir().join("config.json")
 }
 
-/// Returns the chat history file path: `<config_dir>/chat_history.json`
-pub fn chat_history_path() -> PathBuf {
-    ruri_config_dir().join("chat_history.json")
-}
-
 /// Ensures the parent directory of the given path exists.
 async fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -213,16 +211,13 @@ pub struct AppState {
     pub workspace_manager: std::sync::Arc<crate::computer_use::WorkspaceManager>,
     /// Tool definitions (read-only, set at startup).
     pub tool_definitions: Vec<crate::types::ToolDefinition>,
-    /// Chat history (legacy, kept for backward compatibility).
-    pub chat_history: RwLock<Vec<ChatMessage>>,
     /// ID of the current active conversation for chat messages.
     pub chat_conversation_id: RwLock<Option<String>>,
     /// Server start time.
     pub start_time: DateTime<Utc>,
     /// Path to the config file.
     pub(crate) config_path: PathBuf,
-    /// Path to the chat history file.
-    pub(crate) chat_history_path: PathBuf,
+
     /// Log manager for real-time log broadcasting.
     pub log_manager: std::sync::Arc<crate::logging::LogManager>,
     /// Shared database pool for the unified `ruri.db`.
@@ -355,6 +350,7 @@ impl AppState {
                                 acp_enabled: p.acp_enabled,
                                 active_skill_names: p.active_skill_names,
                                 active_platform_ids: p.active_platform_ids,
+                                proxy_config: p.proxy_config,
                             },
                         )
                     })
@@ -406,10 +402,8 @@ impl AppState {
             web_search_config: std::sync::Arc::new(RwLock::new(web_search_config)),
             workspace_manager,
             tool_definitions: Vec::new(),
-            chat_history: RwLock::new(Vec::new()),
             start_time: Utc::now(),
             config_path: config_path.to_path_buf(),
-            chat_history_path: chat_history_path(),
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
             db_pool: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             conversation_db: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
@@ -469,9 +463,6 @@ impl AppState {
     pub async fn auto_save(&self) {
         if let Err(e) = self.save_to_file(&self.config_path).await {
             tracing::warn!("Failed to auto-save config: {}", e);
-        }
-        if let Err(e) = self.save_chat_history().await {
-            tracing::warn!("Failed to auto-save chat history: {}", e);
         }
     }
 
@@ -552,42 +543,12 @@ impl AppState {
                         PlatformStatus::Error => "error",
                         PlatformStatus::Stopped => "stopped",
                     }
-                } else if c.enable {
-                    "pending"
                 } else {
                     "stopped"
                 };
                 (c.id.clone(), status.to_string())
             })
             .collect()
-    }
-
-    // ─── Chat History Persistence ─────────────────────────────────
-
-    /// Load chat history from a file (sync, used during construction).
-    fn load_chat_history_sync(path: &Path) -> anyhow::Result<Vec<ChatMessage>> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read chat history file: {}", e))?;
-        let history: Vec<ChatMessage> = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse chat history file: {}", e))?;
-        Ok(history)
-    }
-
-    /// Save the current chat history to the default chat history path.
-    pub async fn save_chat_history(&self) -> anyhow::Result<()> {
-        ensure_parent_dir(&self.chat_history_path).await?;
-
-        let history = self.chat_history.read().await;
-        let content = serde_json::to_string_pretty(&*history)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize chat history: {}", e))?;
-        drop(history);
-
-        tokio::fs::write(&self.chat_history_path, content)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to write chat history file: {}", e))?;
-
-        tracing::debug!("Chat history saved to {}", self.chat_history_path.display());
-        Ok(())
     }
 
     /// Ensure there is an active conversation for chat messages.
@@ -706,6 +667,7 @@ impl AppState {
                         acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names.clone(),
                         active_platform_ids: p.active_platform_ids.clone(),
+                        proxy_config: p.proxy_config.clone(),
                     },
                 )
             })
@@ -1045,17 +1007,44 @@ impl AppState {
             );
         }
 
-        // Restore chat history first
-        let history = self.chat_history.read().await;
-        let has_history = !history.is_empty();
-        if has_history {
-            agent.set_history(history.clone());
-        }
-        drop(history);
-
-        // Initialize skills only if no history exists (new conversation)
-        // For existing conversations, system messages from skills are already in history
-        if !has_history {
+        // Load chat history from database if conversation exists
+        let conversation_id = self.ensure_chat_conversation().await.ok();
+        if let Some(ref conv_id) = conversation_id {
+            let conv_db = self.conversation_db.read().await;
+            if let Some(db) = conv_db.as_ref() {
+                if let Ok(messages) = db.get_conversation_messages(conv_id).await {
+                    if !messages.is_empty() {
+                        let chat_messages: Vec<ChatMessage> = messages
+                            .iter()
+                            .map(|m| {
+                                let role = match m.role.as_str() {
+                                    "assistant" => crate::types::MessageRole::Assistant,
+                                    "system" => crate::types::MessageRole::System,
+                                    _ => crate::types::MessageRole::User,
+                                };
+                                ChatMessage {
+                                    role,
+                                    content: Some(crate::types::MessageContent::Text(
+                                        m.content.clone(),
+                                    )),
+                                    name: None,
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                }
+                            })
+                            .collect();
+                        agent.set_history(chat_messages);
+                    } else {
+                        agent.initialize_skills().await;
+                    }
+                } else {
+                    agent.initialize_skills().await;
+                }
+            } else {
+                agent.initialize_skills().await;
+            }
+            drop(conv_db);
+        } else {
             agent.initialize_skills().await;
         }
 

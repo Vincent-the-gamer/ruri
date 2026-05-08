@@ -25,10 +25,8 @@ const formData = reactive({
     client_secret: "",
     // Discord fields
     token: "",
-    proxy: "",
     pre_response_reactions: false,
     reaction_emojis: "",
-    enable: true,
 });
 
 onMounted(() => {
@@ -41,10 +39,8 @@ function resetForm() {
     formData.client_id = "";
     formData.client_secret = "";
     formData.token = "";
-    formData.proxy = "";
     formData.pre_response_reactions = false;
     formData.reaction_emojis = "";
-    formData.enable = true;
 }
 
 function openCreate() {
@@ -57,7 +53,6 @@ function openEdit(instance: PlatformInstance) {
     editingInstance.value = instance;
     formData.id = instance.id;
     formData.platform_type = instance.platform_type;
-    formData.enable = instance.enable;
 
     // Parse platform-specific config
     const config = instance.config as Record<string, unknown>;
@@ -66,7 +61,6 @@ function openEdit(instance: PlatformInstance) {
         formData.client_secret = (config.client_secret as string) || "";
     } else if (instance.platform_type === "discord") {
         formData.token = (config.token as string) || "";
-        formData.proxy = (config.proxy as string) || "";
         formData.pre_response_reactions =
             (config.pre_response_reactions as boolean) || false;
         const emojis = config.reaction_emojis as string[] | undefined;
@@ -85,9 +79,6 @@ function buildPlatformConfig(): Record<string, unknown> {
         const config: Record<string, unknown> = {
             token: formData.token,
         };
-        if (formData.proxy.trim()) {
-            config.proxy = formData.proxy.trim();
-        }
         if (formData.pre_response_reactions) {
             config.pre_response_reactions = true;
         }
@@ -108,14 +99,12 @@ async function handleSave() {
         if (editingInstance.value) {
             await platformStore.updateInstance(editingInstance.value.id, {
                 type: formData.platform_type,
-                enable: formData.enable,
                 ...platformConfig,
             } as UpdatePlatformRequest);
         } else {
             await platformStore.createInstance({
                 id: formData.id,
                 type: formData.platform_type,
-                enable: formData.enable,
                 ...platformConfig,
             } as CreatePlatformRequest);
         }
@@ -135,15 +124,6 @@ async function handleDelete(id: string) {
     if (!confirm(t("platformConfig.deleteConfirm"))) return;
     try {
         await platformStore.deleteInstance(id);
-        await platformStore.fetchInstances();
-    } catch {
-        // error is in store
-    }
-}
-
-async function handleToggle(instance: PlatformInstance) {
-    try {
-        await platformStore.toggleInstance(instance.id);
         await platformStore.fetchInstances();
     } catch {
         // error is in store
@@ -497,13 +477,9 @@ async function handleRestart() {
                 v-for="(instance, index) in platformStore.instances"
                 :key="instance.id"
                 class="platform-card"
-                :class="{ 'platform-card--enabled': instance.enable }"
                 :style="{ animationDelay: `${index * 50}ms` }"
             >
-                <div
-                    class="card-glow"
-                    :class="{ 'card-glow--active': instance.enable }"
-                ></div>
+                <div class="card-glow"></div>
                 <div class="card-content">
                     <div class="card-info">
                         <div class="card-icon">
@@ -525,20 +501,6 @@ async function handleRestart() {
                                 >
                                     <span class="status-dot"></span>
                                     {{ instance.status }}
-                                </span>
-                                <span
-                                    v-if="instance.enable"
-                                    class="status-badge status-badge--active"
-                                >
-                                    <span class="status-dot"></span>
-                                    {{ t("common.enabled") }}
-                                </span>
-                                <span
-                                    v-else
-                                    class="status-badge status-badge--inactive"
-                                >
-                                    <span class="status-dot"></span>
-                                    {{ t("common.disabled") }}
                                 </span>
                             </div>
                             <div class="card-summary">
@@ -598,49 +560,6 @@ async function handleRestart() {
                     </div>
 
                     <div class="card-actions">
-                        <button
-                            class="btn btn-ghost btn-sm"
-                            @click="handleToggle(instance)"
-                            :title="
-                                instance.enable
-                                    ? t('platformConfig.disable')
-                                    : t('platformConfig.enable')
-                            "
-                        >
-                            <svg
-                                v-if="instance.enable"
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="4.93" y1="12" x2="19.07" y2="12" />
-                            </svg>
-                            <svg
-                                v-else
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path d="M22 11.08V12a10 10 0 1 1 -5.93-9.14" />
-                                <polyline points="22 4 12 14.01 9 11.01" />
-                            </svg>
-                            {{
-                                instance.enable
-                                    ? t("platformConfig.disable")
-                                    : t("platformConfig.enable")
-                            }}
-                        </button>
                         <button
                             class="btn btn-ghost btn-sm"
                             @click="openEdit(instance)"
@@ -811,22 +730,7 @@ async function handleRestart() {
                                     t("platformConfig.tokenHint")
                                 }}</span>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("platformConfig.proxy")
-                                }}</label>
-                                <input
-                                    v-model="formData.proxy"
-                                    type="text"
-                                    class="form-input"
-                                    :placeholder="
-                                        t('platformConfig.proxyPlaceholder')
-                                    "
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.proxyHint")
-                                }}</span>
-                            </div>
+
                             <div class="form-group">
                                 <label
                                     class="form-label flex items-center gap-2"
@@ -870,16 +774,6 @@ async function handleRestart() {
                         </template>
 
                         <!-- Enable toggle -->
-                        <div class="form-group">
-                            <label class="form-label flex items-center gap-2">
-                                <input
-                                    v-model="formData.enable"
-                                    type="checkbox"
-                                    class="form-checkbox"
-                                />
-                                {{ t("platformConfig.enable") }}
-                            </label>
-                        </div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-ghost" @click="handleCancel">
