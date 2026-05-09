@@ -47,8 +47,6 @@ pub struct PersistedPersona {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
-    /// Whether this persona is currently active.
-    pub is_active: bool,
 }
 
 /// Config profile persisted to disk.
@@ -161,8 +159,6 @@ pub struct StoredPersona {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
-    /// Whether this persona is currently active.
-    pub is_active: bool,
 }
 
 // ─── Config File Path ────────────────────────────────────────────
@@ -325,7 +321,6 @@ impl AppState {
                                 name: p.name,
                                 description: p.description,
                                 prompt: p.prompt,
-                                is_active: p.is_active,
                             },
                         )
                     })
@@ -804,7 +799,6 @@ impl AppState {
                         name: p.name.clone(),
                         description: p.description.clone(),
                         prompt: p.prompt.clone(),
-                        is_active: p.is_active,
                     },
                 )
             })
@@ -1034,15 +1028,25 @@ impl AppState {
         }
         tracing::info!("Successfully added {} skills to agent", num_skills);
 
-        // Inject persona system prompt if configured and active
+        // Inject persona system prompt if configured
         {
-            let personas = self.personas.read().await;
-            let persona_to_use = if let Some(pid) = persona_id {
-                // Look for the specific persona by ID
-                personas.get(pid).filter(|p| p.is_active)
+            // First, try to get persona_id from the request
+            let resolved_persona_id = if let Some(pid) = persona_id {
+                Some(pid.to_string())
             } else {
-                // Look for any active persona
-                personas.values().find(|p| p.is_active)
+                // Fall back to the active config profile's persona_id
+                let profiles = self.config_profiles.read().await;
+                profiles
+                    .values()
+                    .find(|p| p.is_active && p.enable)
+                    .and_then(|p| p.persona_id.clone())
+            };
+
+            let personas = self.personas.read().await;
+            let persona_to_use = if let Some(pid) = &resolved_persona_id {
+                personas.get(pid)
+            } else {
+                None
             };
 
             if let Some(p) = persona_to_use {
@@ -1054,10 +1058,10 @@ impl AppState {
                     );
                     agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
                 }
-            } else if let Some(pid) = persona_id {
+            } else if let Some(pid) = resolved_persona_id {
                 tracing::warn!(
                     persona_id = %pid,
-                    "Requested persona not found or not active"
+                    "Requested persona not found"
                 );
             }
             drop(personas);

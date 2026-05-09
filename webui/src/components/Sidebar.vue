@@ -42,11 +42,6 @@ const navGroups = computed(() => [
                 icon: "lucide:message-circle",
             },
             {
-                path: "/personas",
-                label: t("nav.personas"),
-                icon: "lucide:users",
-            },
-            {
                 path: "/conversation-history",
                 label: t("nav.conversationHistory"),
                 icon: "lucide:history",
@@ -67,6 +62,11 @@ const navGroups = computed(() => [
                 path: "/providers",
                 label: t("nav.providers"),
                 icon: "lucide:server",
+            },
+            {
+                path: "/personas",
+                label: t("nav.personas"),
+                icon: "lucide:users",
             },
         ],
     },

@@ -295,8 +295,6 @@ pub struct PersonaDto {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
-    /// Whether this persona is currently active.
-    pub is_active: bool,
 }
 
 /// Request body for creating or updating a persona.
@@ -308,9 +306,6 @@ pub struct CreatePersonaRequest {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
-    /// Whether to activate this persona immediately.
-    #[serde(default)]
-    pub is_active: bool,
 }
 
 /// Request body for partially updating a persona.
@@ -322,8 +317,6 @@ pub struct UpdatePersonaRequest {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_active: Option<bool>,
 }
 
 // ─── Computer Use Config Models ─────────────────────────────────────

@@ -134,7 +134,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/personas/{id}",
             get(get_persona).put(update_persona).delete(delete_persona),
         )
-        .route("/api/personas/{id}/activate", patch(activate_persona))
         // Config profiles
         .route(
             "/api/config-profiles",
@@ -1335,7 +1334,6 @@ async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaDt
             name: p.name.clone(),
             description: p.description.clone(),
             prompt: p.prompt.clone(),
-            is_active: p.is_active,
         })
         .collect();
     Json(list)
@@ -1353,7 +1351,6 @@ async fn get_persona(
             name: p.name.clone(),
             description: p.description.clone(),
             prompt: p.prompt.clone(),
-            is_active: p.is_active,
         })),
         None => Err(StatusCode::NOT_FOUND),
     }
@@ -1387,7 +1384,6 @@ async fn create_persona(
         name: req.name.clone(),
         description: req.description.clone(),
         prompt: req.prompt.clone(),
-        is_active: req.is_active,
     };
 
     {
@@ -1398,7 +1394,6 @@ async fn create_persona(
     tracing::info!(
         persona_id = %id,
         persona_name = %req.name,
-        is_active = req.is_active,
         "Persona created"
     );
 
@@ -1409,7 +1404,6 @@ async fn create_persona(
         name: req.name,
         description: req.description,
         prompt: req.prompt,
-        is_active: req.is_active,
     }))
 }
 
@@ -1453,16 +1447,11 @@ async fn update_persona(
         persona.prompt = prompt.clone();
     }
 
-    if let Some(is_active) = &req.is_active {
-        persona.is_active = *is_active;
-    }
-
     let dto = PersonaDto {
         id: persona.id.clone(),
         name: persona.name.clone(),
         description: persona.description.clone(),
         prompt: persona.prompt.clone(),
-        is_active: persona.is_active,
     };
 
     tracing::info!(persona_id = %id, "Persona updated");
@@ -1484,51 +1473,6 @@ async fn delete_persona(
         drop(personas);
         state.auto_save().await;
         Ok(StatusCode::NO_CONTENT)
-    } else {
-        Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Persona not found" })),
-        ))
-    }
-}
-
-/// Activate a persona by ID, deactivating all other personas.
-async fn activate_persona(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-) -> Result<Json<PersonaDto>, (StatusCode, Json<serde_json::Value>)> {
-    let mut personas = state.personas.write().await;
-
-    // Check if the persona exists
-    if !personas.contains_key(&id) {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Persona not found" })),
-        ));
-    }
-
-    // Deactivate all personas
-    for p in personas.values_mut() {
-        p.is_active = false;
-    }
-
-    // Activate the requested persona
-    if let Some(p) = personas.get_mut(&id) {
-        p.is_active = true;
-        let dto = PersonaDto {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            description: p.description.clone(),
-            prompt: p.prompt.clone(),
-            is_active: p.is_active,
-        };
-
-        tracing::info!(persona_id = %id, persona_name = %p.name, "Persona activated (others deactivated)");
-
-        drop(personas);
-        state.auto_save().await;
-
-        Ok(Json(dto))
     } else {
         Err((
             StatusCode::NOT_FOUND,
@@ -1891,7 +1835,6 @@ async fn get_config_profile_persona(
             name: p.name.clone(),
             description: p.description.clone(),
             prompt: p.prompt.clone(),
-            is_active: p.is_active,
         });
 
     Json(ConfigProfilePersonaResponse { persona })

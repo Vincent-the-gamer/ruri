@@ -15,6 +15,7 @@
 - [x] ACP (Agent Client Protocol)
 - [x] 人设系统
 - [x] MCP (Model Context Protocol)
+- [ ] 指令系统
 - [ ] 基于RAG的知识库 (嵌入模型 + 重排序模型) 支持
 - [x] 聊天 - Discord
 - [ ] 聊天 - OneBot V11

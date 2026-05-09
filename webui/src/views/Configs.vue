@@ -90,6 +90,16 @@ async function handleActivate(config: ConfigProfile) {
     }
 }
 
+async function handleToggleEnable(config: ConfigProfile) {
+    try {
+        await configStore.updateConfigProfile(config.id, {
+            enable: !config.enable,
+        });
+    } catch (error) {
+        console.error("Failed to toggle config enable:", error);
+    }
+}
+
 function cancelDelete() {
     deleteConfirm.value = false;
     deletingId.value = null;
@@ -225,6 +235,7 @@ function getPersonaName(personaId: string | null): string {
                 :class="[
                     'config-card',
                     { 'config-card--active': config.is_active },
+                    { 'config-card--disabled': !config.enable },
                 ]"
                 :style="{ animationDelay: `${index * 0.05}s` }"
             >
@@ -320,6 +331,18 @@ function getPersonaName(personaId: string | null): string {
                                 </div>
                                 <div class="card-tags">
                                     <span
+                                        v-if="!config.enable"
+                                        class="tag tag--disabled"
+                                    >
+                                        {{ t("common.disabled") }}
+                                    </span>
+                                    <span
+                                        v-if="config.proxy_config?.enabled"
+                                        class="tag tag--proxy"
+                                    >
+                                        Proxy
+                                    </span>
+                                    <span
                                         v-if="config.web_search_enabled"
                                         class="tag"
                                         >Web</span
@@ -356,11 +379,32 @@ function getPersonaName(personaId: string | null): string {
                         </div>
                     </div>
                     <div class="card-actions">
+                        <label
+                            class="enable-switch"
+                            :title="
+                                config.enable
+                                    ? t('common.disable')
+                                    : t('common.enable')
+                            "
+                        >
+                            <input
+                                type="checkbox"
+                                class="enable-switch-input"
+                                :checked="config.enable"
+                                @change="handleToggleEnable(config)"
+                            />
+                            <span class="enable-switch-slider"></span>
+                        </label>
                         <button
                             v-if="!config.is_active"
                             class="btn btn-sm btn-success"
                             @click="handleActivate(config)"
-                            :title="t('config.activate')"
+                            :disabled="!config.enable"
+                            :title="
+                                !config.enable
+                                    ? t('config.activateDisabledHint')
+                                    : t('config.activate')
+                            "
                         >
                             <svg
                                 viewBox="0 0 24 24"
@@ -855,6 +899,14 @@ function getPersonaName(personaId: string | null): string {
     box-shadow: 0 8px 24px hsl(var(--success) / 0.1);
 }
 
+.config-card--disabled {
+    opacity: 0.65;
+}
+
+.config-card--disabled:hover {
+    opacity: 0.85;
+}
+
 .card-content {
     display: flex;
     justify-content: space-between;
@@ -981,10 +1033,72 @@ function getPersonaName(personaId: string | null): string {
     border: 1px solid hsl(var(--primary) / 0.2);
 }
 
+.tag--disabled {
+    background: hsl(var(--destructive) / 0.1);
+    color: hsl(var(--destructive));
+    border-color: hsl(var(--destructive) / 0.2);
+}
+
+.tag--proxy {
+    background: hsl(30 80% 50% / 0.1);
+    color: hsl(30 80% 50%);
+    border-color: hsl(30 80% 50% / 0.2);
+}
+
 .card-actions {
     display: flex;
     gap: 0.375rem;
     flex-shrink: 0;
+    align-items: center;
+}
+
+/* Enable/Disable Toggle Switch */
+.enable-switch {
+    position: relative;
+    display: inline-block;
+    width: 2.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.enable-switch-input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.enable-switch-slider {
+    position: absolute;
+    inset: 0;
+    background-color: hsl(var(--muted));
+    border-radius: 9999px;
+    transition: all 0.3s ease;
+}
+
+.enable-switch-slider::before {
+    content: "";
+    position: absolute;
+    height: 0.875rem;
+    width: 0.875rem;
+    left: 0.1875rem;
+    bottom: 0.1875rem;
+    background-color: hsl(var(--foreground));
+    border-radius: 50%;
+    transition: all 0.3s ease;
+}
+
+.enable-switch-input:checked + .enable-switch-slider {
+    background-color: hsl(var(--success));
+}
+
+.enable-switch-input:checked + .enable-switch-slider::before {
+    transform: translateX(1rem);
+    background-color: white;
+}
+
+.enable-switch:hover .enable-switch-slider {
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
 }
 
 /* Modal */

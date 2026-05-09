@@ -277,21 +277,18 @@ export interface Persona {
   name: string
   description: string
   prompt: string
-  is_active: boolean
 }
 
 export interface CreatePersonaRequest {
   name: string
   description: string
   prompt: string
-  is_active?: boolean
 }
 
 export interface UpdatePersonaRequest {
   name?: string
   description?: string
   prompt?: string
-  is_active?: boolean
 }
 
 // ─── Config Profile Types ───────────────────────────────────────
@@ -335,6 +332,7 @@ export interface CreateConfigProfileRequest {
 export interface UpdateConfigProfileRequest {
   name?: string
   description?: string
+  enable?: boolean
   provider_id?: string | null
   persona_id?: string | null
   web_search_enabled?: boolean
@@ -470,6 +468,25 @@ export interface UpdatePlatformRequest {
 
 export type ProxyMode = 'global' | 'rules'
 
+/** Clash-style proxy rule type */
+export type ProxyRuleType = 'domain' | 'domain-suffix' | 'domain-keyword' | 'ip-cidr' | 'geoip' | 'match'
+
+/** Display label mapping for ProxyRuleType */
+export const ProxyRuleTypeLabels: Record<ProxyRuleType, string> = {
+  'domain': 'DOMAIN',
+  'domain-suffix': 'DOMAIN-SUFFIX',
+  'domain-keyword': 'DOMAIN-KEYWORD',
+  'ip-cidr': 'IP-CIDR',
+  'geoip': 'GEOIP',
+  'match': 'MATCH',
+}
+
+/** A single Clash-style proxy rule (e.g. DOMAIN-SUFFIX,discord.gg) */
+export interface ProxyRule {
+  rule_type: ProxyRuleType
+  value: string
+}
+
 export interface ProxyConfig {
   enabled: boolean
   url: string
@@ -479,6 +496,8 @@ export interface ProxyConfig {
   username?: string | null
   password?: string | null
   bypass_localhost: boolean
+  /** Clash-style rules (preferred over proxy_domains/bypass_domains when non-empty) */
+  rules: ProxyRule[]
 }
 
 

@@ -218,11 +218,6 @@ export async function deletePersona(id: string): Promise<void> {
   await client.delete(`/api/personas/${id}`)
 }
 
-export async function activatePersona(id: string): Promise<Persona> {
-  const res = await client.patch(`/api/personas/${id}/activate`)
-  return res.data
-}
-
 // ─── Config Profiles ─────────────────────────────────────────────
 
 export async function getConfigProfiles(): Promise<ConfigProfile[]> {

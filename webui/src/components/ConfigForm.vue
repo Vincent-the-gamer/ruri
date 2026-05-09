@@ -11,7 +11,10 @@ import type {
     UpdateConfigProfileRequest,
     ProxyConfig,
     ProxyMode,
+    ProxyRule,
+    ProxyRuleType,
 } from "../types";
+import { ProxyRuleTypeLabels } from "../types";
 
 interface Props {
     config?: ConfigProfile | null;
@@ -60,6 +63,7 @@ const formData = ref({
         username: null,
         password: null,
         bypass_localhost: true,
+        rules: [] as ProxyRule[],
     } as ProxyConfig,
 });
 
@@ -93,6 +97,9 @@ watch(
                     password: config.proxy_config?.password || null,
                     bypass_localhost:
                         config.proxy_config?.bypass_localhost ?? true,
+                    rules: config.proxy_config?.rules
+                        ? [...config.proxy_config.rules]
+                        : [],
                 },
             };
         } else {
@@ -117,6 +124,7 @@ watch(
                     username: null,
                     password: null,
                     bypass_localhost: true,
+                    rules: [],
                 },
             };
         }
@@ -156,6 +164,60 @@ function addBypassDomain() {
 function removeBypassDomain(index: number) {
     formData.value.proxy_config.bypass_domains.splice(index, 1);
 }
+
+// Clash-style rule editing
+const newRuleType = ref<ProxyRuleType>("domain-suffix");
+const newRuleValue = ref("");
+
+const ruleTypeOptions = computed(() => {
+    return (Object.keys(ProxyRuleTypeLabels) as ProxyRuleType[]).map(
+        (type) => ({
+            value: type,
+            label: ProxyRuleTypeLabels[type],
+        }),
+    );
+});
+
+function addRule() {
+    const value = newRuleValue.value.trim();
+    if (newRuleType.value === "match") {
+        // MATCH rule doesn't need a value
+        formData.value.proxy_config.rules.push({
+            rule_type: "match",
+            value: "",
+        });
+        newRuleValue.value = "";
+        return;
+    }
+    if (!value) return;
+    formData.value.proxy_config.rules.push({
+        rule_type: newRuleType.value,
+        value,
+    });
+    newRuleValue.value = "";
+}
+
+function removeRule(index: number) {
+    formData.value.proxy_config.rules.splice(index, 1);
+}
+
+function formatRule(rule: ProxyRule): string {
+    if (rule.rule_type === "match") return "MATCH";
+    return `${ProxyRuleTypeLabels[rule.rule_type]},${rule.value}`;
+}
+
+function getRuleTypeColor(type: ProxyRuleType): string {
+    const colors: Record<ProxyRuleType, string> = {
+        domain: "hsl(var(--primary))",
+        "domain-suffix": "hsl(220 70% 55%)",
+        "domain-keyword": "hsl(280 60% 55%)",
+        "ip-cidr": "hsl(30 80% 50%)",
+        geoip: "hsl(150 60% 40%)",
+        match: "hsl(var(--destructive))",
+    };
+    return colors[type];
+}
+
 const formTitle = computed(() =>
     isEdit.value ? t("config.form.editTitle") : t("config.form.createTitle"),
 );
@@ -543,45 +605,152 @@ function handleSubmit() {
                         </select>
                     </div>
 
+                    <!-- Clash-style Rules Editor -->
                     <div
                         v-if="formData.proxy_config.mode === 'rules'"
                         class="form-group"
                     >
                         <label class="form-label">{{
-                            t("config.form.proxyDomains")
+                            t("config.form.proxyRules")
                         }}</label>
-                        <input
-                            v-model="proxyDomainInput"
-                            type="text"
-                            class="form-input"
-                            :placeholder="
-                                t('config.form.proxyDomainsPlaceholder')
-                            "
-                            @keyup.enter="addProxyDomain"
-                        />
-                        <div
-                            v-if="
-                                formData.proxy_config.proxy_domains.length > 0
-                            "
-                            class="bypass-hosts-list"
-                        >
-                            <span
-                                v-for="(domain, index) in formData.proxy_config
-                                    .proxy_domains"
-                                :key="index"
-                                class="bypass-host-tag"
+                        <p class="form-hint">
+                            {{ t("config.form.proxyRulesDesc") }}
+                        </p>
+
+                        <!-- Add rule row -->
+                        <div class="rule-add-row">
+                            <select
+                                v-model="newRuleType"
+                                class="rule-type-select"
                             >
-                                {{ domain }}
+                                <option
+                                    v-for="opt in ruleTypeOptions"
+                                    :key="opt.value"
+                                    :value="opt.value"
+                                >
+                                    {{ opt.label }}
+                                </option>
+                            </select>
+                            <input
+                                v-if="newRuleType !== 'match'"
+                                v-model="newRuleValue"
+                                type="text"
+                                class="rule-value-input"
+                                :placeholder="
+                                    t('config.form.proxyRuleValuePlaceholder')
+                                "
+                                @keyup.enter="addRule"
+                            />
+                            <button
+                                type="button"
+                                class="rule-add-btn"
+                                @click="addRule"
+                                :disabled="
+                                    newRuleType !== 'match' &&
+                                    !newRuleValue.trim()
+                                "
+                            >
+                                <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                >
+                                    <line x1="12" y1="5" x2="12" y2="19" />
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Rules list -->
+                        <div
+                            v-if="formData.proxy_config.rules.length > 0"
+                            class="rules-list"
+                        >
+                            <div
+                                v-for="(rule, index) in formData.proxy_config
+                                    .rules"
+                                :key="index"
+                                class="rule-item"
+                            >
+                                <span
+                                    class="rule-type-badge"
+                                    :style="{
+                                        color: getRuleTypeColor(rule.rule_type),
+                                        borderColor: getRuleTypeColor(
+                                            rule.rule_type,
+                                        ),
+                                        background: `${getRuleTypeColor(rule.rule_type)}15`,
+                                    }"
+                                >
+                                    {{ ProxyRuleTypeLabels[rule.rule_type] }}
+                                </span>
+                                <span class="rule-value">{{
+                                    rule.rule_type === "match"
+                                        ? t("config.form.proxyRuleMatchAll")
+                                        : rule.value
+                                }}</span>
                                 <button
                                     type="button"
-                                    class="remove-host-btn"
-                                    @click="removeProxyDomain(index)"
+                                    class="rule-remove-btn"
+                                    @click="removeRule(index)"
                                 >
                                     ×
                                 </button>
-                            </span>
+                            </div>
                         </div>
+                        <p v-else class="form-hint form-hint--empty">
+                            {{ t("config.form.proxyRulesEmpty") }}
+                        </p>
                     </div>
+
+                    <!-- Legacy domain lists (only show in rules mode when no rules exist, or in global mode) -->
+                    <template
+                        v-if="
+                            formData.proxy_config.mode === 'rules' &&
+                            formData.proxy_config.rules.length === 0
+                        "
+                    >
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("config.form.proxyDomains")
+                            }}</label>
+                            <input
+                                v-model="proxyDomainInput"
+                                type="text"
+                                class="form-input"
+                                :placeholder="
+                                    t('config.form.proxyDomainsPlaceholder')
+                                "
+                                @keyup.enter="addProxyDomain"
+                            />
+                            <div
+                                v-if="
+                                    formData.proxy_config.proxy_domains.length >
+                                    0
+                                "
+                                class="bypass-hosts-list"
+                            >
+                                <span
+                                    v-for="(domain, index) in formData
+                                        .proxy_config.proxy_domains"
+                                    :key="index"
+                                    class="bypass-host-tag"
+                                >
+                                    {{ domain }}
+                                    <button
+                                        type="button"
+                                        class="remove-host-btn"
+                                        @click="removeProxyDomain(index)"
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </template>
 
                     <div class="form-group">
                         <label class="form-label">{{
@@ -790,6 +959,173 @@ function handleSubmit() {
 }
 
 /* Proxy Configuration Styles */
+
+.form-hint {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0.375rem 0 0.75rem;
+    line-height: 1.4;
+}
+
+.form-hint--empty {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* Clash-style Rule Editor */
+.rule-add-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.rule-type-select {
+    flex-shrink: 0;
+    width: auto;
+    min-width: 9rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    appearance: auto;
+}
+
+.rule-type-select:focus {
+    border-color: hsl(var(--primary));
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+}
+
+.rule-value-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+}
+
+.rule-value-input::placeholder {
+    color: hsl(var(--muted-foreground) / 0.6);
+}
+
+.rule-value-input:focus {
+    border-color: hsl(var(--primary));
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+}
+
+.rule-add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    padding: 0;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rule-add-btn:hover:not(:disabled) {
+    background: hsl(var(--primary) / 0.9);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
+}
+
+.rule-add-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.rule-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    background: hsl(var(--secondary) / 0.5);
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+}
+
+.rule-item:hover {
+    border-color: hsl(var(--border));
+    background: hsl(var(--secondary));
+}
+
+.rule-type-badge {
+    flex-shrink: 0;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.05em;
+    border: 1px solid;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+}
+
+.rule-value {
+    flex: 1;
+    font-size: 0.8125rem;
+    color: hsl(var(--foreground));
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.rule-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition:
+        background-color 0.2s,
+        color 0.2s;
+}
+
+.rule-remove-btn:hover {
+    background-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
+}
+
 .bypass-hosts-list {
     display: flex;
     flex-wrap: wrap;

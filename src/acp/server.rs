@@ -599,17 +599,23 @@ impl ProviderFactory {
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
 
-        // Inject persona system prompt if any active persona is configured
-        if let Some(active_persona) = config
-            .personas
+        // Inject persona system prompt from the active config profile's persona_id
+        let active_profile_persona_id = config
+            .config_profiles
             .values()
-            .find(|p| p.is_active && !p.prompt.is_empty())
-        {
-            tracing::info!(
-                persona_name = %active_persona.name,
-                "ACP injecting persona system prompt"
-            );
-            skills.push(Arc::new(SystemPromptSkill::new(&active_persona.prompt)));
+            .find(|p| p.is_active && p.enable)
+            .and_then(|p| p.persona_id.clone());
+
+        if let Some(persona_id) = active_profile_persona_id {
+            if let Some(persona) = config.personas.get(&persona_id) {
+                if !persona.prompt.is_empty() {
+                    tracing::info!(
+                        persona_name = %persona.name,
+                        "ACP injecting persona system prompt"
+                    );
+                    skills.push(Arc::new(SystemPromptSkill::new(&persona.prompt)));
+                }
+            }
         }
 
         skills
