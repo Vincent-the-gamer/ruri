@@ -499,6 +499,7 @@ pub struct ConfigProfileDto {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub enable: bool,
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -520,6 +521,8 @@ pub struct ConfigProfileDto {
 pub struct CreateConfigProfileRequest {
     pub name: String,
     pub description: String,
+    #[serde(default = "default_true")]
+    pub enable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -541,6 +544,8 @@ pub struct UpdateConfigProfileRequest {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

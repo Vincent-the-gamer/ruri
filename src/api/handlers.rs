@@ -209,9 +209,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .put(update_platform)
                 .delete(delete_platform),
         )
+        .route("/api/platforms/{id}/restart", post(restart_platform))
         // System
         .route("/api/system/restart", post(restart_system))
-        .route("/api/platforms/reload", post(reload_platforms))
         .with_state(state)
 }
 
@@ -1548,6 +1548,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             id: p.id.clone(),
             name: p.name.clone(),
             description: p.description.clone(),
+            enable: p.enable,
             is_active: p.is_active,
             created_at: p.created_at.to_rfc3339().to_string(),
             updated_at: p.updated_at.to_rfc3339().to_string(),
@@ -1575,6 +1576,7 @@ async fn get_config_profile(
             id: p.id.clone(),
             name: p.name.clone(),
             description: p.description.clone(),
+            enable: p.enable,
             is_active: p.is_active,
             created_at: p.created_at.to_rfc3339().to_string(),
             updated_at: p.updated_at.to_rfc3339().to_string(),
@@ -1606,7 +1608,7 @@ async fn create_config_profile(
 
     // Check if any active profile exists
     let profiles = state.config_profiles.read().await;
-    let has_active = profiles.values().any(|p| p.is_active);
+    let has_active = profiles.values().any(|p| p.is_active && p.enable);
     drop(profiles);
 
     // Create the profile - make it active if no other profile is active
@@ -1615,6 +1617,7 @@ async fn create_config_profile(
         id: id.clone(),
         name: req.name.clone(),
         description: req.description.clone(),
+        enable: req.enable,
         is_active,
         created_at: now,
         updated_at: now,
@@ -1638,6 +1641,7 @@ async fn create_config_profile(
         id: id.clone(),
         name: req.name,
         description: req.description,
+        enable: req.enable,
         is_active,
         created_at: now.to_rfc3339().to_string(),
         updated_at: now.to_rfc3339().to_string(),
@@ -1674,6 +1678,9 @@ async fn update_config_profile(
         if let Some(description) = req.description {
             profile.description = description;
         }
+        if let Some(enable) = req.enable {
+            profile.enable = enable;
+        }
         if let Some(provider_id) = req.provider_id {
             profile.provider_id = provider_id;
         }
@@ -1692,9 +1699,12 @@ async fn update_config_profile(
         if let Some(active_skill_names) = req.active_skill_names {
             profile.active_skill_names = active_skill_names;
         }
-        if let Some(active_platform_ids) = req.active_platform_ids {
-            profile.active_platform_ids = active_platform_ids;
+        if let Some(ref active_platform_ids) = req.active_platform_ids {
+            profile.active_platform_ids = active_platform_ids.clone();
         }
+        let platforms_changed = req.active_platform_ids.is_some();
+        let enable_changed = req.enable.is_some();
+        let proxy_changed = req.proxy_config.is_some();
         if let Some(proxy_config) = req.proxy_config {
             profile.proxy_config = proxy_config;
         }
@@ -1704,6 +1714,7 @@ async fn update_config_profile(
             id: profile.id.clone(),
             name: profile.name.clone(),
             description: profile.description.clone(),
+            enable: profile.enable,
             is_active: profile.is_active,
             created_at: profile.created_at.to_rfc3339().to_string(),
             updated_at: profile.updated_at.to_rfc3339().to_string(),
@@ -1717,8 +1728,15 @@ async fn update_config_profile(
             proxy_config: profile.proxy_config.clone(),
         };
 
+        let is_active = dto.is_active;
         drop(profiles);
         state.auto_save().await;
+
+        // If this is the active profile and something that affects running
+        // adapters changed, synchronize accordingly (hot-reload).
+        if is_active && (platforms_changed || proxy_changed || enable_changed) {
+            state.sync_platforms_with_active_profile().await;
+        }
 
         tracing::info!(profile_id = %id, profile_name = %dto.name, "Config profile updated");
 
@@ -1768,6 +1786,19 @@ async fn activate_config_profile(
 ) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
     let mut profiles = state.config_profiles.write().await;
 
+    if let Some(profile) = profiles.get(&id) {
+        // Check if the profile is enabled before activating
+        if !profile.enable {
+            drop(profiles);
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    json!({"error": "Cannot activate a disabled config profile. Enable it first."}),
+                ),
+            ));
+        }
+    }
+
     if profiles.contains_key(&id) {
         let now = Utc::now();
         // Set all profiles to inactive, then activate the target profile and update its timestamp
@@ -1786,6 +1817,7 @@ async fn activate_config_profile(
             id: profile.id.clone(),
             name: profile.name.clone(),
             description: profile.description.clone(),
+            enable: profile.enable,
             is_active: profile.is_active,
             created_at: profile.created_at.to_rfc3339().to_string(),
             updated_at: profile.updated_at.to_rfc3339().to_string(),
@@ -1818,41 +1850,10 @@ async fn activate_config_profile(
 
 /// Start platforms that should be active and stop platforms that should not.
 /// This is called when a config profile is activated.
-async fn activate_platforms_for_profile(state: &Arc<AppState>, active_platform_ids: &[String]) {
-    let platform_configs = state.platform_configs.read().await;
-
-    // Build a set of platform IDs that should be running
-    let active_set: std::collections::HashSet<&str> =
-        active_platform_ids.iter().map(|s| s.as_str()).collect();
-
-    let mut pm = state.platform_manager.write().await;
-
-    // Stop platforms that are running but should not be
-    for running_id in pm.statuses().iter().map(|(id, _)| id.as_str()) {
-        if !active_set.contains(running_id) {
-            tracing::info!(platform_id = %running_id, "Stopping platform (not in active profile)");
-            if let Err(e) = pm.remove_platform(running_id).await {
-                tracing::error!(platform_id = %running_id, error = %e, "Failed to stop platform");
-            }
-        }
-    }
-
-    // Start platforms that should be running but are not
-    for config in platform_configs.iter() {
-        if !active_set.contains(config.id.as_str()) {
-            continue;
-        }
-        if pm.is_running(&config.id) {
-            continue;
-        }
-        tracing::info!(platform_id = %config.id, "Starting platform for active profile");
-        if let Err(e) = pm.add_platform(config.clone()).await {
-            tracing::error!(platform_id = %config.id, error = %e, "Failed to start platform");
-        }
-    }
-
-    drop(pm);
-    drop(platform_configs);
+async fn activate_platforms_for_profile(state: &Arc<AppState>, _active_platform_ids: &[String]) {
+    // Delegate to the unified sync method which reads the active profile
+    // and reconciles running adapters accordingly.
+    state.sync_platforms_with_active_profile().await;
 }
 
 /// Get the provider associated with a config profile
@@ -2675,28 +2676,115 @@ async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
     Json(json!({"message": "Server is restarting"})).into_response()
 }
 
-/// Reload all platform adapters from the config file (hot-reload).
-async fn reload_platforms(State(state): State<Arc<AppState>>) -> Response {
-    tracing::info!("Platform reload requested via API");
+/// Restart a platform adapter by stopping and starting it.
+///
+/// This is useful for applying configuration changes without restarting
+/// the entire server. The adapter is stopped, then started again using
+/// the current config profile's settings (including proxy).
+async fn restart_platform(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    // Find the platform config
+    let platform_config = {
+        let configs = state.platform_configs.read().await;
+        configs.iter().find(|c| c.id == id).cloned()
+    };
 
-    // Reload platform configs from file
-    state.load_platforms_config().await;
+    let Some(config) = platform_config else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response();
+    };
 
-    // Reload the adapters
-    let platforms_path = state.platforms_config_path.clone();
-    let mut pm = state.platform_manager.write().await;
-    match pm.reload_from_file(&platforms_path).await {
-        Ok(()) => {
-            tracing::info!("Platforms reloaded successfully");
-            Json(json!({"message": "Platforms reloaded successfully"})).into_response()
+    // Check that the platform is in the active profile
+    let is_active = {
+        let profiles = state.config_profiles.read().await;
+        profiles
+            .values()
+            .find(|p| p.is_active && p.enable)
+            .map(|p| p.active_platform_ids.contains(&id))
+            .unwrap_or(false)
+    };
+
+    if !is_active {
+        return (
+            StatusCode::FAILED_DEPENDENCY,
+            Json(json!({"error": "Platform is not active in the current config profile"})),
+        )
+            .into_response();
+    }
+
+    // Get proxy config from active profile
+    let proxy_config = {
+        let profiles = state.config_profiles.read().await;
+        profiles
+            .values()
+            .find(|p| p.is_active && p.enable)
+            .and_then(|p| {
+                if p.proxy_config.is_configured() {
+                    Some(p.proxy_config.clone())
+                } else {
+                    None
+                }
+            })
+    };
+
+    // Inject proxy_url into config (respecting rules mode)
+    let mut config_with_proxy = config.clone();
+    if let Some(ref proxy) = proxy_config {
+        let platform_host = match config_with_proxy.platform_type.as_str() {
+            "discord" => "discord.gg",
+            "dingtalk" => "dingtalk.com",
+            other => other,
+        };
+
+        if proxy.should_proxy(platform_host) {
+            if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                obj.insert(
+                    "proxy_url".to_string(),
+                    serde_json::Value::String(proxy.url.clone()),
+                );
+            }
+        } else if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+            obj.remove("proxy_url");
         }
-        Err(e) => {
-            tracing::error!("Failed to reload platforms: {}", e);
-            (
+    } else if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+        obj.remove("proxy_url");
+    }
+
+    // Restart the adapter
+    {
+        let mut pm = state.platform_manager.write().await;
+        if let Err(e) = pm.restart_platform(config_with_proxy).await {
+            tracing::error!(platform_id = %id, error = %e, "Failed to restart platform");
+            return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to reload platforms: {}", e)})),
+                Json(json!({"error": format!("Failed to restart platform: {}", e)})),
             )
-                .into_response()
+                .into_response();
         }
+    }
+
+    tracing::info!(platform_id = %id, "Platform restarted via API");
+
+    // Return the updated platform status
+    let statuses = state.platform_statuses_async().await;
+    let configs = state.platform_configs.read().await;
+    match configs.iter().find(|c| c.id == id) {
+        Some(c) => Json(PlatformInstanceDto {
+            id: c.id.clone(),
+            platform_type: c.platform_type.clone(),
+            config: c.extra.clone(),
+            status: statuses
+                .get(&c.id)
+                .cloned()
+                .unwrap_or_else(|| "stopped".to_string()),
+        })
+        .into_response(),
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Platform not found after restart"})),
+        )
+            .into_response(),
     }
 }

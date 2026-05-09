@@ -13,12 +13,13 @@
 
 use crate::platform::dingtalk::config::*;
 use crate::platform::types::{MessageComponent, MessageSender, MessageType, PlatformMessage};
+use crate::transport::proxy_ws::connect_ws_with_proxy;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::Message};
 
 // ─── DingTalk Stream protocol structures ─────────────────────────
 
@@ -195,11 +196,9 @@ async fn run_once(
     // 2. Open stream connection
     let (endpoint, ticket) = open_stream(http, access_token, config).await?;
 
-    // 3. Connect WebSocket
+    // 3. Connect WebSocket (with optional proxy)
     let ws_url = format!("{}?ticket={}", endpoint, ticket);
-    let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(&ws_url, None, false, None)
-        .await
-        .map_err(|e| anyhow::anyhow!("WebSocket connect failed: {}", e))?;
+    let ws = connect_ws_with_proxy(&ws_url, config.proxy_url.as_deref()).await?;
 
     tracing::info!("DingTalk stream WebSocket connected");
 

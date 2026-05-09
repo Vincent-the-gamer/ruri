@@ -15,8 +15,6 @@ const platformStore = usePlatformStore();
 
 const showForm = ref(false);
 const editingInstance = ref<PlatformInstance | null>(null);
-const reloading = ref(false);
-const restarting = ref(false);
 
 const formData = reactive({
     id: "",
@@ -181,47 +179,6 @@ function getStatusLabel(status: PlatformStatus): string {
             return status;
     }
 }
-
-async function handleReloadPlatforms() {
-    reloading.value = true;
-    try {
-        const { reloadPlatforms } = await import("../api");
-        await reloadPlatforms();
-        await platformStore.fetchInstances();
-    } catch (e: unknown) {
-        platformStore.error =
-            e instanceof Error ? e.message : "Failed to reload platforms";
-    } finally {
-        reloading.value = false;
-    }
-}
-
-async function handleRestart() {
-    if (!confirm(t("platformConfig.restartConfirm"))) return;
-    restarting.value = true;
-    try {
-        const { restartSystem } = await import("../api");
-        await restartSystem();
-        // Wait for the server to restart
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        // Try to reconnect
-        let retries = 0;
-        while (retries < 10) {
-            try {
-                await platformStore.fetchInstances();
-                break;
-            } catch {
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-                retries++;
-            }
-        }
-    } catch (e: unknown) {
-        platformStore.error =
-            e instanceof Error ? e.message : "Failed to restart";
-    } finally {
-        restarting.value = false;
-    }
-}
 </script>
 
 <template>
@@ -299,54 +256,6 @@ async function handleRestart() {
                     />
                 </svg>
                 {{ t("platformConfig.addPlatform") }}
-            </button>
-            <button
-                class="btn btn-ghost"
-                @click="handleReloadPlatforms"
-                :disabled="reloading"
-            >
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M1 4v6h6" />
-                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                </svg>
-                {{
-                    reloading
-                        ? t("platformConfig.reloading")
-                        : t("platformConfig.reload")
-                }}
-            </button>
-            <button
-                class="btn btn-ghost"
-                @click="handleRestart"
-                :disabled="restarting"
-            >
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                    <line x1="12" y1="2" x2="12" y2="12" />
-                </svg>
-                {{
-                    restarting
-                        ? t("platformConfig.restarting")
-                        : t("platformConfig.restart")
-                }}
             </button>
         </div>
 

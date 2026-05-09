@@ -1,4 +1,4 @@
-import axios, { type AxiosResponse } from 'axios'
+import axios from 'axios'
 
 export interface Conversation {
   id: string
@@ -39,7 +39,7 @@ export interface AddMessageRequest {
 // 获取对话列表
 export async function listConversations(
   filter?: ConversationFilter
-): Promise<AxiosResponse<Conversation[]>> {
+): Promise<Conversation[]> {
   const params = new URLSearchParams()
   if (filter?.bot_name) {
     params.append('bot_name', filter.bot_name)
@@ -50,41 +50,46 @@ export async function listConversations(
   if (filter?.keyword) {
     params.append('keyword', filter.keyword)
   }
-  return axios.get<Conversation[]>(`/api/conversations${params.toString() ? `?${params.toString()}` : ''}`)
+  const res = await axios.get<Conversation[]>(`/api/conversations${params.toString() ? `?${params.toString()}` : ''}`)
+  return res.data
 }
 
 // 创建新对话
 export async function createConversation(
   data: CreateConversationRequest
-): Promise<AxiosResponse<Conversation>> {
-  return axios.post<Conversation>('/api/conversations', data)
+): Promise<Conversation> {
+  const res = await axios.post<Conversation>('/api/conversations', data)
+  return res.data
 }
 
 // 获取单个对话
 export async function getConversation(
   id: string
-): Promise<AxiosResponse<Conversation>> {
-  return axios.get<Conversation>(`/api/conversations/${id}`)
+): Promise<Conversation> {
+  const res = await axios.get<Conversation>(`/api/conversations/${id}`)
+  return res.data
 }
 
 // 删除对话
 export async function deleteConversation(id: string): Promise<void> {
-  return axios.delete(`/api/conversations/${id}`)
+  await axios.delete(`/api/conversations/${id}`)
 }
 
 // 添加消息
 export async function addMessage(
   conversationId: string,
   data: AddMessageRequest
-): Promise<AxiosResponse<Message>> {
-  return axios.post<Message>(`/api/conversations/${conversationId}/messages`, data)
+): Promise<Message> {
+  const res = await axios.post<Message>(`/api/conversations/${conversationId}/messages`, data)
+  return res.data
 }
 
 // 获取对话的所有消息
 export async function getConversationMessages(
   conversationId: string
-): Promise<AxiosResponse<Message[]>> {
-  return axios.get<Message[]>(`/api/conversations/${conversationId}/messages`)
+): Promise<Message[]> {
+  const res = await axios.get<Message[]>(`/api/conversations/${conversationId}/messages`)
+  return res.data
 }
 
 export default {

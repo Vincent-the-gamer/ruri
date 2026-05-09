@@ -10,6 +10,7 @@ import type {
     CreateConfigProfileRequest,
     UpdateConfigProfileRequest,
     ProxyConfig,
+    ProxyMode,
 } from "../types";
 
 interface Props {
@@ -42,6 +43,7 @@ const platformStore = usePlatformStore();
 const formData = ref({
     name: "",
     description: "",
+    enable: true,
     provider_id: null as string | null,
     persona_id: null as string | null,
     web_search_enabled: false,
@@ -50,11 +52,14 @@ const formData = ref({
     active_skill_names: [] as string[],
     active_platform_ids: [] as string[],
     proxy_config: {
+        enabled: false,
         url: "",
+        mode: "global" as ProxyMode,
+        proxy_domains: [] as string[],
+        bypass_domains: [] as string[],
         username: null,
         password: null,
         bypass_localhost: true,
-        bypass_hosts: [] as string[],
     } as ProxyConfig,
 });
 
@@ -66,6 +71,7 @@ watch(
             formData.value = {
                 name: config.name,
                 description: config.description,
+                enable: config.enable,
                 provider_id: config.provider_id,
                 persona_id: config.persona_id,
                 web_search_enabled: config.web_search_enabled,
@@ -74,14 +80,19 @@ watch(
                 active_skill_names: [...config.active_skill_names],
                 active_platform_ids: [...config.active_platform_ids],
                 proxy_config: {
+                    enabled: config.proxy_config?.enabled ?? false,
                     url: config.proxy_config?.url || "",
+                    mode: config.proxy_config?.mode || "global",
+                    proxy_domains: config.proxy_config?.proxy_domains
+                        ? [...config.proxy_config.proxy_domains]
+                        : [],
+                    bypass_domains: config.proxy_config?.bypass_domains
+                        ? [...config.proxy_config.bypass_domains]
+                        : [],
                     username: config.proxy_config?.username || null,
                     password: config.proxy_config?.password || null,
                     bypass_localhost:
                         config.proxy_config?.bypass_localhost ?? true,
-                    bypass_hosts: config.proxy_config?.bypass_hosts
-                        ? [...config.proxy_config.bypass_hosts]
-                        : [],
                 },
             };
         } else {
@@ -89,6 +100,7 @@ watch(
             formData.value = {
                 name: "",
                 description: "",
+                enable: true,
                 provider_id: null,
                 persona_id: null,
                 web_search_enabled: false,
@@ -97,11 +109,14 @@ watch(
                 active_skill_names: [],
                 active_platform_ids: [],
                 proxy_config: {
+                    enabled: false,
                     url: "",
+                    mode: "global",
+                    proxy_domains: [],
+                    bypass_domains: [],
                     username: null,
                     password: null,
                     bypass_localhost: true,
-                    bypass_hosts: [],
                 },
             };
         }
@@ -111,19 +126,35 @@ watch(
 
 const isEdit = computed(() => props.config !== null);
 
-// Proxy bypass hosts input
-const proxyBypassHostInput = ref("");
+// Proxy domain inputs
+const proxyDomainInput = ref("");
+const bypassDomainInput = ref("");
 
-function addBypassHost() {
-    const host = proxyBypassHostInput.value.trim();
-    if (host && !formData.value.proxy_config.bypass_hosts.includes(host)) {
-        formData.value.proxy_config.bypass_hosts.push(host);
-        proxyBypassHostInput.value = "";
+function addProxyDomain() {
+    const domain = proxyDomainInput.value.trim();
+    if (domain && !formData.value.proxy_config.proxy_domains.includes(domain)) {
+        formData.value.proxy_config.proxy_domains.push(domain);
+        proxyDomainInput.value = "";
     }
 }
 
-function removeBypassHost(index: number) {
-    formData.value.proxy_config.bypass_hosts.splice(index, 1);
+function removeProxyDomain(index: number) {
+    formData.value.proxy_config.proxy_domains.splice(index, 1);
+}
+
+function addBypassDomain() {
+    const domain = bypassDomainInput.value.trim();
+    if (
+        domain &&
+        !formData.value.proxy_config.bypass_domains.includes(domain)
+    ) {
+        formData.value.proxy_config.bypass_domains.push(domain);
+        bypassDomainInput.value = "";
+    }
+}
+
+function removeBypassDomain(index: number) {
+    formData.value.proxy_config.bypass_domains.splice(index, 1);
 }
 const formTitle = computed(() =>
     isEdit.value ? t("config.form.editTitle") : t("config.form.createTitle"),
@@ -155,6 +186,28 @@ function togglePlatform(platformId: string) {
 
 function isPlatformActive(platformId: string): boolean {
     return formData.value.active_platform_ids.includes(platformId);
+}
+
+function getPlatformStatus(platformId: string): string {
+    const instance = platformStore.instances.find((p) => p.id === platformId);
+    return instance?.status || "unknown";
+}
+
+function isPlatformRunning(platformId: string): boolean {
+    return getPlatformStatus(platformId) === "running";
+}
+
+const restartingPlatformId = ref<string | null>(null);
+
+async function handleRestartPlatform(platformId: string) {
+    restartingPlatformId.value = platformId;
+    try {
+        await platformStore.restartInstance(platformId);
+    } catch (e: unknown) {
+        console.error("Failed to restart platform:", e);
+    } finally {
+        restartingPlatformId.value = null;
+    }
 }
 
 function handleSubmit() {
@@ -196,6 +249,22 @@ function handleSubmit() {
                         :placeholder="t('config.form.descriptionPlaceholder')"
                         rows="2"
                     />
+                </div>
+
+                <div class="toggle-group">
+                    <label class="toggle-label">
+                        <input
+                            v-model="formData.enable"
+                            type="checkbox"
+                            class="toggle-input"
+                        />
+                        <span class="toggle-text">{{
+                            t("config.form.enableProfile")
+                        }}</span>
+                        <span class="toggle-description">{{
+                            t("config.form.enableProfileDesc")
+                        }}</span>
+                    </label>
                 </div>
             </div>
 
@@ -351,21 +420,72 @@ function handleSubmit() {
                         ]"
                         @click="togglePlatform(platform.id)"
                     >
-                        <span class="skill-name"
-                            >{{ platform.id }} ({{
-                                platform.platform_type
-                            }})</span
-                        >
-                        <span class="skill-checkbox">
-                            <svg
-                                v-if="isPlatformActive(platform.id)"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
+                        <span class="platform-info">
+                            <span
+                                :class="[
+                                    'platform-status-dot',
+                                    {
+                                        'platform-status-dot--running':
+                                            isPlatformRunning(platform.id),
+                                        'platform-status-dot--stopped':
+                                            !isPlatformRunning(platform.id),
+                                    },
+                                ]"
+                                :title="
+                                    isPlatformRunning(platform.id)
+                                        ? t('common.active')
+                                        : t('common.inactive')
+                                "
+                            ></span>
+                            <span class="skill-name"
+                                >{{ platform.id }} ({{
+                                    platform.platform_type
+                                }})</span
                             >
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
+                        </span>
+                        <span class="platform-actions">
+                            <button
+                                v-if="
+                                    isPlatformActive(platform.id) &&
+                                    isPlatformRunning(platform.id)
+                                "
+                                class="platform-restart-btn"
+                                :disabled="restartingPlatformId === platform.id"
+                                @click.stop="handleRestartPlatform(platform.id)"
+                                :title="t('config.form.restartPlatform')"
+                            >
+                                <svg
+                                    :class="{
+                                        spinning:
+                                            restartingPlatformId ===
+                                            platform.id,
+                                    }"
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <polyline points="23 4 23 10 17 10" />
+                                    <path
+                                        d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"
+                                    />
+                                </svg>
+                            </button>
+                            <span class="skill-checkbox">
+                                <svg
+                                    v-if="isPlatformActive(platform.id)"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                >
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            </span>
                         </span>
                     </div>
                 </div>
@@ -377,90 +497,173 @@ function handleSubmit() {
                     {{ t("config.form.proxyConfig") }}
                 </h3>
 
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.proxyUrl")
-                    }}</label>
-                    <input
-                        v-model="formData.proxy_config.url"
-                        type="text"
-                        class="form-input"
-                        :placeholder="t('config.form.proxyUrlPlaceholder')"
-                    />
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.proxyUsername")
-                    }}</label>
-                    <input
-                        v-model="formData.proxy_config.username"
-                        type="text"
-                        class="form-input"
-                        :placeholder="t('config.form.proxyUsernamePlaceholder')"
-                    />
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.proxyPassword")
-                    }}</label>
-                    <input
-                        v-model="formData.proxy_config.password"
-                        type="password"
-                        class="form-input"
-                        :placeholder="t('config.form.proxyPasswordPlaceholder')"
-                    />
-                </div>
-
                 <div class="toggle-group">
                     <label class="toggle-label">
                         <input
-                            v-model="formData.proxy_config.bypass_localhost"
+                            v-model="formData.proxy_config.enabled"
                             type="checkbox"
                             class="toggle-input"
                         />
                         <span class="toggle-text">{{
-                            t("config.form.bypassLocalhost")
+                            t("config.form.proxyEnabled")
                         }}</span>
                         <span class="toggle-description">{{
-                            t("config.form.bypassLocalhostDesc")
+                            t("config.form.proxyEnabledDesc")
                         }}</span>
                     </label>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.bypassHosts")
-                    }}</label>
-                    <input
-                        v-model="proxyBypassHostInput"
-                        type="text"
-                        class="form-input"
-                        :placeholder="t('config.form.bypassHostsPlaceholder')"
-                        @keyup.enter="addBypassHost"
-                    />
-                    <div
-                        v-if="formData.proxy_config.bypass_hosts.length > 0"
-                        class="bypass-hosts-list"
-                    >
-                        <span
-                            v-for="(host, index) in formData.proxy_config
-                                .bypass_hosts"
-                            :key="index"
-                            class="bypass-host-tag"
-                        >
-                            {{ host }}
-                            <button
-                                type="button"
-                                class="remove-host-btn"
-                                @click="removeBypassHost(index)"
-                            >
-                                ×
-                            </button>
-                        </span>
+                <template v-if="formData.proxy_config.enabled">
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.proxyUrl")
+                        }}</label>
+                        <input
+                            v-model="formData.proxy_config.url"
+                            type="text"
+                            class="form-input"
+                            :placeholder="t('config.form.proxyUrlPlaceholder')"
+                        />
                     </div>
-                </div>
+
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.proxyMode")
+                        }}</label>
+                        <select
+                            v-model="formData.proxy_config.mode"
+                            class="form-select"
+                        >
+                            <option value="global">
+                                {{ t("config.form.proxyModeGlobal") }}
+                            </option>
+                            <option value="rules">
+                                {{ t("config.form.proxyModeRules") }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <div
+                        v-if="formData.proxy_config.mode === 'rules'"
+                        class="form-group"
+                    >
+                        <label class="form-label">{{
+                            t("config.form.proxyDomains")
+                        }}</label>
+                        <input
+                            v-model="proxyDomainInput"
+                            type="text"
+                            class="form-input"
+                            :placeholder="
+                                t('config.form.proxyDomainsPlaceholder')
+                            "
+                            @keyup.enter="addProxyDomain"
+                        />
+                        <div
+                            v-if="
+                                formData.proxy_config.proxy_domains.length > 0
+                            "
+                            class="bypass-hosts-list"
+                        >
+                            <span
+                                v-for="(domain, index) in formData.proxy_config
+                                    .proxy_domains"
+                                :key="index"
+                                class="bypass-host-tag"
+                            >
+                                {{ domain }}
+                                <button
+                                    type="button"
+                                    class="remove-host-btn"
+                                    @click="removeProxyDomain(index)"
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.bypassDomains")
+                        }}</label>
+                        <input
+                            v-model="bypassDomainInput"
+                            type="text"
+                            class="form-input"
+                            :placeholder="
+                                t('config.form.bypassDomainsPlaceholder')
+                            "
+                            @keyup.enter="addBypassDomain"
+                        />
+                        <div
+                            v-if="
+                                formData.proxy_config.bypass_domains.length > 0
+                            "
+                            class="bypass-hosts-list"
+                        >
+                            <span
+                                v-for="(domain, index) in formData.proxy_config
+                                    .bypass_domains"
+                                :key="index"
+                                class="bypass-host-tag"
+                            >
+                                {{ domain }}
+                                <button
+                                    type="button"
+                                    class="remove-host-btn"
+                                    @click="removeBypassDomain(index)"
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.proxyUsername")
+                        }}</label>
+                        <input
+                            v-model="formData.proxy_config.username"
+                            type="text"
+                            class="form-input"
+                            :placeholder="
+                                t('config.form.proxyUsernamePlaceholder')
+                            "
+                        />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.proxyPassword")
+                        }}</label>
+                        <input
+                            v-model="formData.proxy_config.password"
+                            type="password"
+                            class="form-input"
+                            :placeholder="
+                                t('config.form.proxyPasswordPlaceholder')
+                            "
+                        />
+                    </div>
+
+                    <div class="toggle-group">
+                        <label class="toggle-label">
+                            <input
+                                v-model="formData.proxy_config.bypass_localhost"
+                                type="checkbox"
+                                class="toggle-input"
+                            />
+                            <span class="toggle-text">{{
+                                t("config.form.bypassLocalhost")
+                            }}</span>
+                            <span class="toggle-description">{{
+                                t("config.form.bypassLocalhostDesc")
+                            }}</span>
+                        </label>
+                    </div>
+                </template>
             </div>
         </div>
 
@@ -696,6 +899,75 @@ function handleSubmit() {
     height: 1.25rem;
     color: hsl(var(--primary));
     flex-shrink: 0;
+}
+
+.platform-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.platform-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.platform-status-dot--running {
+    background: hsl(142 71% 45%);
+    box-shadow: 0 0 6px hsl(142 71% 45% / 0.5);
+}
+
+.platform-status-dot--stopped {
+    background: hsl(var(--muted-foreground) / 0.4);
+}
+
+.platform-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+}
+
+.platform-restart-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.platform-restart-btn:hover:not(:disabled) {
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+}
+
+.platform-restart-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.platform-restart-btn svg.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .form-footer {

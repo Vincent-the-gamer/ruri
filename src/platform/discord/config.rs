@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 ///     id: my-discord-bot
 ///     enable: true
 ///     token: "BOT_TOKEN_HERE"
+///     proxy_url: "http://127.0.0.1:7890"  # optional: HTTP/SOCKS5 proxy
 ///     pre_response_reactions: true  # optional: add a reaction while processing
 ///     reaction_emojis: ["👍", "🤔", "⏳"]  # optional: emojis for pre-response
 /// ```
@@ -22,6 +23,10 @@ pub struct DiscordConfig {
     /// List of Unicode emoji to use as pre-response reactions (randomly chosen).
     #[serde(default = "default_reaction_emojis")]
     pub reaction_emojis: Vec<String>,
+    /// Optional proxy URL for HTTP and WebSocket connections.
+    /// Supports HTTP and SOCKS5 proxies (e.g., "http://127.0.0.1:7890", "socks5://127.0.0.1:1080").
+    #[serde(default)]
+    pub proxy_url: Option<String>,
 }
 
 fn default_reaction_emojis() -> Vec<String> {

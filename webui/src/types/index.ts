@@ -15,7 +15,13 @@ export interface AnthropicProviderConfig {
   api_version: string
 }
 
-
+export interface LmStudioProviderConfig {
+  type: 'lm_studio'
+  host: string
+  port: number
+  api_key?: string | null
+  default_model: string
+}
 
 export interface CustomProviderConfig {
   type: 'custom'
@@ -35,9 +41,9 @@ export interface CustomProviderConfig {
   use_openai_format: boolean
 }
 
-export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | CustomProviderConfig
+export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | LmStudioProviderConfig | CustomProviderConfig
 
-export type ProviderType = 'openai' | 'anthropic' | 'custom'
+export type ProviderType = 'openai' | 'anthropic' | 'lm_studio' | 'custom'
 
 export interface Provider {
   id: string
@@ -294,6 +300,7 @@ export interface ConfigProfile {
   id: string
   name: string
   description: string
+  enable: boolean
   is_active: boolean
   created_at: string
   updated_at: string
@@ -314,6 +321,7 @@ export interface ConfigProfile {
 export interface CreateConfigProfileRequest {
   name: string
   description: string
+  enable: boolean
   provider_id: string | null
   persona_id: string | null
   web_search_enabled: boolean
@@ -460,12 +468,17 @@ export interface UpdatePlatformRequest {
 
 // ─── Proxy Config Types ──────────────────────────────────────────
 
+export type ProxyMode = 'global' | 'rules'
+
 export interface ProxyConfig {
+  enabled: boolean
   url: string
+  mode: ProxyMode
+  proxy_domains: string[]
+  bypass_domains: string[]
   username?: string | null
   password?: string | null
   bypass_localhost: boolean
-  bypass_hosts: string[]
 }
 
 

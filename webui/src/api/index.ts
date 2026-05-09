@@ -321,16 +321,14 @@ export async function deletePlatform(id: string): Promise<void> {
   await client.delete(`/api/platforms/${id}`)
 }
 
-
+export async function restartPlatform(id: string): Promise<PlatformInstance> {
+  const res = await client.post(`/api/platforms/${id}/restart`)
+  return res.data
+}
 
 // ─── System ─────────────────────────────────────────────
 
 export async function restartSystem(): Promise<{ message: string }> {
   const res = await client.post('/api/system/restart')
-  return res.data
-}
-
-export async function reloadPlatforms(): Promise<{ message: string }> {
-  const res = await client.post('/api/platforms/reload')
   return res.data
 }

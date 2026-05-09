@@ -38,8 +38,7 @@ async function loadConversations() {
     error.value = null;
 
     try {
-        const response = await listConversations(filter.value);
-        conversations.value = response.data;
+        conversations.value = await listConversations(filter.value);
     } catch (err: any) {
         console.error("Failed to load conversations:", err);
         error.value =

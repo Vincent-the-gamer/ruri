@@ -13,7 +13,7 @@ tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "socks"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -72,11 +72,19 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid
 
 # WebSocket for MCP
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-native-tls = "0.3"
+native-tls = "0.2"
 futures-util = "0.3"
 
 # HTML parsing for web search
 scraper = "0.20"
 url = "2.5"
+
+# Base64 encoding for proxy auth
+base64 = "0.22"
+
+# URL encoding for Discord reaction API
+urlencoding = "2"
 
 # Discord platform support
 serenity = { version = "0.12", features = ["client", "gateway", "model", "rustls_backend"] }

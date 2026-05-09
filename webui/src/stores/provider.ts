@@ -114,6 +114,14 @@ export const useProviderStore = defineStore('provider', () => {
           default_model: 'claude-sonnet-4-20250514',
           api_version: '2023-06-01',
         }
+      case 'lm_studio':
+        return {
+          type: 'lm_studio',
+          host: 'localhost',
+          port: 1234,
+          api_key: '',
+          default_model: 'default',
+        }
       case 'custom':
         return {
           type: 'custom',

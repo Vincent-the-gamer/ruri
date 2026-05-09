@@ -178,19 +178,17 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── Initialize chat platform adapters ────────────────────────
+    // Only start adapters that are listed in the active config profile's
+    // `active_platform_ids`. Platform configs are already loaded into
+    // `state.platform_configs` by `load_platforms_config()` above.
     {
-        let mut pm = state.platform_manager.write().await;
-        let platforms_path = api::state::ruri_config_dir().join("platforms.yaml");
-        if platforms_path.exists() {
-            tracing::info!("Loading platform config from: {:?}", platforms_path);
-            if let Err(e) = pm.load_from_file(&platforms_path).await {
-                tracing::warn!("Failed to load platform config: {}", e);
-            }
-        } else {
-            tracing::info!("No platform config found at {:?}, skipping", platforms_path);
-        }
+        state.sync_platforms_with_active_profile().await;
+
+        let pm = state.platform_manager.read().await;
         if !pm.is_empty() {
             tracing::info!("Active platform adapters: {}", pm.len());
+        } else {
+            tracing::info!("No platform adapters configured in active profile");
         }
     }
 
@@ -315,16 +313,14 @@ async fn main() -> anyhow::Result<()> {
                     (Some(last), Some(current)) if current > last => {
                         tracing::info!("Detected change in platforms.yaml, reloading...");
 
-                        // Reload configs
+                        // Reload platform configs into memory
                         state_for_watcher.load_platforms_config().await;
 
-                        // Reload adapters
-                        let mut pm = state_for_watcher.platform_manager.write().await;
-                        if let Err(e) = pm.reload_from_file(&platforms_path).await {
-                            tracing::error!("Failed to hot-reload platforms: {}", e);
-                        } else {
-                            tracing::info!("Platforms hot-reloaded successfully");
-                        }
+                        // Sync adapters with the active profile (only
+                        // start/stop those that differ)
+                        state_for_watcher.sync_platforms_with_active_profile().await;
+
+                        tracing::info!("Platforms hot-reloaded successfully");
 
                         last_modified = Some(current);
                     }
@@ -379,9 +375,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  GET    /api/platforms/:id       Get platform");
     tracing::info!("  PUT    /api/platforms/:id       Update platform");
     tracing::info!("  DELETE /api/platforms/:id       Delete platform");
-    tracing::info!("  POST   /api/platforms/:id/toggle  Toggle platform");
+    tracing::info!("  POST   /api/platforms/:id/restart Restart platform adapter");
     tracing::info!("  POST   /api/system/restart     Restart server");
-    tracing::info!("  POST   /api/platforms/reload   Hot-reload platforms");
     tracing::info!("");
     tracing::info!("ACP (Agent Client Protocol) mode:");
     tracing::info!("  Run with --acp to start in ACP mode (stdio transport)");

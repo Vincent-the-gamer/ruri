@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+fn default_true() -> bool {
+    true
+}
+
 // ─── Persisted Config Structures (serde-friendly) ────────────────
 
 /// Serializable version of StoredProvider for config file persistence.
@@ -53,6 +57,8 @@ pub struct PersistedConfigProfile {
     pub id: String,
     pub name: String,
     pub description: String,
+    #[serde(default = "default_true")]
+    pub enable: bool,
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -109,6 +115,7 @@ pub struct StoredConfigProfile {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub enable: bool,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -340,6 +347,7 @@ impl AppState {
                                 id,
                                 name: p.name,
                                 description: p.description,
+                                enable: p.enable,
                                 is_active: p.is_active,
                                 created_at,
                                 updated_at,
@@ -525,6 +533,160 @@ impl AppState {
         Ok(())
     }
 
+    /// Synchronize running platform adapters with the currently active config profile.
+    ///
+    /// - Stops adapters that are running but **not** in the active profile's
+    ///   `active_platform_ids`.
+    /// - Starts adapters that are in `active_platform_ids` but not yet running.
+    ///
+    /// This is the single source of truth for which adapters should be alive
+    /// at any given time — used both at startup and during hot-reload.
+    pub async fn sync_platforms_with_active_profile(&self) {
+        let (active_platform_ids, proxy_config): (Vec<String>, Option<crate::types::ProxyConfig>) = {
+            let profiles = self.config_profiles.read().await;
+            match profiles.values().find(|p| p.is_active && p.enable) {
+                Some(p) => (
+                    p.active_platform_ids.clone(),
+                    if p.proxy_config.is_configured() {
+                        Some(p.proxy_config.clone())
+                    } else {
+                        None
+                    },
+                ),
+                None => (Vec::new(), None),
+            }
+        };
+
+        let active_set: std::collections::HashSet<&str> =
+            active_platform_ids.iter().map(|s| s.as_str()).collect();
+
+        let configs = self.platform_configs.read().await;
+        let mut pm = self.platform_manager.write().await;
+
+        // Stop adapters that are running but not in the active profile
+        // (or the active profile is disabled / missing, so stop all)
+        let running_ids: Vec<String> = pm.statuses().iter().map(|(id, _)| id.clone()).collect();
+        for running_id in &running_ids {
+            if !active_set.contains(running_id.as_str()) {
+                tracing::info!(platform_id = %running_id, "Stopping platform (not in active profile)");
+                if let Err(e) = pm.remove_platform(running_id).await {
+                    tracing::error!(platform_id = %running_id, error = %e, "Failed to stop platform");
+                }
+            }
+        }
+
+        // For platforms already running, check if proxy config changed and restart them
+        let still_running: Vec<String> = pm.statuses().iter().map(|(id, _)| id.clone()).collect();
+        for config in configs.iter() {
+            if !still_running.contains(&config.id) {
+                continue;
+            }
+            if !active_set.contains(config.id.as_str()) {
+                continue;
+            }
+
+            // Build updated config with current proxy settings
+            let mut config_with_proxy = config.clone();
+            if let Some(ref proxy) = proxy_config {
+                let platform_host = match config.platform_type.as_str() {
+                    "discord" => "discord.gg",
+                    "dingtalk" => "dingtalk.com",
+                    other => other,
+                };
+
+                if proxy.should_proxy(platform_host) {
+                    if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                        obj.insert(
+                            "proxy_url".to_string(),
+                            serde_json::Value::String(proxy.url.clone()),
+                        );
+                    }
+                } else if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                    obj.remove("proxy_url");
+                }
+            } else if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                obj.remove("proxy_url");
+            }
+
+            // Check if proxy_url changed compared to current config
+            let old_proxy = config
+                .extra
+                .get("proxy_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let new_proxy = config_with_proxy
+                .extra
+                .get("proxy_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if old_proxy != new_proxy {
+                tracing::info!(
+                    platform_id = %config.id,
+                    old_proxy = %old_proxy,
+                    new_proxy = %new_proxy,
+                    "Proxy config changed, restarting platform (hot-reload)"
+                );
+                if let Err(e) = pm.restart_platform(config_with_proxy).await {
+                    tracing::error!(platform_id = %config.id, error = %e, "Failed to restart platform");
+                }
+            }
+        }
+
+        // Start adapters that are in the active profile but not yet running
+        for config in configs.iter() {
+            if !active_set.contains(config.id.as_str()) {
+                continue;
+            }
+            if pm.is_running(&config.id) {
+                continue;
+            }
+
+            let mut config_with_proxy = config.clone();
+
+            // Inject proxy_url from the active profile into the platform config.
+            // In "rules" mode, only inject for platforms whose domains match proxy_domains.
+            // We determine the platform's host from its type (Discord → discord.gg, DingTalk → dingtalk.com).
+            if let Some(ref proxy) = proxy_config {
+                let platform_host = match config.platform_type.as_str() {
+                    "discord" => "discord.gg",
+                    "dingtalk" => "dingtalk.com",
+                    other => other,
+                };
+
+                if proxy.should_proxy(platform_host) {
+                    if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                        // Set proxy_url — always override from profile config
+                        obj.insert(
+                            "proxy_url".to_string(),
+                            serde_json::Value::String(proxy.url.clone()),
+                        );
+                    }
+                    tracing::info!(
+                        platform_id = %config.id,
+                        proxy_mode = %proxy.mode,
+                        "Injecting proxy for platform"
+                    );
+                } else {
+                    // Ensure no stale proxy_url in config
+                    if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                        obj.remove("proxy_url");
+                    }
+                }
+            } else {
+                // No proxy configured, ensure no stale proxy_url
+                if let Some(obj) = config_with_proxy.extra.as_object_mut() {
+                    obj.remove("proxy_url");
+                }
+            }
+
+            tracing::info!(platform_id = %config.id, "Starting platform (from active profile)");
+            if let Err(e) = pm.add_platform(config_with_proxy).await {
+                tracing::error!(platform_id = %config.id, error = %e, "Failed to start platform");
+            }
+        }
+    }
+
     /// Returns a map of platform_id -> status string.
     /// Queries live adapter status from the PlatformManager when possible.
     pub async fn platform_statuses_async(&self) -> HashMap<String, String> {
@@ -657,6 +819,7 @@ impl AppState {
                         id: p.id.clone(),
                         name: p.name.clone(),
                         description: p.description.clone(),
+                        enable: p.enable,
                         is_active: p.is_active,
                         created_at: p.created_at.to_rfc3339().to_string(),
                         updated_at: p.updated_at.to_rfc3339().to_string(),

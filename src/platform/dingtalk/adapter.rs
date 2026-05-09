@@ -55,10 +55,22 @@ impl DingtalkAdapter {
             return Err("DingTalk config missing `client_secret`".into());
         }
 
+        // Build HTTP client with optional proxy
+        let http = if let Some(ref proxy_url) = config.proxy_url {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| format!("Invalid proxy URL '{}': {}", proxy_url, e))?;
+            Client::builder()
+                .proxy(proxy)
+                .build()
+                .map_err(|e| format!("Failed to build HTTP client with proxy: {}", e))?
+        } else {
+            Client::new()
+        };
+
         Ok(Self {
             config,
             instance_id,
-            http: Client::new(),
+            http,
             status: PlatformStatus::Pending,
             access_token: Arc::new(Mutex::new(String::new())),
             shutdown_tx: None,

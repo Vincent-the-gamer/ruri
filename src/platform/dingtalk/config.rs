@@ -17,6 +17,10 @@ pub struct DingtalkConfig {
     pub client_id: String,
     /// The appSecret of the DingTalk robot (also called `client_secret`).
     pub client_secret: String,
+    /// Optional proxy URL for HTTP and WebSocket connections.
+    /// Supports HTTP and SOCKS5 proxies (e.g., "http://127.0.0.1:7890", "socks5://127.0.0.1:1080").
+    #[serde(default)]
+    pub proxy_url: Option<String>,
 }
 
 /// DingTalk Stream API endpoints.

@@ -67,11 +67,13 @@ async function handleActivate(id: string) {
 const providerTypeLabel = (type: string) => {
     switch (type) {
         case "openai":
-            return t("providers.types.openai");
+            return t("providers.type.openai");
         case "anthropic":
-            return t("providers.types.anthropic");
+            return t("providers.type.anthropic");
+        case "lm_studio":
+            return t("providers.type.lmStudio");
         case "custom":
-            return t("providers.types.custom");
+            return t("providers.type.custom");
         default:
             return type;
     }
