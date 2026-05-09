@@ -9,9 +9,6 @@ edition = "2024"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# Async utilities
-futures = "0.3"
-
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "socks"] }
 
@@ -36,8 +33,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Web framework
 axum = { version = "0.8", features = ["macros", "ws"] }
-tower-http = { version = "0.6", features = ["cors", "fs"] }
-tower = "0.5"
 
 # Embed frontend assets
 rust-embed = "8"
@@ -45,7 +40,6 @@ rust-embed = "8"
 # Time tracking
 chrono = "0.4"
 mime_guess = "2.0.5"
-mime = "0.3"
 
 # ACP
 agent-client-protocol = { version = "0.11.1", features = ["unstable"] }
@@ -89,18 +83,8 @@ urlencoding = "2"
 # Discord platform support
 serenity = { version = "0.12", features = ["client", "gateway", "model", "rustls_backend"] }
 
-# AES-128-ECB encryption for WeChat CDN media
-aes = "0.8"
-ecb = "0.1"
-
-# MD5 hashing for WeChat CDN upload
-md-5 = "0.10"
-
 # QR code generation for WeChat login
 qrcode = { version = "0.14", features = ["svg"] }
-
-# Hex encoding/decoding for CDN AES key parsing
-hex = "0.4"
 
 # Random number generation for WeChat API headers
 rand = "0.8"
