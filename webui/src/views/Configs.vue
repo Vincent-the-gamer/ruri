@@ -249,16 +249,22 @@ function getPersonaName(personaId: string | null): string {
                             <span class="icon-wrapper">
                                 <Icon
                                     :icon="
-                                        config.is_active
-                                            ? 'lucide:check-circle'
-                                            : 'lucide:settings'
+                                        !config.enable
+                                            ? 'lucide:circle-off'
+                                            : config.is_active
+                                              ? 'lucide:check-circle'
+                                              : 'lucide:settings'
                                     "
                                 />
                             </span>
                             <span
                                 :class="[
                                     'type-dot',
-                                    `type-dot--${config.is_active ? 'active' : 'inactive'}`,
+                                    !config.enable
+                                        ? 'type-dot--disabled'
+                                        : config.is_active
+                                          ? 'type-dot--active'
+                                          : 'type-dot--inactive',
                                 ]"
                             ></span>
                         </div>
@@ -268,16 +274,20 @@ function getPersonaName(personaId: string | null): string {
                                 <span
                                     :class="[
                                         'status-badge',
-                                        config.is_active
-                                            ? 'status-badge--active'
-                                            : 'status-badge--inactive',
+                                        !config.enable
+                                            ? 'status-badge--disabled'
+                                            : config.is_active
+                                              ? 'status-badge--active'
+                                              : 'status-badge--inactive',
                                     ]"
                                 >
                                     <span class="status-dot"></span>
                                     {{
-                                        config.is_active
-                                            ? t("common.active")
-                                            : t("common.inactive")
+                                        !config.enable
+                                            ? t("common.disabled")
+                                            : config.is_active
+                                              ? t("common.active")
+                                              : t("common.inactive")
                                     }}
                                 </span>
                             </div>
@@ -355,6 +365,15 @@ function getPersonaName(personaId: string | null): string {
                                     <span v-if="config.acp_enabled" class="tag"
                                         >ACP</span
                                     >
+                                    <span
+                                        v-if="
+                                            config.command_prefix &&
+                                            config.command_prefix !== '/'
+                                        "
+                                        class="tag"
+                                    >
+                                        {{ config.command_prefix }}
+                                    </span>
                                     <span
                                         v-if="
                                             config.active_skill_names.length > 0
@@ -676,6 +695,16 @@ function getPersonaName(personaId: string | null): string {
     animation: none;
 }
 
+.status-badge--disabled {
+    background: hsl(var(--destructive) / 0.15);
+    color: hsl(var(--destructive));
+}
+
+.status-badge--disabled .status-dot {
+    background: hsl(var(--destructive));
+    animation: none;
+}
+
 .error-banner {
     display: flex;
     align-items: center;
@@ -901,10 +930,16 @@ function getPersonaName(personaId: string | null): string {
 
 .config-card--disabled {
     opacity: 0.65;
+    border-color: hsl(var(--destructive) / 0.3);
 }
 
 .config-card--disabled:hover {
     opacity: 0.85;
+    border-color: hsl(var(--destructive) / 0.4);
+}
+
+.config-card--disabled .icon-wrapper {
+    color: hsl(var(--destructive));
 }
 
 .card-content {
@@ -959,6 +994,10 @@ function getPersonaName(personaId: string | null): string {
 
 .type-dot--inactive {
     background: hsl(var(--muted));
+}
+
+.type-dot--disabled {
+    background: hsl(var(--destructive));
 }
 
 .card-details {

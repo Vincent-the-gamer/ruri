@@ -311,6 +311,8 @@ export interface ConfigProfile {
   active_skill_names: string[]
   // 平台配置
   active_platform_ids: string[]
+  // 内置指令前缀
+  command_prefix: string
   // 代理配置
   proxy_config: ProxyConfig
 }
@@ -326,6 +328,7 @@ export interface CreateConfigProfileRequest {
   acp_enabled: boolean
   active_skill_names: string[]
   active_platform_ids: string[]
+  command_prefix: string
   proxy_config: ProxyConfig
 }
 
@@ -340,6 +343,7 @@ export interface UpdateConfigProfileRequest {
   acp_enabled?: boolean
   active_skill_names?: string[]
   active_platform_ids?: string[]
+  command_prefix?: string
   proxy_config?: ProxyConfig
 }
 
@@ -498,6 +502,16 @@ export interface ProxyConfig {
   bypass_localhost: boolean
   /** Clash-style rules (preferred over proxy_domains/bypass_domains when non-empty) */
   rules: ProxyRule[]
+}
+
+// ─── Built-in Command Types ──────────────────────────────────────
+
+export interface BuiltinCommand {
+  name: string
+  description: string
+  usage: string
+  require_admin: boolean
+  hidden: boolean
 }
 
 

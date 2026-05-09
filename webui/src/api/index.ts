@@ -2,6 +2,7 @@ import axios from 'axios'
 import type {
   AgentStatus,
   AcpConfig,
+  BuiltinCommand,
   ChatRequest,
   ChatResponse,
   ChatMessage,
@@ -325,5 +326,12 @@ export async function restartPlatform(id: string): Promise<PlatformInstance> {
 
 export async function restartSystem(): Promise<{ message: string }> {
   const res = await client.post('/api/system/restart')
+  return res.data
+}
+
+// ─── Built-in Commands ──────────────────────────────────────────
+
+export async function getBuiltinCommands(): Promise<BuiltinCommand[]> {
+  const res = await client.get('/api/commands')
   return res.data
 }

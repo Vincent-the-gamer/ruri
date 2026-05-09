@@ -4,6 +4,7 @@ import { useRoute } from "vue-router";
 import Sidebar from "./components/Sidebar.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
 import LocaleSwitcher from "./components/LocaleSwitcher.vue";
+import ruriAvatar from "../assets/ruri-avatar.png";
 
 const route = useRoute();
 const isHome = ref(false);
@@ -50,7 +51,7 @@ onMounted(() => {
                         to="/"
                         class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
                     >
-                        <span class="text-primary">◈</span>
+                        <img :src="ruriAvatar" alt="Ruri" class="logo-avatar" />
                         <span>Ruri</span>
                     </router-link>
 
@@ -94,6 +95,15 @@ onMounted(() => {
 .app-container {
     position: relative;
     min-height: 100vh;
+}
+
+/* Logo avatar image */
+.logo-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid hsl(var(--primary) / 0.5);
 }
 
 /* Full-page gradient background - lowest layer */

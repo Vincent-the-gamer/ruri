@@ -15,6 +15,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_command_prefix() -> String {
+    "/".to_string()
+}
+
 // ─── Persisted Config Structures (serde-friendly) ────────────────
 
 /// Serializable version of StoredProvider for config file persistence.
@@ -73,6 +77,9 @@ pub struct PersistedConfigProfile {
     pub active_platform_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
+    /// Built-in command prefix for this profile (default: "/").
+    #[serde(default = "default_command_prefix")]
+    pub command_prefix: String,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -125,6 +132,7 @@ pub struct StoredConfigProfile {
     pub active_skill_names: Vec<String>,
     pub active_platform_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
+    pub command_prefix: String,
 }
 
 /// Information about a stored provider configuration.
@@ -239,6 +247,20 @@ pub struct AppState {
     pub(crate) platforms_config_path: PathBuf,
     /// Shared platform manager for runtime control of adapters.
     pub platform_manager: std::sync::Arc<tokio::sync::RwLock<crate::platform::PlatformManager>>,
+    /// Command dispatcher for built-in commands.
+    pub command_dispatcher: std::sync::Arc<tokio::sync::RwLock<crate::command::CommandDispatcher>>,
+    /// Session variables for `/set` and `/unset` commands.
+    /// Keyed by session_id, each value is a map of variable name -> value.
+    pub session_variables: std::sync::Arc<
+        tokio::sync::RwLock<
+            std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+        >,
+    >,
+    /// Running agent tasks, keyed by session_id.
+    /// Used by `/stop` to cancel in-progress tasks.
+    pub running_agent_tasks: std::sync::Arc<
+        tokio::sync::RwLock<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
+    >,
 }
 
 impl AppState {
@@ -354,6 +376,7 @@ impl AppState {
                                 active_skill_names: p.active_skill_names,
                                 active_platform_ids: p.active_platform_ids,
                                 proxy_config: p.proxy_config,
+                                command_prefix: p.command_prefix,
                             },
                         )
                     })
@@ -416,6 +439,15 @@ impl AppState {
             platforms_config_path: ruri_config_dir().join("platforms.yaml"),
             platform_manager: std::sync::Arc::new(tokio::sync::RwLock::new(
                 crate::platform::PlatformManager::new(),
+            )),
+            command_dispatcher: std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::command::create_builtin_dispatcher(),
+            )),
+            session_variables: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
+            running_agent_tasks: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
             )),
         }
     }
@@ -825,6 +857,7 @@ impl AppState {
                         active_skill_names: p.active_skill_names.clone(),
                         active_platform_ids: p.active_platform_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
+                        command_prefix: p.command_prefix.clone(),
                     },
                 )
             })

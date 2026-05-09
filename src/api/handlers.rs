@@ -120,6 +120,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Tools
         .route("/api/tools", get(list_tools))
+        // Built-in commands
+        .route("/api/commands", get(list_builtin_commands))
         // Chat
         .route("/api/chat", post(send_chat_message))
         .route(
@@ -843,6 +845,51 @@ async fn send_chat_message(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequestDto>,
 ) -> Result<Json<ChatResponseDto>, (StatusCode, Json<serde_json::Value>)> {
+    // ── Command dispatch ─────────────────────────────────────────
+    // Check if the message is a built-in command before sending to the agent.
+    {
+        let dispatcher = state.command_dispatcher.read().await;
+        if dispatcher.is_command(&req.message) {
+            let user_id = req.user_id.clone().unwrap_or_default();
+            let session_id = req.session_id.clone().unwrap_or_default();
+            tracing::info!(
+                prefix = %dispatcher.prefix(),
+                user_id = %user_id,
+                session_id = %session_id,
+                source = "webui",
+                "Detected command message, dispatching"
+            );
+            let cmd_ctx = crate::command::CommandContext {
+                raw_message: req.message.clone(),
+                command_name: String::new(),
+                args: String::new(),
+                session_id: session_id.clone(),
+                user_id: user_id.clone(),
+                platform_id: "webui".to_string(),
+                self_id: "ruri".to_string(),
+                message_type: crate::platform::types::MessageType::FriendMessage,
+                group_id: String::new(),
+                state: state.clone(),
+            };
+
+            if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
+                // Return the command result as a chat response
+                let message_dto = ChatMessageDto {
+                    role: "assistant".to_string(),
+                    content: result.reply,
+                    tool_calls: None,
+                    tool_call_id: None,
+                };
+                return Ok(Json(ChatResponseDto {
+                    message: message_dto,
+                    tool_results: None,
+                    usage: None,
+                }));
+            }
+        }
+    }
+
+    // ── Agent processing ─────────────────────────────────────────
     // Build agent from current state with user context
     let agent_result = state
         .build_agent_with_context(
@@ -854,8 +901,40 @@ async fn send_chat_message(
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
 
-    // Send message
-    let response = agent.chat(&req.message).await.map_err(|e| {
+    // Register a cancellation token for this session so /stop can cancel it
+    let session_key = req
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "webui".to_string());
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let cancel_clone = cancel_token.clone();
+    {
+        let mut tasks = state.running_agent_tasks.write().await;
+        tasks.insert(session_key.clone(), cancel_token);
+    }
+
+    // Send message with cancellation support
+    let response = tokio::select! {
+        result = agent.chat(&req.message) => {
+            // Remove the cancellation token when done
+            {
+                let mut tasks = state.running_agent_tasks.write().await;
+                tasks.remove(&session_key);
+            }
+            result
+        }
+        _ = cancel_clone.cancelled() => {
+            tracing::info!(
+                session_id = %session_key,
+                "WebUI agent task was cancelled via /stop"
+            );
+            return Err((
+                StatusCode::OK,
+                Json(json!({ "error": "任务已停止", "stopped": true })),
+            ));
+        }
+    }
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),
@@ -1504,6 +1583,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             active_skill_names: p.active_skill_names.clone(),
             active_platform_ids: p.active_platform_ids.clone(),
             proxy_config: p.proxy_config.clone(),
+            command_prefix: p.command_prefix.clone(),
         })
         .collect();
     Json(dtos)
@@ -1532,6 +1612,7 @@ async fn get_config_profile(
             active_skill_names: p.active_skill_names.clone(),
             active_platform_ids: p.active_platform_ids.clone(),
             proxy_config: p.proxy_config.clone(),
+            command_prefix: p.command_prefix.clone(),
         };
         Ok(Json(dto))
     } else {
@@ -1573,6 +1654,7 @@ async fn create_config_profile(
         active_skill_names: req.active_skill_names.clone(),
         active_platform_ids: req.active_platform_ids.clone(),
         proxy_config: req.proxy_config.clone(),
+        command_prefix: req.command_prefix.clone(),
     };
 
     // Insert the profile
@@ -1597,6 +1679,7 @@ async fn create_config_profile(
         active_skill_names: req.active_skill_names,
         active_platform_ids: req.active_platform_ids,
         proxy_config: req.proxy_config,
+        command_prefix: req.command_prefix,
     };
 
     state.auto_save().await;
@@ -1624,6 +1707,11 @@ async fn update_config_profile(
         }
         if let Some(enable) = req.enable {
             profile.enable = enable;
+            // If the active profile is being disabled, deactivate it so that
+            // the system falls back to another enabled profile (or none).
+            if !enable && profile.is_active {
+                profile.is_active = false;
+            }
         }
         if let Some(provider_id) = req.provider_id {
             profile.provider_id = provider_id;
@@ -1652,6 +1740,9 @@ async fn update_config_profile(
         if let Some(proxy_config) = req.proxy_config {
             profile.proxy_config = proxy_config;
         }
+        if let Some(command_prefix) = req.command_prefix {
+            profile.command_prefix = command_prefix;
+        }
         profile.updated_at = Utc::now();
 
         let dto = ConfigProfileDto {
@@ -1670,16 +1761,30 @@ async fn update_config_profile(
             active_skill_names: profile.active_skill_names.clone(),
             active_platform_ids: profile.active_platform_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
+            command_prefix: profile.command_prefix.clone(),
         };
 
         let is_active = dto.is_active;
+        let was_deactivated = enable_changed && !dto.enable && !dto.is_active;
         drop(profiles);
         state.auto_save().await;
 
-        // If this is the active profile and something that affects running
-        // adapters changed, synchronize accordingly (hot-reload).
-        if is_active && (platforms_changed || proxy_changed || enable_changed) {
+        // Synchronize running platform adapters when:
+        // - The active profile has changes affecting running adapters, OR
+        // - A profile was deactivated (was active, now disabled), so adapters
+        //   that belonged to it need to be stopped.
+        if (is_active && (platforms_changed || proxy_changed || enable_changed)) || was_deactivated
+        {
             state.sync_platforms_with_active_profile().await;
+        }
+
+        // Update command dispatcher prefix from the active profile
+        if is_active {
+            let profiles = state.config_profiles.read().await;
+            if let Some(active) = profiles.values().find(|p| p.is_active && p.enable) {
+                let mut dispatcher = state.command_dispatcher.write().await;
+                dispatcher.set_prefix(active.command_prefix.clone());
+            }
         }
 
         tracing::info!(profile_id = %id, profile_name = %dto.name, "Config profile updated");
@@ -1773,6 +1878,7 @@ async fn activate_config_profile(
             active_skill_names: profile.active_skill_names.clone(),
             active_platform_ids: active_platform_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
+            command_prefix: profile.command_prefix.clone(),
         };
 
         drop(profiles);
@@ -1782,6 +1888,15 @@ async fn activate_config_profile(
 
         // Start/stop platform adapters based on the active profile's platform list
         activate_platforms_for_profile(&state, &active_platform_ids).await;
+
+        // Update command dispatcher prefix from the newly activated profile
+        {
+            let profiles = state.config_profiles.read().await;
+            if let Some(active) = profiles.values().find(|p| p.is_active) {
+                let mut dispatcher = state.command_dispatcher.write().await;
+                dispatcher.set_prefix(active.command_prefix.clone());
+            }
+        }
 
         Ok(Json(dto))
     } else {
@@ -1798,6 +1913,18 @@ async fn activate_platforms_for_profile(state: &Arc<AppState>, _active_platform_
     // Delegate to the unified sync method which reads the active profile
     // and reconciles running adapters accordingly.
     state.sync_platforms_with_active_profile().await;
+}
+
+/// List all built-in commands
+async fn list_builtin_commands(State(state): State<Arc<AppState>>) -> Json<Vec<crate::command::BuiltinCommandInfo>> {
+    let dispatcher = state.command_dispatcher.read().await;
+    let profiles = state.config_profiles.read().await;
+    let prefix = profiles
+        .values()
+        .find(|p| p.is_active && p.enable)
+        .map(|p| p.command_prefix.as_str())
+        .unwrap_or("/");
+    Json(dispatcher.list_commands_info(prefix))
 }
 
 /// Get the provider associated with a config profile

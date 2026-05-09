@@ -2,6 +2,7 @@
 import { ref, computed } from "vue";
 import { marked } from "marked";
 import type { ChatMessage as ChatMessageType } from "../types";
+import ruriAvatar from "../../assets/ruri-avatar.png";
 
 const props = defineProps<{
     message: ChatMessageType;
@@ -9,10 +10,10 @@ const props = defineProps<{
 
 const showToolCalls = ref(false);
 
-const isUser = props.message.role === "user";
-const isAssistant = props.message.role === "assistant";
-const isTool = props.message.role === "tool";
-const isSystem = props.message.role === "system";
+const isUser = computed(() => props.message.role === "user");
+const isAssistant = computed(() => props.message.role === "assistant");
+const isTool = computed(() => props.message.role === "tool");
+const isSystem = computed(() => props.message.role === "system");
 
 const hasToolCalls =
     props.message.tool_calls && props.message.tool_calls.length > 0;
@@ -35,10 +36,23 @@ function renderMarkdown(content: string): string {
 </script>
 
 <template>
-    <div class="message-wrapper">
+    <div
+        class="message-wrapper"
+        :class="{
+            'message-wrapper-user': isUser,
+            'message-wrapper-assistant': isAssistant,
+        }"
+    >
         <!-- User Message -->
         <div v-if="isUser" class="message message-user">
-            <div class="message-avatar">
+            <div class="message-content-wrapper user-content-wrapper">
+                <div class="message-label">你</div>
+                <div
+                    class="message-content user-content"
+                    v-html="renderMarkdown(message.content)"
+                ></div>
+            </div>
+            <div class="message-avatar user-avatar">
                 <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="8" r="4" fill="hsl(var(--primary))" />
                     <path
@@ -49,57 +63,12 @@ function renderMarkdown(content: string): string {
                     />
                 </svg>
             </div>
-            <div class="message-content-wrapper">
-                <div class="message-label">你</div>
-                <div
-                    class="message-content user-content"
-                    v-html="renderMarkdown(message.content)"
-                ></div>
-            </div>
         </div>
 
         <!-- Assistant Message -->
         <div v-else-if="isAssistant" class="message message-assistant">
             <div class="message-avatar assistant-avatar">
-                <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
-                    <defs>
-                        <linearGradient
-                            id="crystal-gradient"
-                            x1="0%"
-                            y1="0%"
-                            x2="100%"
-                            y2="100%"
-                        >
-                            <stop
-                                offset="0%"
-                                stop-color="hsl(var(--primary))"
-                            />
-                            <stop offset="100%" stop-color="hsl(280 70% 60%)" />
-                        </linearGradient>
-                    </defs>
-                    <path
-                        d="M12 2 L20 10 L12 22 L4 10 Z"
-                        fill="url(#crystal-gradient)"
-                    />
-                    <path
-                        d="M12 2 L16 8 L12 6 L8 8 Z"
-                        fill="rgba(255,255,255,0.4)"
-                    />
-                    <circle
-                        cx="13"
-                        cy="9"
-                        r="1.5"
-                        fill="white"
-                        class="sparkle sparkle-1"
-                    />
-                    <circle
-                        cx="10"
-                        cy="13"
-                        r="1"
-                        fill="white"
-                        class="sparkle sparkle-2"
-                    />
-                </svg>
+                <img :src="ruriAvatar" alt="琉璃" class="avatar-img" />
             </div>
             <div class="message-content-wrapper">
                 <div class="message-label assistant-label">
@@ -193,6 +162,14 @@ function renderMarkdown(content: string): string {
     animation: fadeIn 0.3s ease-out;
 }
 
+.message-wrapper-user {
+    justify-content: flex-end;
+}
+
+.message-wrapper-assistant {
+    justify-content: flex-start;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -213,28 +190,15 @@ function renderMarkdown(content: string): string {
 /* Avatar Styles */
 .message-avatar {
     flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    border-radius: 0.625rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     background: hsl(var(--secondary));
     border: 1px solid hsl(var(--border));
-}
-
-.message-user .message-avatar {
-    order: 2;
-}
-
-.message-assistant .message-avatar {
-    order: 1;
-}
-
-.message-tool .message-avatar {
-    order: 1;
-    background: hsl(38 92% 50% / 0.1);
-    border-color: hsl(38 92% 50% / 0.3);
+    overflow: hidden;
 }
 
 .avatar-icon {
@@ -242,35 +206,31 @@ function renderMarkdown(content: string): string {
     height: 18px;
 }
 
+.avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar {
+    order: 2;
+}
+
 .assistant-avatar {
+    order: 1;
     border: 2px solid hsl(var(--primary));
+}
+
+.tool-avatar {
+    order: 1;
+    background: hsl(38 92% 50% / 0.1);
+    border-color: hsl(38 92% 50% / 0.3);
+    border-radius: 0.625rem;
 }
 
 .tool-avatar .avatar-icon {
     width: 16px;
     height: 16px;
-}
-
-.avatar-icon .sparkle {
-    animation: sparkle 2s ease-in-out infinite;
-}
-
-.sparkle-1 {
-    animation-delay: 0s;
-}
-
-.sparkle-2 {
-    animation-delay: 0.5s;
-}
-
-@keyframes sparkle {
-    0%,
-    100% {
-        opacity: 0.6;
-    }
-    50% {
-        opacity: 1;
-    }
 }
 
 /* Message Content Wrapper */
@@ -279,10 +239,9 @@ function renderMarkdown(content: string): string {
     flex-direction: column;
     gap: 0.25rem;
     flex: 1;
-    order: 2;
 }
 
-.message-user .message-content-wrapper {
+.user-content-wrapper {
     align-items: flex-end;
 }
 
@@ -455,14 +414,14 @@ function renderMarkdown(content: string): string {
         hsl(280 70% 60%) 100%
     );
     color: white;
-    border-radius: 1rem 1rem 0.25rem 1rem;
+    border-radius: 1rem 0.25rem 1rem 1rem;
     box-shadow: 0 2px 8px hsl(var(--primary) / 0.2);
 }
 
 .assistant-content {
     background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
-    border-radius: 1rem 1rem 1rem 0.25rem;
+    border-radius: 0.25rem 1rem 1rem 1rem;
     color: hsl(var(--foreground));
     box-shadow: 0 1px 3px hsl(var(--primary) / 0.05);
 }

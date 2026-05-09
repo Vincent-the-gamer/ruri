@@ -84,6 +84,11 @@ const router = createRouter({
       name: 'ConversationHistory',
       component: () => import('../views/ConversationHistory.vue'),
     },
+    {
+      path: '/builtin-commands',
+      name: 'BuiltinCommands',
+      component: () => import('../views/BuiltinCommands.vue'),
+    },
   ],
 })
 

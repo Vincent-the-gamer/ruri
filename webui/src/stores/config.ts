@@ -56,6 +56,9 @@ export const useConfigStore = defineStore('config', () => {
       }
       if (updated.is_active) {
         activeConfigProfile.value = updated
+      } else if (activeConfigProfile.value?.id === id) {
+        // The previously active profile was deactivated, find another active one
+        activeConfigProfile.value = configProfiles.value.find(p => p.is_active) || null
       }
       return updated
     } catch (e: unknown) {
@@ -128,6 +131,7 @@ export const useConfigStore = defineStore('config', () => {
   const acpEnabled = computed(() => activeConfigProfile.value?.acp_enabled ?? false)
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
   const activePlatformIds = computed(() => activeConfigProfile.value?.active_platform_ids ?? [])
+  const commandPrefix = computed(() => activeConfigProfile.value?.command_prefix ?? '/')
 
   return {
     configProfiles,
@@ -140,6 +144,7 @@ export const useConfigStore = defineStore('config', () => {
     acpEnabled,
     activeSkillNames,
     activePlatformIds,
+    commandPrefix,
     loading,
     error,
     fetchConfigProfiles,

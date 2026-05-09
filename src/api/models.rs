@@ -71,6 +71,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_command_prefix_dto() -> String {
+    "/".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderDto {
     pub id: String,
@@ -508,6 +512,8 @@ pub struct ConfigProfileDto {
     pub active_platform_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
+    #[serde(default = "default_command_prefix_dto")]
+    pub command_prefix: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -529,6 +535,8 @@ pub struct CreateConfigProfileRequest {
     pub active_platform_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
+    #[serde(default = "default_command_prefix_dto")]
+    pub command_prefix: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -555,6 +563,8 @@ pub struct UpdateConfigProfileRequest {
     pub active_platform_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_config: Option<crate::types::ProxyConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

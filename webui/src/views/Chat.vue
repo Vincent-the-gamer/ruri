@@ -7,6 +7,7 @@ import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
+import ruriAvatar from "../../assets/ruri-avatar.png";
 
 const { t } = useI18n();
 const chatStore = useChatStore();
@@ -19,6 +20,10 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 const showSettings = ref(false);
 const showProfileSelector = ref(false);
+
+const isConfigEnabled = computed(
+    () => configStore.activeConfigProfile?.enable ?? false,
+);
 
 onMounted(async () => {
     await Promise.all([
@@ -86,12 +91,12 @@ function toggleProfileSelector() {
 </script>
 
 <template>
-    <div class="chat-view">
+    <div class="chat-view" :class="{ 'no-animation': !isConfigEnabled }">
         <!-- Header - 可爱风格 -->
         <header class="chat-header glass">
             <div class="header-left">
-                <div class="header-icon bounce">
-                    <span>💬</span>
+                <div class="header-icon" :class="{ bounce: isConfigEnabled }">
+                    <img :src="ruriAvatar" alt="Ruri" class="header-icon-img" />
                 </div>
                 <div>
                     <h1 class="header-title font-cute">
@@ -322,38 +327,11 @@ function toggleProfileSelector() {
                 <!-- Thinking Indicator Message -->
                 <div v-if="chatStore.loading" class="thinking-message">
                     <div class="thinking-avatar">
-                        <svg
-                            class="avatar-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                        >
-                            <defs>
-                                <linearGradient
-                                    id="thinking-gradient"
-                                    x1="0%"
-                                    y1="0%"
-                                    x2="100%"
-                                    y2="100%"
-                                >
-                                    <stop
-                                        offset="0%"
-                                        stop-color="hsl(var(--primary))"
-                                    />
-                                    <stop
-                                        offset="100%"
-                                        stop-color="hsl(280 70% 60%)"
-                                    />
-                                </linearGradient>
-                            </defs>
-                            <path
-                                d="M12 2 L20 10 L12 22 L4 10 Z"
-                                fill="url(#thinking-gradient)"
-                            />
-                            <path
-                                d="M12 2 L16 8 L12 6 L8 8 Z"
-                                fill="rgba(255,255,255,0.4)"
-                            />
-                        </svg>
+                        <img
+                            :src="ruriAvatar"
+                            alt="琉璃"
+                            class="thinking-avatar-img"
+                        />
                         <div class="thinking-dots">
                             <span class="dot dot-1"></span>
                             <span class="dot dot-2"></span>
@@ -425,6 +403,20 @@ function toggleProfileSelector() {
 
 .header-icon {
     font-size: 1.75rem;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid hsl(var(--primary) / 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.header-icon-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .header-title {
@@ -868,14 +860,21 @@ function toggleProfileSelector() {
 .thinking-avatar {
     position: relative;
     flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    border-radius: 0.625rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     background: hsl(var(--secondary));
     border: 2px solid hsl(var(--primary));
+    overflow: hidden;
+}
+
+.thinking-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .thinking-dots {
@@ -1177,5 +1176,26 @@ function toggleProfileSelector() {
         font-size: 0.8125rem;
         max-width: 18rem;
     }
+}
+
+/* Disable all animations when config is disabled */
+.chat-view.no-animation *,
+.chat-view.no-animation *::before,
+.chat-view.no-animation *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+}
+
+.chat-view.no-animation .float {
+    animation: none !important;
+}
+
+.chat-view.no-animation .bounce {
+    animation: none !important;
+}
+
+.chat-view.no-animation .pulse-dot {
+    animation: none !important;
 }
 </style>

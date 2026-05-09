@@ -2,6 +2,7 @@
 mod acp;
 mod agent;
 mod api;
+mod command;
 mod computer_use;
 mod conversation;
 mod db;
@@ -213,6 +214,116 @@ async fn main() -> anyhow::Result<()> {
                         "Received platform message"
                     );
 
+                    // ── Command dispatch ─────────────────────────────
+                    // Check if the message is a built-in command before
+                    // sending it to the AI agent.
+                    {
+                        let dispatcher = state_for_platform.command_dispatcher.read().await;
+                        if dispatcher.is_command(&msg.message_str) {
+                            tracing::info!(
+                                prefix = %dispatcher.prefix(),
+                                user_id = %msg.sender.user_id,
+                                session_id = %msg.session_id,
+                                platform = %msg.platform_id,
+                                source = "platform",
+                                "Detected command message, dispatching"
+                            );
+                            let cmd_ctx = command::CommandContext {
+                                raw_message: msg.message_str.clone(),
+                                command_name: String::new(), // filled by dispatch()
+                                args: String::new(),
+                                session_id: msg.session_id.clone(),
+                                user_id: msg.sender.user_id.clone(),
+                                platform_id: msg.platform_id.clone(),
+                                self_id: msg.self_id.clone(),
+                                message_type: msg.message_type,
+                                group_id: msg.group_id.clone(),
+                                state: state_for_platform.clone(),
+                            };
+
+                            match dispatcher.dispatch(cmd_ctx).await {
+                                Some(result) => {
+                                    // Send the command result back
+                                    let pm = platform_manager_ref.read().await;
+                                    if let Err(e) = pm
+                                        .send_text_to_platform(
+                                            &msg.platform_id,
+                                            msg.message_type,
+                                            &msg.session_id,
+                                            &result.reply,
+                                        )
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            error = %e,
+                                            "Failed to send command reply to platform"
+                                        );
+                                    }
+                                    // Command handled, skip agent processing
+                                    continue;
+                                }
+                                None => {
+                                    // Not a recognized command — fall through to agent
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Conversation DB: ensure conversation exists ────────
+                    let chat_type = match msg.message_type {
+                        platform::types::MessageType::GroupMessage => {
+                            conversation::models::ChatType::Group
+                        }
+                        platform::types::MessageType::FriendMessage => {
+                            conversation::models::ChatType::Private
+                        }
+                    };
+                    let conversation_id = {
+                        let conv_db = state_for_platform.conversation_db.read().await;
+                        if let Some(db) = conv_db.as_ref() {
+                            match db
+                                .get_or_create_conversation(
+                                    msg.platform_id.clone(),
+                                    chat_type,
+                                    msg.session_id.clone(),
+                                )
+                                .await
+                            {
+                                Ok(conv) => Some(conv.id),
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "Failed to get/create conversation for platform message"
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    // Save user message to conversation database
+                    if let Some(ref conv_id) = conversation_id {
+                        let conv_db = state_for_platform.conversation_db.read().await;
+                        if let Some(db) = conv_db.as_ref() {
+                            if let Err(e) = db
+                                .add_message(conversation::models::AddMessageRequest {
+                                    conversation_id: conv_id.clone(),
+                                    role: "user".to_string(),
+                                    content: msg.message_str.clone(),
+                                })
+                                .await
+                            {
+                                tracing::error!(
+                                    error = %e,
+                                    "Failed to add user message to conversation database"
+                                );
+                            }
+                        }
+                    }
+
+                    // ── Agent processing ─────────────────────────────
                     // Build an agent and process the incoming message
                     match state_for_platform
                         .build_agent_with_context(
@@ -223,38 +334,95 @@ async fn main() -> anyhow::Result<()> {
                         .await
                     {
                         Ok(mut agent) => {
-                            match agent.chat(&msg.message_str).await {
-                                Ok(response) => {
-                                    if let Some(content) = response
-                                        .choices
-                                        .first()
-                                        .and_then(|c| c.message.content.as_ref())
-                                        .and_then(|c| c.as_text())
+                            // Register a cancellation token for this session so /stop can cancel it
+                            let cancel_token = tokio_util::sync::CancellationToken::new();
+                            let cancel_clone = cancel_token.clone();
+                            {
+                                let mut tasks =
+                                    state_for_platform.running_agent_tasks.write().await;
+                                tasks.insert(msg.session_id.clone(), cancel_token);
+                            }
+
+                            // Run the agent chat with cancellation support
+                            tokio::select! {
+                                result = agent.chat(&msg.message_str) => {
+                                    // Remove the cancellation token when done
                                     {
-                                        tracing::info!(
-                                            response_len = content.len(),
-                                            "Agent replied to platform message"
-                                        );
-                                        // Send the reply back to the originating platform
-                                        let pm = platform_manager_ref.read().await;
-                                        if let Err(e) = pm
-                                            .send_text_to_platform(
-                                                &msg.platform_id,
-                                                msg.message_type,
-                                                &msg.session_id,
-                                                content,
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                error = %e,
-                                                "Failed to send reply to platform"
-                                            );
+                                        let mut tasks = state_for_platform.running_agent_tasks.write().await;
+                                        tasks.remove(&msg.session_id);
+                                    }
+
+                                    match result {
+                                        Ok(response) => {
+                                            if let Some(content) = response
+                                                .choices
+                                                .first()
+                                                .and_then(|c| c.message.content.as_ref())
+                                                .and_then(|c| c.as_text())
+                                            {
+                                                tracing::info!(
+                                                    response_len = content.len(),
+                                                    "Agent replied to platform message"
+                                                );
+
+                                                // Save assistant message to conversation database
+                                                if let Some(ref conv_id) = conversation_id {
+                                                    let conv_db = state_for_platform.conversation_db.read().await;
+                                                    if let Some(db) = conv_db.as_ref() {
+                                                        if let Err(e) = db
+                                                            .add_message(conversation::models::AddMessageRequest {
+                                                                conversation_id: conv_id.clone(),
+                                                                role: "assistant".to_string(),
+                                                                content: content.to_string(),
+                                                            })
+                                                            .await
+                                                        {
+                                                            tracing::error!(
+                                                                error = %e,
+                                                                "Failed to add assistant message to conversation database"
+                                                            );
+                                                        }
+                                                    }
+                                                }
+
+                                                // Send the reply back to the originating platform
+                                                let pm = platform_manager_ref.read().await;
+                                                if let Err(e) = pm
+                                                    .send_text_to_platform(
+                                                        &msg.platform_id,
+                                                        msg.message_type,
+                                                        &msg.session_id,
+                                                        content,
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        error = %e,
+                                                        "Failed to send reply to platform"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(error = %e, "Agent failed to process platform message");
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    tracing::error!(error = %e, "Agent failed to process platform message");
+                                _ = cancel_clone.cancelled() => {
+                                    // Task was cancelled via /stop
+                                    tracing::info!(
+                                        session_id = %msg.session_id,
+                                        "Agent task was cancelled via /stop"
+                                    );
+                                    let pm = platform_manager_ref.read().await;
+                                    let _ = pm
+                                        .send_text_to_platform(
+                                            &msg.platform_id,
+                                            msg.message_type,
+                                            &msg.session_id,
+                                            "⏹ 任务已停止。",
+                                        )
+                                        .await;
                                 }
                             }
                         }

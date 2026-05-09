@@ -47,6 +47,7 @@ export default {
     mcpConfig: 'MCP 配置',
     platformConfig: '平台配置',
     apiTest: 'API 测试',
+    builtinCommands: '内置指令',
     groups: {
       general: '通用',
       conversation: '对话',
@@ -640,7 +641,24 @@ export default {
       bypassHostsPlaceholder: '输入主机模式后按回车（如 *.local）',
       enableProfile: '启用配置',
       enableProfileDesc: '启用此配置文件',
+      commandPrefix: '内置指令前缀',
+      commandPrefixDesc: '内置指令的前缀字符，默认为 "/"。例如设为 "#" 后，指令变为 #help、#reset 等',
     },
+  },
+
+  // 内置指令
+  builtinCommands: {
+    title: '内置指令',
+    subtitle: '查看所有可用的内置指令及其用法',
+    prefix: '当前前缀',
+    command: '指令',
+    description: '描述',
+    usage: '用法',
+    requireAdmin: '需要管理员',
+    yes: '是',
+    no: '否',
+    noCommands: '暂无内置指令',
+    noCommandsDesc: '当前没有注册的内置指令',
   },
 
   // 错误消息

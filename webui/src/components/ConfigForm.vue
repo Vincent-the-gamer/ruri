@@ -49,6 +49,7 @@ const formData = ref({
     enable: true,
     provider_id: null as string | null,
     persona_id: null as string | null,
+    command_prefix: "/" as string,
     web_search_enabled: false,
     computer_use_enabled: false,
     acp_enabled: false,
@@ -78,6 +79,7 @@ watch(
                 enable: config.enable,
                 provider_id: config.provider_id,
                 persona_id: config.persona_id,
+                command_prefix: config.command_prefix || "/",
                 web_search_enabled: config.web_search_enabled,
                 computer_use_enabled: config.computer_use_enabled,
                 acp_enabled: config.acp_enabled,
@@ -110,6 +112,7 @@ watch(
                 enable: true,
                 provider_id: null,
                 persona_id: null,
+                command_prefix: "/",
                 web_search_enabled: false,
                 computer_use_enabled: false,
                 acp_enabled: false,
@@ -327,6 +330,22 @@ function handleSubmit() {
                             t("config.form.enableProfileDesc")
                         }}</span>
                     </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">{{
+                        t("config.form.commandPrefix")
+                    }}</label>
+                    <input
+                        v-model="formData.command_prefix"
+                        type="text"
+                        class="form-input"
+                        style="max-width: 120px"
+                        :placeholder="'/'"
+                    />
+                    <p class="form-hint">
+                        {{ t("config.form.commandPrefixDesc") }}
+                    </p>
                 </div>
             </div>
 

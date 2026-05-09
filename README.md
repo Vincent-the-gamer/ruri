@@ -15,7 +15,7 @@
 - [x] ACP (Agent Client Protocol) Server
 - [x] Persona
 - [x] MCP (Model Context Protocol) Client
-- [ ] Command System
+- [x] Command System
 - [ ] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
 - [ ] Sub Agent
 - [x] Chat - Discord

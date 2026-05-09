@@ -45,6 +45,7 @@ export default {
     mcpConfig: 'MCP Config',
     platformConfig: 'Platforms',
     apiTest: 'API Test',
+    builtinCommands: 'Built-in Commands',
     personas: 'Personas',
     configs: 'Configs',
     groups: {
@@ -639,7 +640,24 @@ export default {
       bypassHostsPlaceholder: 'Enter host pattern and press Enter (e.g., *.local)',
       enableProfile: 'Enable Profile',
       enableProfileDesc: 'Enable this configuration profile',
+      commandPrefix: 'Command Prefix',
+      commandPrefixDesc: 'The prefix for built-in commands, defaults to "/". For example, set to "#" and commands become #help, #reset, etc.',
     },
+  },
+
+  // Built-in Commands
+  builtinCommands: {
+    title: 'Built-in Commands',
+    subtitle: 'View all available built-in commands and their usage',
+    prefix: 'Current Prefix',
+    command: 'Command',
+    description: 'Description',
+    usage: 'Usage',
+    requireAdmin: 'Require Admin',
+    yes: 'Yes',
+    no: 'No',
+    noCommands: 'No Built-in Commands',
+    noCommandsDesc: 'There are no registered built-in commands',
   },
 
   // Error messages
