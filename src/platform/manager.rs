@@ -1,7 +1,8 @@
 use crate::platform::dingtalk::DingtalkAdapter;
 use crate::platform::discord::DiscordAdapter;
 use crate::platform::trait_def::{Platform, PlatformEvent};
-use crate::platform::types::{MessageType, OutboundMessage, PlatformStatus};
+use crate::platform::types::{MessageType, PlatformStatus};
+use crate::platform::weixin_oc::WeixinOcAdapter;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -68,6 +69,11 @@ impl PlatformManager {
                     .map_err(|e| format!("Failed to create Discord adapter: {e}"))?;
                 Ok(Box::new(adapter))
             }
+            "weixin_oc" => {
+                let adapter = WeixinOcAdapter::from_config(config.id.clone(), &config.extra)
+                    .map_err(|e| format!("Failed to create WeixinOc adapter: {e}"))?;
+                Ok(Box::new(adapter))
+            }
             other => Err(format!("Unknown platform type: {}", other)),
         }
     }
@@ -101,35 +107,6 @@ impl PlatformManager {
         Ok(())
     }
 
-    /// Load platforms from a YAML configuration file.
-    pub async fn load_from_file(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
-        let content = std::fs::read_to_string(path)?;
-        let config: PlatformConfigFile = serde_yaml::from_str(&content)?;
-
-        for platform_config in config.platforms {
-            if let Err(e) = self.add_platform(platform_config).await {
-                tracing::error!("Failed to add platform: {}", e);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Reload all platforms from the config file, stopping existing ones first.
-    /// This is used for hot-reload when the config file changes.
-    pub async fn reload_from_file(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
-        tracing::info!("Reloading platform configs from: {:?}", path);
-
-        // Stop all existing adapters
-        self.shutdown_all().await;
-
-        // Reload
-        self.load_from_file(path).await?;
-
-        tracing::info!("Platform configs reloaded successfully");
-        Ok(())
-    }
-
     /// Restart a platform adapter by stopping and then starting it.
     pub async fn restart_platform(&mut self, config: PlatformInstanceConfig) -> Result<(), String> {
         let instance_id = if config.id.is_empty() {
@@ -159,32 +136,9 @@ impl PlatformManager {
         self.event_receiver.take()
     }
 
-    /// Get a clone of the event sender.
-    pub fn event_sender(&self) -> mpsc::Sender<PlatformEvent> {
-        self.event_sender.clone()
-    }
-
-    /// Get a reference to a platform adapter by instance ID.
-    pub fn get_adapter(&self, id: &str) -> Option<&dyn Platform> {
-        self.adapters.get(id).map(|b| b.as_ref())
-    }
-
     /// Check whether a platform adapter with the given ID is running.
     pub fn is_running(&self, id: &str) -> bool {
         self.adapters.contains_key(id)
-    }
-
-    /// Send a message through a specific platform adapter.
-    pub async fn send_to_platform(
-        &self,
-        platform_id: &str,
-        message: OutboundMessage,
-    ) -> anyhow::Result<()> {
-        if let Some(adapter) = self.adapters.get(platform_id) {
-            adapter.send_message(message).await
-        } else {
-            anyhow::bail!("Platform adapter '{}' not found", platform_id)
-        }
     }
 
     /// Send a text reply through a specific platform adapter.

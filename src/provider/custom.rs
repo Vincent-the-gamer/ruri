@@ -79,14 +79,6 @@ impl CustomProvider {
         }
     }
 
-    pub fn from_config_file(path: &str, api_key: Option<String>) -> Result<Self, ProviderError> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
-            ProviderError::ConfigError(format!("Failed to read config file: {}", e))
-        })?;
-        let config: CustomProviderConfig = serde_json::from_str(&content)?;
-        Ok(Self::new(config, api_key))
-    }
-
     fn chat_url(&self) -> String {
         let base = self.config.base_url.trim_end_matches('/');
         let path = self.config.chat_path.trim_start_matches('/');

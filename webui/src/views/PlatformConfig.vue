@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, reactive, computed } from "vue";
+import { onMounted, onUnmounted, ref, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { usePlatformStore } from "../stores/platform";
+import * as api from "../api";
 import type {
     PlatformInstance,
     PlatformType,
@@ -25,7 +26,34 @@ const formData = reactive({
     token: "",
     pre_response_reactions: false,
     reaction_emojis: "",
+    // WeChat (weixin_oc) fields
+    weixin_token: "",
+    account_id: "",
+    base_url: "https://ilinkai.weixin.qq.com",
+    cdn_base_url: "https://novac2c.cdn.weixin.qq.com/c2c",
+    weixin_proxy_url: "",
 });
+
+// ─── WeChat QR Login State ─────────────────────────────────────────
+type QrLoginPhase =
+    | "idle"
+    | "loading"
+    | "waiting"
+    | "scanned"
+    | "confirmed"
+    | "expired"
+    | "error";
+
+const qrLoginState = reactive({
+    show: false,
+    phase: "idle" as QrLoginPhase,
+    platformId: "",
+    qrcode: "",
+    qrcodeImgUrl: "",
+    errorMessage: "",
+});
+
+let qrPollTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(() => {
     platformStore.fetchInstances();
@@ -39,6 +67,12 @@ function resetForm() {
     formData.token = "";
     formData.pre_response_reactions = false;
     formData.reaction_emojis = "";
+    // WeChat (weixin_oc) fields
+    formData.weixin_token = "";
+    formData.account_id = "";
+    formData.base_url = "https://ilinkai.weixin.qq.com";
+    formData.cdn_base_url = "https://novac2c.cdn.weixin.qq.com/c2c";
+    formData.weixin_proxy_url = "";
 }
 
 function openCreate() {
@@ -63,6 +97,15 @@ function openEdit(instance: PlatformInstance) {
             (config.pre_response_reactions as boolean) || false;
         const emojis = config.reaction_emojis as string[] | undefined;
         formData.reaction_emojis = emojis ? emojis.join(",") : "";
+    } else if (instance.platform_type === "weixin_oc") {
+        formData.weixin_token = (config.token as string) || "";
+        formData.account_id = (config.account_id as string) || "";
+        formData.base_url =
+            (config.base_url as string) || "https://ilinkai.weixin.qq.com";
+        formData.cdn_base_url =
+            (config.cdn_base_url as string) ||
+            "https://novac2c.cdn.weixin.qq.com/c2c";
+        formData.weixin_proxy_url = (config.proxy_url as string) || "";
     }
     showForm.value = true;
 }
@@ -85,6 +128,20 @@ function buildPlatformConfig(): Record<string, unknown> {
                 .split(",")
                 .map((e: string) => e.trim())
                 .filter(Boolean);
+        }
+        return config;
+    } else if (formData.platform_type === "weixin_oc") {
+        const config: Record<string, unknown> = {};
+        if (formData.weixin_token.trim()) {
+            config.token = formData.weixin_token;
+        }
+        if (formData.account_id.trim()) {
+            config.account_id = formData.account_id;
+        }
+        config.base_url = formData.base_url;
+        config.cdn_base_url = formData.cdn_base_url;
+        if (formData.weixin_proxy_url.trim()) {
+            config.proxy_url = formData.weixin_proxy_url;
         }
         return config;
     }
@@ -134,6 +191,8 @@ function getPlatformLabel(type: PlatformType): string {
             return t("platformConfig.types.dingtalk");
         case "discord":
             return t("platformConfig.types.discord");
+        case "weixin_oc":
+            return t("platformConfig.types.weixinOc");
         default:
             return type;
     }
@@ -145,6 +204,8 @@ function getPlatformIcon(type: PlatformType): string {
             return "💬";
         case "discord":
             return "🎮";
+        case "weixin_oc":
+            return "📱";
         default:
             return "🔗";
     }
@@ -179,6 +240,105 @@ function getStatusLabel(status: PlatformStatus): string {
             return status;
     }
 }
+
+// ─── WeChat QR Login Functions ─────────────────────────────────
+
+function stopQrPoll() {
+    if (qrPollTimer !== null) {
+        clearTimeout(qrPollTimer);
+        qrPollTimer = null;
+    }
+}
+
+function resetQrLogin() {
+    stopQrPoll();
+    qrLoginState.show = false;
+    qrLoginState.phase = "idle";
+    qrLoginState.platformId = "";
+    qrLoginState.qrcode = "";
+    qrLoginState.qrcodeImgUrl = "";
+    qrLoginState.errorMessage = "";
+}
+
+async function startQrLogin(instance: PlatformInstance) {
+    resetQrLogin();
+    qrLoginState.show = true;
+    qrLoginState.platformId = instance.id;
+    qrLoginState.phase = "loading";
+
+    try {
+        const result = await api.weixinQrLoginStart(instance.id);
+        qrLoginState.qrcode = result.qrcode;
+        qrLoginState.qrcodeImgUrl = result.qrcode_img_content;
+        qrLoginState.phase = "waiting";
+        // Start polling
+        pollQrStatus();
+    } catch (e: unknown) {
+        qrLoginState.phase = "error";
+        qrLoginState.errorMessage =
+            e instanceof Error ? e.message : t("platformConfig.qrLoginError");
+    }
+}
+
+async function pollQrStatus() {
+    if (
+        !qrLoginState.qrcode ||
+        qrLoginState.phase === "confirmed" ||
+        qrLoginState.phase === "idle"
+    ) {
+        return;
+    }
+
+    try {
+        const result = await api.weixinQrLoginStatus(
+            qrLoginState.platformId,
+            qrLoginState.qrcode,
+        );
+
+        switch (result.status) {
+            case "wait":
+                qrLoginState.phase = "waiting";
+                break;
+            case "scaned":
+                qrLoginState.phase = "scanned";
+                break;
+            case "confirmed":
+                qrLoginState.phase = "confirmed";
+                stopQrPoll();
+                // Refresh the platform list to reflect the saved token
+                await platformStore.fetchInstances();
+                return;
+            case "expired":
+                qrLoginState.phase = "expired";
+                stopQrPoll();
+                return;
+            default:
+                // Unknown status, keep polling
+                break;
+        }
+
+        // Schedule next poll after 2 seconds
+        qrPollTimer = setTimeout(pollQrStatus, 2000);
+    } catch (e: unknown) {
+        qrLoginState.phase = "error";
+        qrLoginState.errorMessage =
+            e instanceof Error ? e.message : t("platformConfig.qrLoginError");
+        stopQrPoll();
+    }
+}
+
+async function retryQrLogin() {
+    const platformId = qrLoginState.platformId;
+    if (!platformId) return;
+    // Find instance
+    const instance = platformStore.instances.find((i) => i.id === platformId);
+    if (!instance) return;
+    await startQrLogin(instance);
+}
+
+onUnmounted(() => {
+    stopQrPoll();
+});
 </script>
 
 <template>
@@ -417,7 +577,10 @@ function getStatusLabel(status: PlatformStatus): string {
                                     {{
                                         instance.platform_type === "discord"
                                             ? "🤖"
-                                            : "🔑"
+                                            : instance.platform_type ===
+                                                "weixin_oc"
+                                              ? "📱"
+                                              : "🔑"
                                     }}
                                 </span>
                                 <span class="summary-text">
@@ -462,6 +625,18 @@ function getStatusLabel(status: PlatformStatus): string {
                                                 : "—"
                                         }}
                                     </template>
+                                    <template
+                                        v-else-if="
+                                            instance.platform_type ===
+                                            'weixin_oc'
+                                        "
+                                    >
+                                        {{
+                                            (instance.config as any).token
+                                                ? "🔑 Token configured"
+                                                : "⚠️ No token (QR login)"
+                                        }}
+                                    </template>
                                     <template v-else>—</template>
                                 </span>
                             </div>
@@ -469,6 +644,31 @@ function getStatusLabel(status: PlatformStatus): string {
                     </div>
 
                     <div class="card-actions">
+                        <button
+                            v-if="instance.platform_type === 'weixin_oc'"
+                            class="btn btn-accent btn-sm"
+                            @click="startQrLogin(instance)"
+                            :title="t('platformConfig.qrLogin')"
+                        >
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <rect x="3" y="3" width="7" height="7" />
+                                <rect x="14" y="3" width="7" height="7" />
+                                <rect x="3" y="14" width="7" height="7" />
+                                <rect x="14" y="14" width="3" height="3" />
+                                <line x1="21" y1="14" x2="21" y2="14.01" />
+                                <line x1="21" y1="21" x2="21" y2="21.01" />
+                            </svg>
+                            {{ t("platformConfig.qrLogin") }}
+                        </button>
                         <button
                             class="btn btn-ghost btn-sm"
                             @click="openEdit(instance)"
@@ -580,6 +780,9 @@ function getStatusLabel(status: PlatformStatus): string {
                                 <option value="discord">
                                     {{ t("platformConfig.types.discord") }}
                                 </option>
+                                <option value="weixin_oc">
+                                    {{ t("platformConfig.types.weixinOc") }}
+                                </option>
                             </select>
                         </div>
 
@@ -682,6 +885,99 @@ function getStatusLabel(status: PlatformStatus): string {
                             </div>
                         </template>
 
+                        <!-- WeChat (weixin_oc) Config -->
+                        <template v-if="formData.platform_type === 'weixin_oc'">
+                            <div class="form-section-title">
+                                {{ t("platformConfig.weixinOcConfig") }}
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    {{ t("platformConfig.weixinOcToken") }}
+                                </label>
+                                <input
+                                    v-model="formData.weixin_token"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="
+                                        t(
+                                            'platformConfig.weixinOcTokenPlaceholder',
+                                        )
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.weixinOcTokenHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    {{
+                                        t("platformConfig.weixinOcAccountId")
+                                    }}</label
+                                >
+                                <input
+                                    v-model="formData.account_id"
+                                    type="text"
+                                    class="form-input"
+                                    placeholder="xxxx@im.bot"
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.weixinOcAccountIdHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    {{
+                                        t("platformConfig.weixinOcBaseUrl")
+                                    }}</label
+                                >
+                                <input
+                                    v-model="formData.base_url"
+                                    type="text"
+                                    class="form-input"
+                                    placeholder="https://ilinkai.weixin.qq.com"
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.weixinOcBaseUrlHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    {{
+                                        t("platformConfig.weixinOcCdnBaseUrl")
+                                    }}</label
+                                >
+                                <input
+                                    v-model="formData.cdn_base_url"
+                                    type="text"
+                                    class="form-input"
+                                    placeholder="https://novac2c.cdn.weixin.qq.com/c2c"
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.weixinOcCdnBaseUrlHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    {{
+                                        t("platformConfig.weixinOcProxyUrl")
+                                    }}</label
+                                >
+                                <input
+                                    v-model="formData.weixin_proxy_url"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="
+                                        t(
+                                            'platformConfig.weixinOcProxyUrlPlaceholder',
+                                        )
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.weixinOcProxyUrlHint")
+                                }}</span>
+                            </div>
+                        </template>
+
                         <!-- Enable toggle -->
                     </div>
                     <div class="modal-footer">
@@ -702,6 +998,227 @@ function getStatusLabel(status: PlatformStatus): string {
                         >
                             {{ t("platformConfig.save") }}
                         </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
+        <!-- QR Login Modal -->
+        <Teleport to="body">
+            <div
+                v-if="qrLoginState.show"
+                class="persona-modal-overlay"
+                @click="resetQrLogin"
+            >
+                <div class="persona-modal-content glass qr-modal" @click.stop>
+                    <div class="modal-header">
+                        <h2 class="modal-title">
+                            {{ t("platformConfig.qrLoginTitle") }}
+                        </h2>
+                        <button class="modal-close" @click="resetQrLogin">
+                            <svg
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="qr-modal-body">
+                        <p class="qr-desc">
+                            {{ t("platformConfig.qrLoginDesc") }}
+                        </p>
+
+                        <!-- Loading state -->
+                        <div
+                            v-if="qrLoginState.phase === 'loading'"
+                            class="qr-loading"
+                        >
+                            <div class="loading-spinner"></div>
+                            <span class="loading-text">{{
+                                t("platformConfig.qrLoginStarting")
+                            }}</span>
+                        </div>
+
+                        <!-- QR code display -->
+                        <div
+                            v-else-if="
+                                [
+                                    'waiting',
+                                    'scanned',
+                                    'confirmed',
+                                    'expired',
+                                    'error',
+                                ].includes(qrLoginState.phase)
+                            "
+                            class="qr-code-section"
+                        >
+                            <div
+                                class="qr-image-wrapper"
+                                :class="{
+                                    'qr-confirmed':
+                                        qrLoginState.phase === 'confirmed',
+                                    'qr-expired':
+                                        qrLoginState.phase === 'expired',
+                                    'qr-error': qrLoginState.phase === 'error',
+                                }"
+                            >
+                                <img
+                                    v-if="qrLoginState.qrcodeImgUrl"
+                                    :src="qrLoginState.qrcodeImgUrl"
+                                    alt="WeChat QR Code"
+                                    class="qr-image"
+                                />
+                                <div
+                                    v-if="qrLoginState.phase === 'confirmed'"
+                                    class="qr-overlay qr-overlay-success"
+                                >
+                                    <svg
+                                        width="48"
+                                        height="48"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
+                                        />
+                                        <polyline
+                                            points="22 4 12 14.01 9 11.01"
+                                        />
+                                    </svg>
+                                </div>
+                                <div
+                                    v-if="qrLoginState.phase === 'expired'"
+                                    class="qr-overlay qr-overlay-warning"
+                                >
+                                    <svg
+                                        width="48"
+                                        height="48"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="12" y1="8" x2="12" y2="12" />
+                                        <line
+                                            x1="12"
+                                            y1="16"
+                                            x2="12.01"
+                                            y2="16"
+                                        />
+                                    </svg>
+                                </div>
+                                <div
+                                    v-if="qrLoginState.phase === 'error'"
+                                    class="qr-overlay qr-overlay-error"
+                                >
+                                    <svg
+                                        width="48"
+                                        height="48"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="15" y1="9" x2="9" y2="15" />
+                                        <line x1="9" y1="9" x2="15" y2="15" />
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <div class="qr-status-text">
+                                <template
+                                    v-if="qrLoginState.phase === 'waiting'"
+                                >
+                                    <span
+                                        class="qr-status-dot qr-status-dot-pulse"
+                                    ></span>
+                                    {{ t("platformConfig.qrLoginWaiting") }}
+                                </template>
+                                <template
+                                    v-else-if="qrLoginState.phase === 'scanned'"
+                                >
+                                    <span
+                                        class="qr-status-dot qr-status-dot-scanned"
+                                    ></span>
+                                    {{ t("platformConfig.qrLoginScanned") }}
+                                </template>
+                                <template
+                                    v-else-if="
+                                        qrLoginState.phase === 'confirmed'
+                                    "
+                                >
+                                    <span
+                                        class="qr-status-dot qr-status-dot-confirmed"
+                                    ></span>
+                                    {{ t("platformConfig.qrLoginConfirmed") }}
+                                </template>
+                                <template
+                                    v-else-if="qrLoginState.phase === 'expired'"
+                                >
+                                    {{ t("platformConfig.qrLoginExpired") }}
+                                </template>
+                                <template
+                                    v-else-if="qrLoginState.phase === 'error'"
+                                >
+                                    {{ t("platformConfig.qrLoginError") }}
+                                    <div
+                                        v-if="qrLoginState.errorMessage"
+                                        class="qr-error-msg"
+                                    >
+                                        {{ qrLoginState.errorMessage }}
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <template v-if="qrLoginState.phase === 'confirmed'">
+                            <button
+                                class="btn btn-accent"
+                                @click="resetQrLogin"
+                            >
+                                {{ t("platformConfig.qrLoginClose") }}
+                            </button>
+                        </template>
+                        <template
+                            v-else-if="
+                                qrLoginState.phase === 'expired' ||
+                                qrLoginState.phase === 'error'
+                            "
+                        >
+                            <button class="btn btn-ghost" @click="resetQrLogin">
+                                {{ t("platformConfig.qrLoginClose") }}
+                            </button>
+                            <button
+                                class="btn btn-accent"
+                                @click="retryQrLogin"
+                            >
+                                {{ t("platformConfig.qrLoginRetry") }}
+                            </button>
+                        </template>
+                        <template v-else>
+                            <button class="btn btn-ghost" @click="resetQrLogin">
+                                {{ t("platformConfig.qrLoginClose") }}
+                            </button>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -1376,6 +1893,134 @@ select.form-input {
     gap: 0.5rem;
     padding: 1rem 1.25rem;
     border-top: 1px solid hsl(var(--border) / 0.2);
+}
+
+/* QR Login Modal */
+.qr-modal {
+    max-width: 400px;
+}
+
+.qr-modal-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.qr-desc {
+    font-size: 0.85rem;
+    color: hsl(var(--muted-foreground));
+    text-align: center;
+    margin: 0;
+}
+
+.qr-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2rem 0;
+}
+
+.qr-code-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.qr-image-wrapper {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    border: 2px solid hsl(var(--border) / 0.3);
+    background: #fff;
+    transition: all 0.3s ease;
+}
+
+.qr-image-wrapper.qr-confirmed,
+.qr-image-wrapper.qr-expired,
+.qr-image-wrapper.qr-error {
+    filter: blur(2px);
+}
+
+.qr-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.qr-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: hsl(var(--background) / 0.75);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.qr-overlay-success {
+    color: #22c55e;
+}
+
+.qr-overlay-warning {
+    color: #f59e0b;
+}
+
+.qr-overlay-error {
+    color: #ef4444;
+}
+
+.qr-status-text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: hsl(var(--foreground));
+    text-align: center;
+}
+
+.qr-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.qr-status-dot-pulse {
+    background: #3b82f6;
+    animation: qrPulse 1.5s ease-in-out infinite;
+}
+
+.qr-status-dot-scanned {
+    background: #f59e0b;
+    animation: qrPulse 1s ease-in-out infinite;
+}
+
+.qr-status-dot-confirmed {
+    background: #22c55e;
+}
+
+@keyframes qrPulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+    }
+}
+
+.qr-error-msg {
+    font-size: 0.75rem;
+    color: #ef4444;
+    margin-top: 0.25rem;
 }
 
 /* Responsive */

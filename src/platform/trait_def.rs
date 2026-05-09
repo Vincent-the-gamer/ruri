@@ -1,6 +1,5 @@
 use crate::platform::types::{
-    MessageType, OutboundContent, OutboundMessage, PlatformMessage, PlatformMetadata,
-    PlatformStatus,
+    MessageType, OutboundContent, OutboundMessage, PlatformMessage, PlatformStatus,
 };
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -14,9 +13,6 @@ use tokio::sync::mpsc;
 /// - Receives outbound messages and delivers them to the platform
 #[async_trait]
 pub trait Platform: Send + Sync {
-    /// Return metadata about this platform adapter.
-    fn meta(&self) -> PlatformMetadata;
-
     /// Start the platform adapter (connect, listen, etc.).
     ///
     /// The adapter should:

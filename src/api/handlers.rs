@@ -2,12 +2,12 @@ use axum::extract::ws::Utf8Bytes;
 use axum::{
     Json, Router,
     extract::{
-        Path, Request, State,
+        Path, Query, Request, State,
         ws::{WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
     response::Response,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
 };
 use chrono::Utc;
 use tracing::{debug, error};
@@ -211,6 +211,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .delete(delete_platform),
         )
         .route("/api/platforms/{id}/restart", post(restart_platform))
+        .route(
+            "/api/platforms/{id}/weixin-qr-login",
+            post(weixin_qr_login_start),
+        )
+        .route(
+            "/api/platforms/{id}/weixin-qr-status",
+            get(weixin_qr_login_status),
+        )
         // System
         .route("/api/system/restart", post(restart_system))
         .with_state(state)
@@ -1916,7 +1924,9 @@ async fn activate_platforms_for_profile(state: &Arc<AppState>, _active_platform_
 }
 
 /// List all built-in commands
-async fn list_builtin_commands(State(state): State<Arc<AppState>>) -> Json<Vec<crate::command::BuiltinCommandInfo>> {
+async fn list_builtin_commands(
+    State(state): State<Arc<AppState>>,
+) -> Json<Vec<crate::command::BuiltinCommandInfo>> {
     let dispatcher = state.command_dispatcher.read().await;
     let profiles = state.config_profiles.read().await;
     let prefix = profiles
@@ -2525,7 +2535,7 @@ async fn create_platform(
 ) -> Response {
     // Validate the platform type
     match req.platform_type.as_str() {
-        "dingtalk" | "discord" => {}
+        "dingtalk" | "discord" | "weixin_oc" => {}
         other => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -2854,6 +2864,187 @@ async fn restart_platform(State(state): State<Arc<AppState>>, Path(id): Path<Str
         None => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Platform not found after restart"})),
+        )
+            .into_response(),
+    }
+}
+
+// ─── WeChat QR Login Handlers ──────────────────────────────────────
+
+/// Start a WeChat QR code login session.
+///
+/// POST /api/platforms/:id/weixin-qr-login
+async fn weixin_qr_login_start(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    use crate::platform::weixin_oc::api::WeixinApi;
+    use crate::platform::weixin_oc::config::WeixinOcConfig;
+
+    // Find the platform config
+    let platform_config = {
+        let configs = state.platform_configs.read().await;
+        configs.iter().find(|c| c.id == id).cloned()
+    };
+
+    let Some(config) = platform_config else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response();
+    };
+
+    // Verify it's a weixin_oc platform
+    if config.platform_type != "weixin_oc" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "QR login is only supported for weixin_oc platform type"})),
+        )
+            .into_response();
+    }
+
+    // Deserialize config into WeixinOcConfig
+    let weixin_config: WeixinOcConfig = match serde_json::from_value(config.extra.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid weixin_oc config: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+
+    // Create the API client and start QR login
+    let api = match WeixinApi::new(weixin_config) {
+        Ok(api) => api,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to create WeixinApi: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+
+    match api.qr_login_start().await {
+        Ok(qr_resp) => Json(json!({
+            "qrcode": qr_resp.qrcode,
+            "qrcode_img_content": qr_resp.qrcode_img_content,
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("QR login start failed: {}", e)})),
+        )
+            .into_response(),
+    }
+}
+
+/// Check WeChat QR code login status.
+///
+/// GET /api/platforms/:id/weixin-qr-status?qrcode=xxx
+#[derive(Deserialize)]
+struct WeixinQrStatusQuery {
+    qrcode: String,
+}
+
+async fn weixin_qr_login_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(query): Query<WeixinQrStatusQuery>,
+) -> Response {
+    use crate::platform::weixin_oc::api::WeixinApi;
+    use crate::platform::weixin_oc::config::WeixinOcConfig;
+
+    // Find the platform config
+    let platform_config = {
+        let configs = state.platform_configs.read().await;
+        configs.iter().find(|c| c.id == id).cloned()
+    };
+
+    let Some(config) = platform_config else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Platform not found"})),
+        )
+            .into_response();
+    };
+
+    // Verify it's a weixin_oc platform
+    if config.platform_type != "weixin_oc" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "QR login is only supported for weixin_oc platform type"})),
+        )
+            .into_response();
+    }
+
+    // Deserialize config into WeixinOcConfig
+    let weixin_config: WeixinOcConfig = match serde_json::from_value(config.extra.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid weixin_oc config: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+
+    // Create the API client and poll QR status
+    let api = match WeixinApi::new(weixin_config) {
+        Ok(api) => api,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to create WeixinApi: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+
+    match api.qr_login_wait(&query.qrcode, 5000).await {
+        Ok(status_resp) => {
+            let status = status_resp.status.clone();
+
+            // If confirmed, save token and account_id to the platform config
+            if status == "confirmed" {
+                if let (Some(token), Some(account_id)) =
+                    (&status_resp.bot_token, &status_resp.ilink_bot_id)
+                {
+                    let mut configs = state.platform_configs.write().await;
+                    if let Some(cfg) = configs.iter_mut().find(|c| c.id == id) {
+                        if let Some(obj) = cfg.extra.as_object_mut() {
+                            obj.insert(
+                                "token".to_string(),
+                                serde_json::Value::String(token.clone()),
+                            );
+                            obj.insert(
+                                "account_id".to_string(),
+                                serde_json::Value::String(account_id.clone()),
+                            );
+                        }
+                    }
+                    drop(configs);
+                    state.save_platforms_config().await.ok();
+                }
+            }
+
+            Json(json!({
+                "status": status_resp.status,
+                "bot_token": status_resp.bot_token,
+                "ilink_bot_id": status_resp.ilink_bot_id,
+                "baseurl": status_resp.baseurl,
+                "ilink_user_id": status_resp.ilink_user_id,
+                "redirect_host": status_resp.redirect_host,
+            }))
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("QR status poll failed: {}", e)})),
         )
             .into_response(),
     }

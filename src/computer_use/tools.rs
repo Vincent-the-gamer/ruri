@@ -4,7 +4,6 @@ use crate::computer_use::workspace::WorkspaceManager;
 use crate::types::{ParameterType, ToolDefinition};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
@@ -16,7 +15,6 @@ pub struct ComputerUseContext {
     pub session_id: String,
     pub permission_checker: Arc<PermissionChecker>,
     pub workspace_manager: Arc<WorkspaceManager>,
-    pub working_dir: Option<PathBuf>,
 }
 
 /// Shell tool with permission checking
@@ -262,11 +260,6 @@ impl Tool for PythonTool {
             )))
         }
     }
-}
-
-/// Helper function to parse JSON arguments
-fn parse_args(args: &str) -> Result<Value, ToolError> {
-    serde_json::from_str(args).map_err(|e| ToolError::InvalidArguments(e.to_string()))
 }
 
 /// Check if a command contains dangerous patterns

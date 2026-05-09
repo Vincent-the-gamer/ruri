@@ -52,7 +52,7 @@ onMounted(() => {
                         class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
                     >
                         <img :src="ruriAvatar" alt="Ruri" class="logo-avatar" />
-                        <span>Ruri</span>
+                        <span>Ruri 琉璃</span>
                     </router-link>
 
                     <!-- Right side: Locale & Theme Toggle -->

@@ -32,24 +32,6 @@ impl OpenAIProvider {
         }
     }
 
-    /// Create a provider for the official OpenAI API.
-    pub fn from_env() -> Result<Self, ProviderError> {
-        let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-            ProviderError::ConfigError("OPENAI_API_KEY environment variable not set".into())
-        })?;
-        Ok(Self::new(
-            "https://api.openai.com/v1",
-            Some(api_key),
-            "gpt-4o",
-        ))
-    }
-
-    /// Add a custom header to every request.
-    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.extra_headers.push((key.into(), value.into()));
-        self
-    }
-
     /// Build the full endpoint URL.
     fn chat_url(&self) -> String {
         let base = self.base_url.trim_end_matches('/');

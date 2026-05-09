@@ -761,15 +761,6 @@ impl WebSearchTool {
     pub fn new(config: std::sync::Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>>) -> Self {
         Self { config }
     }
-
-    /// Create a new WebSearchTool with default configuration.
-    pub fn with_default_config() -> Self {
-        Self {
-            config: std::sync::Arc::new(tokio::sync::RwLock::new(
-                crate::types::WebSearchConfig::default(),
-            )),
-        }
-    }
 }
 
 #[async_trait]
@@ -1049,7 +1040,8 @@ async fn search_tavily(
         #[serde(default)]
         raw_content: Option<String>,
         #[serde(default)]
-        score: Option<f64>,
+        #[serde(rename = "score")]
+        _score: Option<f64>,
     }
 
     let client = reqwest::Client::builder()
@@ -1253,7 +1245,8 @@ async fn search_brave(
         #[serde(default)]
         description: Option<String>,
         #[serde(default)]
-        page_age: Option<String>,
+        #[serde(rename = "page_age")]
+        _page_age: Option<String>,
     }
 
     #[derive(serde::Deserialize)]

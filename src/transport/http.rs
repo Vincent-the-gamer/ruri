@@ -15,8 +15,6 @@ pub struct HttpTransportConfig {
     pub retry_on_rate_limit: bool,
     /// Whether to retry on server errors (5xx).
     pub retry_on_server_error: bool,
-    /// Custom HTTP headers to add to every request.
-    pub default_headers: Vec<(String, String)>,
 }
 
 impl Default for HttpTransportConfig {
@@ -27,34 +25,7 @@ impl Default for HttpTransportConfig {
             retry_base_delay_ms: 1000,
             retry_on_rate_limit: true,
             retry_on_server_error: true,
-            default_headers: Vec::new(),
         }
-    }
-}
-
-impl HttpTransportConfig {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_timeout(mut self, secs: u64) -> Self {
-        self.timeout_secs = secs;
-        self
-    }
-
-    pub fn with_max_retries(mut self, retries: u32) -> Self {
-        self.max_retries = retries;
-        self
-    }
-
-    pub fn with_retry_base_delay(mut self, ms: u64) -> Self {
-        self.retry_base_delay_ms = ms;
-        self
-    }
-
-    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.default_headers.push((key.into(), value.into()));
-        self
     }
 }
 
@@ -71,12 +42,11 @@ pub struct HttpTransport {
 }
 
 impl HttpTransport {
-    pub fn new(provider: Box<dyn Provider>, config: HttpTransportConfig) -> Self {
-        Self { provider, config }
-    }
-
     pub fn with_default_config(provider: Box<dyn Provider>) -> Self {
-        Self::new(provider, HttpTransportConfig::default())
+        Self {
+            provider,
+            config: HttpTransportConfig::default(),
+        }
     }
 
     /// Send a chat request through the transport layer.

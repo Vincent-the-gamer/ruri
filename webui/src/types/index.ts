@@ -420,7 +420,7 @@ export interface ApiResponse<T = unknown> {
 
 // ─── Platform Types ──────────────────────────────────────────
 
-export type PlatformType = 'dingtalk' | 'discord'
+export type PlatformType = 'dingtalk' | 'discord' | 'weixin_oc'
 
 export type PlatformStatus = 'running' | 'stopped' | 'pending' | 'error'
 
@@ -435,7 +435,15 @@ export interface DiscordPlatformConfig {
   reaction_emojis?: string[]
 }
 
-export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig
+export interface WeixinOcPlatformConfig {
+  token?: string
+  account_id?: string
+  base_url?: string
+  cdn_base_url?: string
+  proxy_url?: string
+}
+
+export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig | WeixinOcPlatformConfig
 
 export interface PlatformInstance {
   id: string
@@ -454,6 +462,11 @@ export interface CreatePlatformRequest {
   token?: string
   pre_response_reactions?: boolean
   reaction_emojis?: string[]
+  // WeChat (weixin_oc) fields
+  account_id?: string
+  base_url?: string
+  cdn_base_url?: string
+  proxy_url?: string
 }
 
 export interface UpdatePlatformRequest {
@@ -466,6 +479,11 @@ export interface UpdatePlatformRequest {
   token?: string
   pre_response_reactions?: boolean
   reaction_emojis?: string[]
+  // WeChat (weixin_oc) fields
+  account_id?: string
+  base_url?: string
+  cdn_base_url?: string
+  proxy_url?: string
 }
 
 // ─── Proxy Config Types ──────────────────────────────────────────

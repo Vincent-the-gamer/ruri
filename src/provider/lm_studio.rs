@@ -13,13 +13,10 @@ use async_trait::async_trait;
 /// ```rust,ignore
 /// use ruri::provider::lm_studio::LmStudioProvider;
 ///
-/// // Use defaults (localhost:1234)
-/// let provider = LmStudioProvider::new("llama-3.1-8b");
-///
-/// // Custom port
+/// // Use builder pattern
 /// let provider = LmStudioProvider::builder()
 ///     .port(8080)
-///     .default_model("mistral-7b")
+///     .default_model("llama-3.1-8b")
 ///     .build();
 ///
 /// // With API key (if LM Studio is configured to require one)
@@ -31,8 +28,6 @@ use async_trait::async_trait;
 pub struct LmStudioProvider {
     /// Internal OpenAI-compatible provider.
     inner: crate::provider::openai::OpenAIProvider,
-    /// Configured port for LM Studio server.
-    port: u16,
 }
 
 /// Builder for `LmStudioProvider`.
@@ -41,7 +36,6 @@ pub struct LmStudioProviderBuilder {
     port: u16,
     api_key: Option<String>,
     default_model: String,
-    extra_headers: Vec<(String, String)>,
 }
 
 impl LmStudioProviderBuilder {
@@ -52,7 +46,6 @@ impl LmStudioProviderBuilder {
             port: 1234,
             api_key: None,
             default_model: "local-model".into(),
-            extra_headers: Vec::new(),
         }
     }
 
@@ -90,30 +83,17 @@ impl LmStudioProviderBuilder {
         self
     }
 
-    /// Add a custom header to every request.
-    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.extra_headers.push((key.into(), value.into()));
-        self
-    }
-
     /// Build the `LmStudioProvider`.
     pub fn build(self) -> LmStudioProvider {
         let base_url = format!("http://{}:{}", self.host, self.port);
 
-        let mut inner = crate::provider::openai::OpenAIProvider::new(
+        let inner = crate::provider::openai::OpenAIProvider::new(
             &base_url,
             self.api_key,
             &self.default_model,
         );
 
-        for (key, value) in self.extra_headers {
-            inner = inner.with_header(key, value);
-        }
-
-        LmStudioProvider {
-            inner,
-            port: self.port,
-        }
+        LmStudioProvider { inner }
     }
 }
 
@@ -124,88 +104,9 @@ impl Default for LmStudioProviderBuilder {
 }
 
 impl LmStudioProvider {
-    /// Create a new `LmStudioProvider` with the default model.
-    ///
-    /// Uses the default host (`localhost`) and port (`1234`).
-    pub fn new(default_model: impl Into<String>) -> Self {
-        Self::builder().default_model(default_model).build()
-    }
-
-    /// Create a new `LmStudioProvider` with a custom port.
-    pub fn with_port(default_model: impl Into<String>, port: u16) -> Self {
-        Self::builder()
-            .port(port)
-            .default_model(default_model)
-            .build()
-    }
-
-    /// Create a new `LmStudioProvider` with a custom host and port.
-    pub fn with_host_and_port(
-        default_model: impl Into<String>,
-        host: impl Into<String>,
-        port: u16,
-    ) -> Self {
-        Self::builder()
-            .host(host)
-            .port(port)
-            .default_model(default_model)
-            .build()
-    }
-
     /// Create a builder for `LmStudioProvider`.
     pub fn builder() -> LmStudioProviderBuilder {
         LmStudioProviderBuilder::new()
-    }
-
-    /// Get the configured port.
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
-    /// Get a reference to the inner OpenAI-compatible provider.
-    pub fn inner(&self) -> &crate::provider::openai::OpenAIProvider {
-        &self.inner
-    }
-
-    /// Check if the LM Studio server is reachable.
-    ///
-    /// Sends a lightweight request to the `/v1/models` endpoint to verify
-    /// that the server is running and accessible.
-    pub async fn ping(&self) -> Result<bool, ProviderError> {
-        let url = format!("http://localhost:{}/v1/models", self.port);
-        let client = reqwest::Client::new();
-
-        match client.get(&url).send().await {
-            Ok(response) => Ok(response.status().is_success()),
-            Err(_) => Ok(false),
-        }
-    }
-
-    /// List available models from the LM Studio server.
-    pub async fn list_models(&self) -> Result<Vec<String>, ProviderError> {
-        let url = format!("http://localhost:{}/v1/models", self.port);
-        let client = reqwest::Client::new();
-
-        let response = client.get(&url).send().await?;
-
-        if !response.status().is_success() {
-            return Err(ProviderError::ApiError {
-                status: response.status().as_u16(),
-                message: "Failed to list models".into(),
-            });
-        }
-
-        let body: serde_json::Value = response.json().await?;
-
-        body.get("data")
-            .and_then(|data| data.as_array())
-            .map(|models| {
-                models
-                    .iter()
-                    .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(String::from))
-                    .collect()
-            })
-            .ok_or_else(|| ProviderError::Custom("Failed to parse model list".into()))
     }
 }
 

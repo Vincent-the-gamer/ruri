@@ -32,10 +32,7 @@ pub mod discord;
 pub mod manager;
 pub mod trait_def;
 pub mod types;
+pub mod weixin_oc;
 
-#[allow(unused_imports)]
 pub use manager::PlatformManager;
-#[allow(unused_imports)]
-pub use trait_def::{Platform, PlatformEvent};
-#[allow(unused_imports)]
-pub use types::*;
+pub use trait_def::PlatformEvent;

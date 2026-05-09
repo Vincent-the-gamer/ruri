@@ -31,9 +31,6 @@ pub(crate) const ENDPOINT_GROUP_MESSAGE_SEND: &str =
     "https://api.dingtalk.com/v1.0/robot/groupMessages/send";
 pub(crate) const ENDPOINT_OTO_MESSAGE_SEND: &str =
     "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend";
-pub(crate) const ENDPOINT_FILE_DOWNLOAD: &str =
-    "https://api.dingtalk.com/v1.0/robot/messageFiles/download";
-
 /// DingTalk Stream message topic for bot messages.
 pub(crate) const TOPIC_BOT_MESSAGE: &str = "/v1.0/im/bot/messages/get";
 

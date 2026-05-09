@@ -119,23 +119,12 @@ impl ComputerUseConfig {
         }
     }
 
-    /// Check if computer use is enabled
-    pub fn is_enabled(&self) -> bool {
-        self.runtime != ComputerUseRuntime::None
-    }
-
     /// Check if user can use shell/python tools
     pub fn can_use_power_tools(&self, user_id: &str) -> bool {
         if !self.require_admin {
             return true;
         }
         self.is_admin(user_id)
-    }
-
-    /// Check if user can use file tools
-    pub fn can_use_file_tools(&self, _user_id: &str) -> bool {
-        // File tools are available to all users, but with directory restrictions
-        self.is_enabled()
     }
 }
 

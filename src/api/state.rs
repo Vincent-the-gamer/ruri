@@ -452,26 +452,11 @@ impl AppState {
         }
     }
 
-    /// Get the config file path.
-    pub fn config_path(&self) -> &Path {
-        &self.config_path
-    }
-
     // ─── Persistence ──────────────────────────────────────────────
 
     /// Load a PersistedConfig from a file (sync, used during construction).
     fn load_from_file_sync(path: &Path) -> anyhow::Result<PersistedConfig> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read config file: {}", e))?;
-        let config: PersistedConfig = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))?;
-        Ok(config)
-    }
-
-    /// Load a PersistedConfig from a file (async).
-    pub async fn load_from_file(path: &Path) -> anyhow::Result<PersistedConfig> {
-        let content = tokio::fs::read_to_string(path)
-            .await
             .map_err(|e| anyhow::anyhow!("Failed to read config file: {}", e))?;
         let config: PersistedConfig = serde_json::from_str(&content)
             .map_err(|e| anyhow::anyhow!("Failed to parse config file: {}", e))?;
@@ -1020,11 +1005,6 @@ impl AppState {
         result
     }
 
-    /// Build a fully configured Agent from the current state.
-    pub async fn build_agent(&self) -> Result<Agent, String> {
-        self.build_agent_with_context(None, None, None).await
-    }
-
     /// Build a fully configured Agent with user context for computer use capabilities.
     pub async fn build_agent_with_context(
         &self,
@@ -1137,7 +1117,6 @@ impl AppState {
                     session_id: session_id.to_string(),
                     permission_checker,
                     workspace_manager,
-                    working_dir: None,
                 });
 
                 // Check if user can use power tools

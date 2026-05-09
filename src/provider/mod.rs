@@ -18,17 +18,11 @@ pub enum ProviderError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
-    #[error("Configuration error: {0}")]
-    ConfigError(String),
-
     #[error("Rate limit exceeded")]
     RateLimitExceeded,
 
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
-
-    #[error("Model not found: {0}")]
-    ModelNotFound(String),
 
     #[error("Request timeout")]
     Timeout,

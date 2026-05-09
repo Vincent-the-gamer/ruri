@@ -60,34 +60,3 @@ impl Default for WebSearchConfig {
         }
     }
 }
-
-impl WebSearchConfig {
-    /// Create a new WebSearchConfig with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the search engine.
-    pub fn with_search_engine(mut self, engine: SearchEngine) -> Self {
-        self.search_engine = engine;
-        self
-    }
-
-    /// Set the API key.
-    pub fn with_api_key(mut self, key: impl Into<String>) -> Self {
-        self.api_key = Some(key.into());
-        self
-    }
-
-    /// Set the maximum number of results.
-    pub fn with_max_results(mut self, max: usize) -> Self {
-        self.max_results = max;
-        self
-    }
-
-    /// Enable or disable web search.
-    pub fn with_enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-}

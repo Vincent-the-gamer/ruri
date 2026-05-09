@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
 
 /// The type of chat message (group or private/direct).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -44,16 +43,6 @@ pub enum MessageComponent {
     File { name: String, url: String },
 }
 
-impl MessageComponent {
-    /// Extract plain text from this component, if any.
-    pub fn as_plain(&self) -> Option<&str> {
-        match self {
-            MessageComponent::Plain { text } => Some(text),
-            _ => None,
-        }
-    }
-}
-
 /// A unified inbound message from any chat platform.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformMessage {
@@ -84,19 +73,6 @@ pub struct PlatformMessage {
     pub raw: Option<serde_json::Value>,
 }
 
-impl PlatformMessage {
-    /// Get the epoch timestamp. Falls back to current time if `timestamp` is 0.
-    pub fn timestamp_or_now(&self) -> u64 {
-        if self.timestamp > 0 {
-            return self.timestamp;
-        }
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-}
-
 /// A message to be sent to a platform.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundMessage {
@@ -124,19 +100,6 @@ pub enum OutboundContent {
         file_name: String,
         file_type: String,
     },
-}
-
-/// Metadata about a registered platform adapter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlatformMetadata {
-    /// Unique platform adapter name (e.g. "dingtalk").
-    pub name: String,
-    /// Human-readable description.
-    pub description: String,
-    /// Instance ID from config.
-    pub id: String,
-    /// Whether the adapter supports streaming (progressive) messages.
-    pub support_streaming_message: bool,
 }
 
 /// Running status of a platform adapter.

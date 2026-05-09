@@ -26,10 +26,6 @@ use crate::provider::Provider;
 /// The agent communicates using the `agent_client_protocol` crate's
 /// `Agent` builder pattern, which handles all JSON-RPC framing,
 /// serialization, and deserialization automatically.
-pub async fn run_acp_server() -> anyhow::Result<()> {
-    run_acp_server_with_config_path(None).await
-}
-
 /// Runs the ACP server with an optional config file path.
 pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> anyhow::Result<()> {
     let config_path = config_path.unwrap_or_else(default_config_path);

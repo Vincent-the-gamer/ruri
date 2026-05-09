@@ -88,3 +88,19 @@ urlencoding = "2"
 
 # Discord platform support
 serenity = { version = "0.12", features = ["client", "gateway", "model", "rustls_backend"] }
+
+# AES-128-ECB encryption for WeChat CDN media
+aes = "0.8"
+ecb = "0.1"
+
+# MD5 hashing for WeChat CDN upload
+md-5 = "0.10"
+
+# QR code generation for WeChat login
+qrcode = "0.14"
+
+# Hex encoding/decoding for CDN AES key parsing
+hex = "0.4"
+
+# Random number generation for WeChat API headers
+rand = "0.8"

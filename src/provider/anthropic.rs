@@ -32,25 +32,8 @@ impl AnthropicProvider {
         }
     }
 
-    pub fn from_env() -> Result<Self, ProviderError> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-            ProviderError::ConfigError("ANTHROPIC_API_KEY environment variable not set".into())
-        })?;
-        Ok(Self::new(api_key, "claude-sonnet-4-20250514"))
-    }
-
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
-        self
-    }
-
-    pub fn with_api_version(mut self, version: impl Into<String>) -> Self {
-        self.api_version = version.into();
-        self
-    }
-
-    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.extra_headers.push((key.into(), value.into()));
         self
     }
 

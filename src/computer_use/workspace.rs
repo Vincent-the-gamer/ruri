@@ -41,36 +41,10 @@ impl WorkspaceManager {
         Ok(workspace_path)
     }
 
-    /// Check if a workspace exists for a given session ID
-    pub async fn workspace_exists(&self, session_id: &str) -> bool {
-        let workspace_path = self.get_workspace_path(session_id);
-        workspace_path.exists()
-    }
-
-    /// Delete a workspace for a given session ID
-    pub async fn delete_workspace(&self, session_id: &str) -> Result<(), WorkspaceError> {
-        let workspace_path = self.get_workspace_path(session_id);
-
-        if workspace_path.exists() {
-            fs::remove_dir_all(&workspace_path).await.map_err(|e| {
-                WorkspaceError::DeleteFailed(workspace_path.display().to_string(), e.to_string())
-            })?;
-
-            info!("Deleted workspace for session '{}'", session_id);
-        }
-
-        Ok(())
-    }
-
     /// Resolve a relative path to an absolute path within the workspace
     pub fn resolve_path(&self, session_id: &str, relative_path: &Path) -> PathBuf {
         let workspace_path = self.get_workspace_path(session_id);
         workspace_path.join(relative_path)
-    }
-
-    /// Get the base directory
-    pub fn base_dir(&self) -> &Path {
-        &self.base_dir
     }
 }
 
@@ -92,9 +66,6 @@ pub fn normalize_session_id(session_id: &str) -> String {
 pub enum WorkspaceError {
     #[error("Failed to create workspace '{0}': {1}")]
     CreateFailed(String, String),
-
-    #[error("Failed to delete workspace '{0}': {1}")]
-    DeleteFailed(String, String),
 }
 
 /// Get the default data directory for ruri
@@ -137,20 +108,6 @@ mod tests {
         let path = manager.create_workspace("test_session").await.unwrap();
         assert!(path.exists());
         assert!(path.is_dir());
-    }
-
-    #[tokio::test]
-    async fn test_delete_workspace() {
-        let temp_dir = tempdir().unwrap();
-        let manager = WorkspaceManager::new(temp_dir.path());
-
-        // Create workspace
-        let path = manager.create_workspace("test_session").await.unwrap();
-        assert!(path.exists());
-
-        // Delete workspace
-        manager.delete_workspace("test_session").await.unwrap();
-        assert!(!path.exists());
     }
 
     #[test]

@@ -22,8 +22,7 @@
 use crate::platform::dingtalk::config::{DingtalkConfig, *};
 use crate::platform::trait_def::{Platform, PlatformEvent};
 use crate::platform::types::{
-    MessageType, OutboundContent, OutboundMessage, PlatformMessage, PlatformMetadata,
-    PlatformStatus,
+    MessageType, OutboundContent, OutboundMessage, PlatformMessage, PlatformStatus,
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -258,15 +257,6 @@ impl DingtalkAdapter {
 
 #[async_trait]
 impl Platform for DingtalkAdapter {
-    fn meta(&self) -> PlatformMetadata {
-        PlatformMetadata {
-            name: "dingtalk".to_string(),
-            description: "钉钉机器人官方 Stream API 适配器".to_string(),
-            id: self.instance_id.clone(),
-            support_streaming_message: false,
-        }
-    }
-
     async fn run(&mut self, event_sender: mpsc::Sender<PlatformEvent>) -> anyhow::Result<()> {
         let config = self.config.clone();
         let instance_id = self.instance_id.clone();

@@ -19,11 +19,6 @@ pub trait Skill: Send + Sync {
     /// The name of this skill.
     fn name(&self) -> &str;
 
-    /// Optional description of what this skill does.
-    fn description(&self) -> &str {
-        ""
-    }
-
     /// Called once when the skill is attached to an Agent.
     /// Return a list of system messages that should be injected.
     async fn on_attach(&self) -> Vec<ChatMessage> {
@@ -76,10 +71,6 @@ impl Skill for SystemPromptSkill {
         "system_prompt"
     }
 
-    fn description(&self) -> &str {
-        "Injects a system prompt to guide the model's behavior"
-    }
-
     async fn on_attach(&self) -> Vec<ChatMessage> {
         vec![ChatMessage::system(&self.prompt)]
     }
@@ -100,10 +91,6 @@ impl MemorySkill {
 impl Skill for MemorySkill {
     fn name(&self) -> &str {
         "memory"
-    }
-
-    fn description(&self) -> &str {
-        "Manages conversation memory with a configurable message limit"
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
@@ -140,10 +127,6 @@ impl ContextPrefixSkill {
 impl Skill for ContextPrefixSkill {
     fn name(&self) -> &str {
         "context_prefix"
-    }
-
-    fn description(&self) -> &str {
-        "Prefixes user messages with additional context"
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {

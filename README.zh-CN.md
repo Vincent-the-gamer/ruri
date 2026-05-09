@@ -20,7 +20,7 @@
 - [ ] Sub Agent
 - [x] 聊天 - Discord
 - [ ] 聊天 - OneBot V11
-- [ ] 聊天 - 微信 (Wechat ClawBot)
+- [x] 聊天 - 微信 (Wechat ClawBot)
 - [ ] 聊天 - Matrix
 - [ ] 聊天 - VoceChat
 - [ ] 聊天 - QQ

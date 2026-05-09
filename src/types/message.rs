@@ -197,11 +197,6 @@ impl ChatMessage {
             tool_call_id: Some(tool_call_id.into()),
         }
     }
-
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = Some(name.into());
-        self
-    }
 }
 
 impl ChatRequest {
@@ -223,23 +218,8 @@ impl ChatRequest {
         self
     }
 
-    pub fn with_temperature(mut self, temperature: f64) -> Self {
-        self.temperature = Some(temperature);
-        self
-    }
-
-    pub fn with_max_tokens(mut self, max_tokens: u64) -> Self {
-        self.max_tokens = Some(max_tokens);
-        self
-    }
-
     pub fn with_tools(mut self, tools: Vec<ToolDefinition>) -> Self {
         self.tools = Some(tools);
-        self
-    }
-
-    pub fn with_extra(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.extra.insert(key.into(), value);
         self
     }
 }
@@ -255,13 +235,6 @@ impl MessageContent {
                     None
                 }
             }),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            MessageContent::Text(t) => t.is_empty(),
-            MessageContent::Parts(parts) => parts.is_empty(),
         }
     }
 }

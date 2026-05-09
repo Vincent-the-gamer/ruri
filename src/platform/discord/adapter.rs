@@ -30,7 +30,7 @@ use crate::platform::discord::config::DiscordConfig;
 use crate::platform::trait_def::{Platform, PlatformEvent};
 use crate::platform::types::{
     MessageComponent, MessageType, OutboundContent, OutboundMessage, PlatformMessage,
-    PlatformMetadata, PlatformStatus,
+    PlatformStatus,
 };
 use crate::transport::proxy_ws::connect_ws_with_proxy;
 use async_trait::async_trait;
@@ -311,15 +311,6 @@ impl EventHandler for Handler {
 
 #[async_trait]
 impl Platform for DiscordAdapter {
-    fn meta(&self) -> PlatformMetadata {
-        PlatformMetadata {
-            name: "discord".to_string(),
-            description: "Discord 机器人适配器 (基于 serenity)".to_string(),
-            id: self.instance_id.clone(),
-            support_streaming_message: false,
-        }
-    }
-
     async fn run(&mut self, event_sender: mpsc::Sender<PlatformEvent>) -> anyhow::Result<()> {
         let config = self.config.clone();
         let instance_id = self.instance_id.clone();

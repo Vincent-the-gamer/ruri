@@ -94,33 +94,6 @@ pub struct CreateProviderRequest {
 
 // ─── Skill Models ────────────────────────────────────────────────
 
-/// Skill Package Manifest - defines a skill package structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillPackageManifest {
-    /// Unique identifier for the skill
-    pub name: String,
-    /// Human-readable description
-    pub description: String,
-    /// Version of the skill package (e.g., "1.0.0")
-    pub version: String,
-    /// Author information
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<String>,
-    /// Configuration schema for this skill
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_schema: Option<serde_json::Value>,
-    /// Default configuration values
-    #[serde(default)]
-    pub default_config: serde_json::Value,
-    /// Type identifier for the skill
-    #[serde(default = "default_skill_type")]
-    pub skill_type: String,
-}
-
-fn default_skill_type() -> String {
-    "custom".to_string()
-}
-
 /// Parsed skill from a package
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedSkill {
@@ -458,34 +431,6 @@ impl From<&crate::computer_use::ComputerUseConfig> for ComputerUseConfigDto {
                 enable_browser: s.enable_browser,
             }),
         }
-    }
-}
-
-impl ComputerUseConfigDto {
-    /// Convert to ComputerUseConfig
-    pub fn to_config(&self) -> Result<crate::computer_use::ComputerUseConfig, String> {
-        let runtime = match self.runtime.as_str() {
-            "none" => crate::computer_use::ComputerUseRuntime::None,
-            "local" => crate::computer_use::ComputerUseRuntime::Local,
-            "sandbox" => crate::computer_use::ComputerUseRuntime::Sandbox,
-            _ => return Err(format!("Invalid runtime: {}", self.runtime)),
-        };
-
-        Ok(crate::computer_use::ComputerUseConfig {
-            runtime,
-            require_admin: self.require_admin,
-            admin_ids: self.admin_ids.clone(),
-            allowed_paths: self.allowed_paths.clone(),
-            sandbox_config: self.sandbox_config.as_ref().map(|s| {
-                crate::computer_use::SandboxConfig {
-                    driver: s.driver.clone(),
-                    endpoint: s.endpoint.clone(),
-                    profile: s.profile.clone(),
-                    ttl_secs: s.ttl_secs,
-                    enable_browser: s.enable_browser,
-                }
-            }),
-        })
     }
 }
 

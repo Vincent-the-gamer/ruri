@@ -105,10 +105,6 @@ function cancelDelete() {
     deletingId.value = null;
 }
 
-function formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString();
-}
-
 function getProviderName(providerId: string | null): string {
     if (!providerId) return t("config.none");
     const provider = providerStore.providers.find((p) => p.id === providerId);

@@ -295,11 +295,6 @@ impl Default for ProxyConfig {
 }
 
 impl ProxyConfig {
-    /// Create a new ProxyConfig with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Check if a proxy is effectively configured and enabled.
     /// Returns true only when `enabled` is true AND `url` is non-empty.
     pub fn is_configured(&self) -> bool {
@@ -350,70 +345,6 @@ impl ProxyConfig {
             ProxyMode::Global => true,
             ProxyMode::Rules => matches_domain_pattern(host, &self.proxy_domains),
         }
-    }
-
-    /// Get the effective proxy URL if the proxy is configured.
-    /// Returns the URL with credentials embedded if username/password are set.
-    pub fn effective_url(&self) -> Option<String> {
-        if !self.is_configured() {
-            return None;
-        }
-        Some(self.url.clone())
-    }
-
-    /// Set the proxy enabled flag.
-    pub fn with_enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-
-    /// Set the proxy URL.
-    pub fn with_url(mut self, url: impl Into<String>) -> Self {
-        self.url = url.into();
-        self
-    }
-
-    /// Set the proxy mode.
-    pub fn with_mode(mut self, mode: ProxyMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    /// Set the proxy username.
-    pub fn with_username(mut self, username: impl Into<String>) -> Self {
-        self.username = Some(username.into());
-        self
-    }
-
-    /// Set the proxy password.
-    pub fn with_password(mut self, password: impl Into<String>) -> Self {
-        self.password = Some(password.into());
-        self
-    }
-
-    /// Set whether to bypass localhost.
-    pub fn with_bypass_localhost(mut self, bypass: bool) -> Self {
-        self.bypass_localhost = bypass;
-        self
-    }
-
-    /// Get the proxy URL as a string reference.
-    pub fn url(&self) -> Option<&str> {
-        if self.is_configured() {
-            Some(&self.url)
-        } else {
-            None
-        }
-    }
-
-    /// Get the proxy username as a string reference.
-    pub fn username(&self) -> Option<&str> {
-        self.username.as_deref()
-    }
-
-    /// Get the proxy password as a string reference.
-    pub fn password(&self) -> Option<&str> {
-        self.password.as_deref()
     }
 }
 

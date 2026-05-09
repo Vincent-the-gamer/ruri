@@ -6,7 +6,6 @@ use agent_client_protocol::ConnectionTo;
 use agent_client_protocol::schema::ContentBlock;
 use tokio::sync::RwLock;
 
-use crate::agent::acp_tools::RequestManager;
 use crate::agent::runner::{Agent, AgentConfig};
 use crate::agent::skill::Skill;
 use crate::provider::Provider;
@@ -16,8 +15,6 @@ use crate::types::WebSearchConfig;
 pub struct AcpSession {
     /// The ruri Agent instance driving this conversation.
     pub agent: Agent,
-    /// The working directory for this session.
-    pub cwd: String,
     /// Current mode ID.
     pub current_mode: String,
     /// Cancellation flag.
@@ -25,75 +22,12 @@ pub struct AcpSession {
 }
 
 impl AcpSession {
-    /// Create a new ACP session with only built-in tools (backward compatible).
-    pub fn new(provider: Box<dyn Provider>, cwd: String) -> Self {
-        Self::new_with_skills(
-            provider,
-            cwd,
-            Vec::new(),
-            Arc::new(RwLock::new(WebSearchConfig::default())),
-        )
-    }
-
-    /// Create a new ACP session with skills applied.
-    pub fn new_with_skills(
-        provider: Box<dyn Provider>,
-        cwd: String,
-        skills: Vec<Arc<dyn Skill>>,
-        web_search_config: Arc<RwLock<WebSearchConfig>>,
-    ) -> Self {
-        let config = AgentConfig::new()
-            .with_max_tool_rounds(10)
-            .with_auto_execute_tools(true);
-
-        let mut agent = Agent::with_config(provider, config);
-
-        // Add skills before built-in tools so they can be initialized
-        for skill in skills {
-            agent.add_skill(skill);
-        }
-
-        // Register built-in tools
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
-        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
-
-        // Register WebSearchTool only if properly configured
-        let web_search_available = web_search_config
-            .try_read()
-            .map(|config| {
-                config.enabled
-                    && match config.search_engine {
-                        crate::types::SearchEngine::DuckDuckGo => true,
-                        _ => config.api_key.is_some(),
-                    }
-            })
-            .unwrap_or(false);
-
-        if web_search_available {
-            agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
-                web_search_config,
-            )));
-        }
-
-        Self {
-            agent,
-            cwd,
-            current_mode: "ask".to_string(),
-            cancelled: false,
-        }
-    }
-
     /// Create a new ACP session with ACP tools applied.
     pub fn new_with_skills_and_acp(
         provider: Box<dyn Provider>,
-        cwd: String,
+        _cwd: String,
         skills: Vec<Arc<dyn Skill>>,
         _session_id: String,
-        _request_manager: Arc<RequestManager>,
         web_search_config: Arc<RwLock<WebSearchConfig>>,
     ) -> Self {
         let config = AgentConfig::new()
@@ -136,7 +70,6 @@ impl AcpSession {
 
         Self {
             agent,
-            cwd,
             current_mode: "ask".to_string(),
             cancelled: false,
         }
@@ -163,8 +96,6 @@ pub struct SessionManager {
     sessions: RwLock<HashMap<String, AcpSession>>,
     /// Maps session IDs to client connections for sending requests.
     connections: RwLock<HashMap<String, Arc<ConnectionTo<Client>>>>,
-    /// Manages pending ACP requests.
-    request_manager: Arc<RequestManager>,
     /// Web search configuration shared across sessions.
     web_search_config: Arc<RwLock<WebSearchConfig>>,
 }
@@ -175,14 +106,8 @@ impl SessionManager {
         Self {
             sessions: RwLock::new(HashMap::new()),
             connections: RwLock::new(HashMap::new()),
-            request_manager: Arc::new(RequestManager::new()),
             web_search_config,
         }
-    }
-
-    /// Get the request manager for handling ACP responses.
-    pub fn get_request_manager(&self) -> Arc<RequestManager> {
-        Arc::clone(&self.request_manager)
     }
 
     /// Register a connection for a session.
@@ -195,22 +120,6 @@ impl SessionManager {
             .write()
             .await
             .insert(session_id, connection);
-    }
-
-    /// Get a connection for a session.
-    pub async fn get_connection(&self, session_id: &str) -> Option<Arc<ConnectionTo<Client>>> {
-        self.connections.read().await.get(session_id).cloned()
-    }
-
-    /// Remove a connection for a session.
-    pub async fn remove_connection(&self, session_id: &str) {
-        self.connections.write().await.remove(session_id);
-    }
-
-    /// Create a new session and return its ID (backward compatible, no skills).
-    pub async fn create_session(&self, provider: Box<dyn Provider>, cwd: String) -> String {
-        self.create_session_with_skills(provider, cwd, Vec::new())
-            .await
     }
 
     /// Create a new session with skills and return its ID.
@@ -238,7 +147,6 @@ impl SessionManager {
             cwd,
             skills,
             session_id.clone(),
-            Arc::clone(&self.request_manager),
             Arc::clone(&self.web_search_config),
         );
         self.sessions
@@ -267,26 +175,6 @@ impl SessionManager {
         }
     }
 
-    /// Check if a session is cancelled.
-    pub async fn is_cancelled(&self, session_id: &str) -> bool {
-        let sessions = self.sessions.read().await;
-        sessions
-            .get(session_id)
-            .map(|s| s.cancelled)
-            .unwrap_or(true)
-    }
-
-    /// Load an existing session (for session/load support), backward compatible.
-    pub async fn load_session(
-        &self,
-        provider: Box<dyn Provider>,
-        session_id: String,
-        cwd: String,
-    ) -> bool {
-        self.load_session_with_skills(provider, session_id, cwd, Vec::new())
-            .await
-    }
-
     /// Load an existing session with skills applied.
     pub async fn load_session_with_skills(
         &self,
@@ -300,7 +188,6 @@ impl SessionManager {
             cwd,
             skills,
             session_id.clone(),
-            Arc::clone(&self.request_manager),
             Arc::clone(&self.web_search_config),
         );
         self.sessions.write().await.insert(session_id, session);

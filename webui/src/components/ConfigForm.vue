@@ -204,11 +204,6 @@ function removeRule(index: number) {
     formData.value.proxy_config.rules.splice(index, 1);
 }
 
-function formatRule(rule: ProxyRule): string {
-    if (rule.rule_type === "match") return "MATCH";
-    return `${ProxyRuleTypeLabels[rule.rule_type]},${rule.value}`;
-}
-
 function getRuleTypeColor(type: ProxyRuleType): string {
     const colors: Record<ProxyRuleType, string> = {
         domain: "hsl(var(--primary))",

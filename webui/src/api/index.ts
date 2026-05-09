@@ -19,7 +19,6 @@ import type {
   Persona,
   PlatformInstance,
   Provider,
-  ProxyConfig,
   Skill,
   Tool,
   UpdateAcpConfigRequest,
@@ -319,6 +318,25 @@ export async function deletePlatform(id: string): Promise<void> {
 
 export async function restartPlatform(id: string): Promise<PlatformInstance> {
   const res = await client.post(`/api/platforms/${id}/restart`)
+  return res.data
+}
+
+export async function weixinQrLoginStart(id: string): Promise<{ qrcode: string; qrcode_img_content: string }> {
+  const res = await client.post(`/api/platforms/${id}/weixin-qr-login`)
+  return res.data
+}
+
+export async function weixinQrLoginStatus(id: string, qrcode: string): Promise<{
+  status: string
+  bot_token?: string
+  ilink_bot_id?: string
+  baseurl?: string
+  ilink_user_id?: string
+  redirect_host?: string
+}> {
+  const res = await client.get(`/api/platforms/${id}/weixin-qr-status`, {
+    params: { qrcode },
+  })
   return res.data
 }
 
