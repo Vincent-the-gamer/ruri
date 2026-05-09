@@ -2929,11 +2929,50 @@ async fn weixin_qr_login_start(
     };
 
     match api.qr_login_start().await {
-        Ok(qr_resp) => Json(json!({
-            "qrcode": qr_resp.qrcode,
-            "qrcode_img_content": qr_resp.qrcode_img_content,
-        }))
-        .into_response(),
+        Ok(qr_resp) => {
+            // Clean up any previous redirect host from a prior session
+            {
+                let mut configs = state.platform_configs.write().await;
+                if let Some(cfg) = configs.iter_mut().find(|c| c.id == id) {
+                    if let Some(obj) = cfg.extra.as_object_mut() {
+                        obj.remove("_qr_redirect_host");
+                    }
+                }
+            }
+
+            // Generate a base64 PNG QR code image from the qrcode data string.
+            // The qrcode_img_content from the API is a liteapp URL (a webpage, not an image),
+            // so we generate a real QR code image from the qrcode field instead.
+            let qrcode_img_b64 = {
+                use qrcode::QrCode;
+                match QrCode::new(&qr_resp.qrcode_img_content) {
+                    Ok(code) => {
+                        let png = code
+                            .render::<qrcode::render::svg::Color>()
+                            .min_dimensions(256, 256)
+                            .build();
+                        // Wrap SVG in a data URI
+                        format!(
+                            "data:image/svg+xml;base64,{}",
+                            base64::Engine::encode(
+                                &base64::engine::general_purpose::STANDARD,
+                                png.as_bytes()
+                            )
+                        )
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to generate QR code image: {}, using raw URL", e);
+                        qr_resp.qrcode_img_content.clone()
+                    }
+                }
+            };
+
+            Json(json!({
+                "qrcode": qr_resp.qrcode,
+                "qrcode_img_content": qrcode_img_b64,
+            }))
+            .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("QR login start failed: {}", e)})),
@@ -3005,9 +3044,45 @@ async fn weixin_qr_login_status(
         }
     };
 
+    // Apply any previously-stored IDC redirect host
+    if let Some(redirect_host) = config
+        .extra
+        .get("_qr_redirect_host")
+        .and_then(|v| v.as_str())
+    {
+        api.set_qr_redirect_url(redirect_host).await;
+    }
+
     match api.qr_login_wait(&query.qrcode, 5000).await {
         Ok(status_resp) => {
-            let status = status_resp.status.clone();
+            let mut status = status_resp.status.clone();
+
+            // Handle scaned_but_redirect: switch to the redirect host and report as "scanned"
+            // so the frontend keeps polling normally.
+            if status == "scaned_but_redirect" {
+                if let Some(ref host) = status_resp.redirect_host {
+                    tracing::info!(
+                        "IDC redirect for platform '{}', switching QR polling host to: {}",
+                        id,
+                        host
+                    );
+                    // Store the redirect host in the platform config so subsequent
+                    // qr_login_wait calls use it.
+                    {
+                        let mut configs = state.platform_configs.write().await;
+                        if let Some(cfg) = configs.iter_mut().find(|c| c.id == id) {
+                            if let Some(obj) = cfg.extra.as_object_mut() {
+                                obj.insert(
+                                    "_qr_redirect_host".to_string(),
+                                    serde_json::Value::String(host.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+                // From the frontend's perspective, this is equivalent to "scanned"
+                status = "scanned".to_string();
+            }
 
             // If confirmed, save token and account_id to the platform config
             if status == "confirmed" {
@@ -3025,6 +3100,8 @@ async fn weixin_qr_login_status(
                                 "account_id".to_string(),
                                 serde_json::Value::String(account_id.clone()),
                             );
+                            // Clean up temporary redirect host
+                            obj.remove("_qr_redirect_host");
                         }
                     }
                     drop(configs);
@@ -3033,7 +3110,7 @@ async fn weixin_qr_login_status(
             }
 
             Json(json!({
-                "status": status_resp.status,
+                "status": status,
                 "bot_token": status_resp.bot_token,
                 "ilink_bot_id": status_resp.ilink_bot_id,
                 "baseurl": status_resp.baseurl,

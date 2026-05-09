@@ -26,6 +26,8 @@ pub struct ApiState {
     pub get_updates_buf: String,
     /// Base URL for the iLink API.
     pub base_url: String,
+    /// Redirect base URL for QR login polling (set on scaned_but_redirect).
+    pub qr_redirect_base_url: Option<String>,
 }
 
 /// WeChat iLink API client.
@@ -54,6 +56,7 @@ impl WeixinApi {
             account_id: config.account_id.clone(),
             get_updates_buf: String::new(),
             base_url: config.base_url.clone(),
+            qr_redirect_base_url: None,
         };
 
         Ok(Self {
@@ -72,13 +75,27 @@ impl WeixinApi {
     // QR Login
     // -----------------------------------------------------------------------
 
+    /// Fixed API base URL for all QR code requests (per ClawBot protocol).
+    const QR_LOGIN_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
+
     /// Step 1: Request a QR code for login.
     pub async fn qr_login_start(&self) -> anyhow::Result<QrCodeResponse> {
         let url = format!(
             "{}/ilink/bot/get_bot_qrcode?bot_type=3",
-            self.config.base_url
+            Self::QR_LOGIN_BASE_URL
         );
-        let resp = self.http.get(&url).send().await?;
+        let uin = {
+            let uint32: u32 = rand::random();
+            BASE64.encode(uint32.to_string().as_bytes())
+        };
+        let resp = self
+            .http
+            .get(&url)
+            .header("iLink-App-Id", "")
+            .header("iLink-App-ClientVersion", "0")
+            .header("X-WECHAT-UIN", &uin)
+            .send()
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -94,14 +111,29 @@ impl WeixinApi {
         qrcode: &str,
         timeout_ms: u64,
     ) -> anyhow::Result<QrStatusResponse> {
+        // Use the stored redirect host if available, otherwise the fixed base URL
+        let base_url = {
+            let state = self.state.read().await;
+            state
+                .qr_redirect_base_url
+                .clone()
+                .unwrap_or_else(|| Self::QR_LOGIN_BASE_URL.to_string())
+        };
         let url = format!(
             "{}/ilink/bot/get_qrcode_status?qrcode={}",
-            self.config.base_url,
+            base_url,
             urlencoding::encode(qrcode)
         );
+        let uin = {
+            let uint32: u32 = rand::random();
+            BASE64.encode(uint32.to_string().as_bytes())
+        };
         let resp = self
             .http
             .get(&url)
+            .header("iLink-App-Id", "")
+            .header("iLink-App-ClientVersion", "0")
+            .header("X-WECHAT-UIN", &uin)
             .timeout(std::time::Duration::from_millis(timeout_ms))
             .send()
             .await;
@@ -150,6 +182,16 @@ impl WeixinApi {
         if let Some(url) = base_url {
             state.base_url = url;
         }
+    }
+
+    /// Set the redirect base URL for QR login polling (called on scaned_but_redirect).
+    pub async fn set_qr_redirect_url(&self, redirect_host: &str) {
+        let mut state = self.state.write().await;
+        state.qr_redirect_base_url = Some(format!("https://{}", redirect_host));
+        tracing::info!(
+            "IDC redirect, switching QR polling host to: {}",
+            redirect_host
+        );
     }
 
     // -----------------------------------------------------------------------

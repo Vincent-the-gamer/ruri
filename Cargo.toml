@@ -97,7 +97,7 @@ ecb = "0.1"
 md-5 = "0.10"
 
 # QR code generation for WeChat login
-qrcode = "0.14"
+qrcode = { version = "0.14", features = ["svg"] }
 
 # Hex encoding/decoding for CDN AES key parsing
 hex = "0.4"

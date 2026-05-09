@@ -84,12 +84,12 @@ impl WeixinOcAdapter {
         // Step 1: Get QR code
         tracing::info!(
             platform_id = %self.instance_id,
-            "Starting WeChat QR login..."
+            "Starting Personal WeChat QR login..."
         );
 
         let qr_resp = api.qr_login_start().await?;
 
-        tracing::info!("请使用手机微信扫码登录，二维码有效期 5 分钟，过期后会自动刷新。");
+        tracing::info!("请使用手机微信扫码登录个人微信，二维码有效期 5 分钟，过期后会自动刷新。");
 
         // Print QR code URL
         tracing::info!("QR code URL: {}", qr_resp.qrcode_img_content);
@@ -103,7 +103,6 @@ impl WeixinOcAdapter {
             std::time::Instant::now() + std::time::Duration::from_millis(login_timeout_ms);
         let mut max_qr_refresh = 3;
         let mut current_qrcode = qr_resp.qrcode.clone();
-        let mut checked_redirect = false;
 
         while std::time::Instant::now() < deadline {
             let poll_timeout = std::cmp::min(
@@ -121,13 +120,13 @@ impl WeixinOcAdapter {
                     // Still waiting, continue polling
                 }
                 "scaned" => {
-                    tracing::info!("👀 已扫码，请在微信中确认登录...");
+                    tracing::info!("👀 已扫码，请在个人微信中确认登录...");
                 }
                 "confirmed" => {
                     if let (Some(token), Some(account_id)) =
                         (&result.bot_token, &result.ilink_bot_id)
                     {
-                        tracing::info!("✅ 微信登录成功！account_id={}", account_id);
+                        tracing::info!("✅ 个人微信登录成功！account_id={}", account_id);
                         api.save_login(token.clone(), account_id.clone(), result.baseurl.clone())
                             .await;
                         return Ok(());
@@ -148,11 +147,12 @@ impl WeixinOcAdapter {
                     print_qr_code(&new_qr.qrcode_img_content);
                 }
                 "scaned_but_redirect" => {
-                    if !checked_redirect {
-                        if let Some(ref host) = result.redirect_host {
-                            tracing::info!("IDC redirect, switching polling host to: {}", host);
-                        }
-                        checked_redirect = true;
+                    if let Some(ref host) = result.redirect_host {
+                        api.set_qr_redirect_url(host).await;
+                    } else {
+                        tracing::warn!(
+                            "Received scaned_but_redirect but redirect_host is missing, continuing with current host"
+                        );
                     }
                 }
                 other => {
@@ -163,7 +163,7 @@ impl WeixinOcAdapter {
             tokio::time::sleep(std::time::Duration::from_millis(poll_interval)).await;
         }
 
-        anyhow::bail!("微信登录超时，请重试")
+        anyhow::bail!("个人微信登录超时，请重试")
     }
 
     /// Run the long-poll loop for receiving messages.

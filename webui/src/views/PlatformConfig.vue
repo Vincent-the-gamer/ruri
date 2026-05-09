@@ -16,6 +16,7 @@ const platformStore = usePlatformStore();
 
 const showForm = ref(false);
 const editingInstance = ref<PlatformInstance | null>(null);
+const showAdvancedWeixin = ref(false);
 
 const formData = reactive({
     id: "",
@@ -73,12 +74,14 @@ function resetForm() {
     formData.base_url = "https://ilinkai.weixin.qq.com";
     formData.cdn_base_url = "https://novac2c.cdn.weixin.qq.com/c2c";
     formData.weixin_proxy_url = "";
+    showAdvancedWeixin.value = false;
 }
 
 function openCreate() {
     editingInstance.value = null;
     resetForm();
     showForm.value = true;
+    showAdvancedWeixin.value = false;
 }
 
 function openEdit(instance: PlatformInstance) {
@@ -150,13 +153,17 @@ function buildPlatformConfig(): Record<string, unknown> {
 
 async function handleSave() {
     try {
+        const isWeixinOc = formData.platform_type === "weixin_oc";
         const platformConfig = buildPlatformConfig();
+        let savedId = "";
         if (editingInstance.value) {
+            savedId = editingInstance.value.id;
             await platformStore.updateInstance(editingInstance.value.id, {
                 type: formData.platform_type,
                 ...platformConfig,
             } as UpdatePlatformRequest);
         } else {
+            savedId = formData.id;
             await platformStore.createInstance({
                 id: formData.id,
                 type: formData.platform_type,
@@ -165,6 +172,17 @@ async function handleSave() {
         }
         showForm.value = false;
         editingInstance.value = null;
+
+        // Auto-trigger QR login for weixin_oc after saving
+        if (isWeixinOc && savedId) {
+            await platformStore.fetchInstances();
+            const instance = platformStore.instances.find(
+                (i) => i.id === savedId,
+            );
+            if (instance) {
+                startQrLogin(instance);
+            }
+        }
     } catch {
         // error is in store
     }
@@ -300,6 +318,10 @@ async function pollQrStatus() {
                 qrLoginState.phase = "waiting";
                 break;
             case "scaned":
+                qrLoginState.phase = "scanned";
+                break;
+            case "scaned_but_redirect":
+                // IDC redirect — treat as scanned, keep polling
                 qrLoginState.phase = "scanned";
                 break;
             case "confirmed":
@@ -633,8 +655,14 @@ onUnmounted(() => {
                                     >
                                         {{
                                             (instance.config as any).token
-                                                ? "🔑 Token configured"
-                                                : "⚠️ No token (QR login)"
+                                                ? "✅ " +
+                                                  t(
+                                                      "platformConfig.weixinOcLoggedIn",
+                                                  )
+                                                : "📱 " +
+                                                  t(
+                                                      "platformConfig.weixinOcPendingLogin",
+                                                  )
                                         }}
                                     </template>
                                     <template v-else>—</template>
@@ -891,91 +919,141 @@ onUnmounted(() => {
                                 {{ t("platformConfig.weixinOcConfig") }}
                             </div>
                             <div class="form-group">
-                                <label class="form-label">
-                                    {{ t("platformConfig.weixinOcToken") }}
+                                <div class="weixin-oc-hint">
+                                    {{ t("platformConfig.weixinOcHint") }}
+                                </div>
+                            </div>
+
+                            <!-- Advanced settings toggle -->
+                            <div class="form-group">
+                                <label
+                                    class="form-label flex items-center gap-2 cursor-pointer"
+                                    @click="
+                                        showAdvancedWeixin = !showAdvancedWeixin
+                                    "
+                                >
+                                    <svg
+                                        width="12"
+                                        height="12"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        :style="{
+                                            transform: showAdvancedWeixin
+                                                ? 'rotate(90deg)'
+                                                : 'rotate(0deg)',
+                                            transition: 'transform 0.2s',
+                                        }"
+                                    >
+                                        <polyline points="9 18 15 12 9 6" />
+                                    </svg>
+                                    {{
+                                        t(
+                                            "platformConfig.weixinOcAdvancedToggle",
+                                        )
+                                    }}
                                 </label>
-                                <input
-                                    v-model="formData.weixin_token"
-                                    type="text"
-                                    class="form-input"
-                                    :placeholder="
+                            </div>
+
+                            <template v-if="showAdvancedWeixin">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        {{ t("platformConfig.weixinOcToken") }}
+                                    </label>
+                                    <input
+                                        v-model="formData.weixin_token"
+                                        type="text"
+                                        class="form-input"
+                                        :placeholder="
+                                            t(
+                                                'platformConfig.weixinOcTokenPlaceholder',
+                                            )
+                                        "
+                                    />
+                                    <span class="form-hint">{{
+                                        t("platformConfig.weixinOcTokenHint")
+                                    }}</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        {{
+                                            t(
+                                                "platformConfig.weixinOcAccountId",
+                                            )
+                                        }}</label
+                                    >
+                                    <input
+                                        v-model="formData.account_id"
+                                        type="text"
+                                        class="form-input"
+                                        placeholder="xxxx@im.bot"
+                                    />
+                                    <span class="form-hint">{{
                                         t(
-                                            'platformConfig.weixinOcTokenPlaceholder',
+                                            "platformConfig.weixinOcAccountIdHint",
                                         )
-                                    "
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.weixinOcTokenHint")
-                                }}</span>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">
-                                    {{
-                                        t("platformConfig.weixinOcAccountId")
-                                    }}</label
-                                >
-                                <input
-                                    v-model="formData.account_id"
-                                    type="text"
-                                    class="form-input"
-                                    placeholder="xxxx@im.bot"
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.weixinOcAccountIdHint")
-                                }}</span>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">
-                                    {{
-                                        t("platformConfig.weixinOcBaseUrl")
-                                    }}</label
-                                >
-                                <input
-                                    v-model="formData.base_url"
-                                    type="text"
-                                    class="form-input"
-                                    placeholder="https://ilinkai.weixin.qq.com"
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.weixinOcBaseUrlHint")
-                                }}</span>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">
-                                    {{
-                                        t("platformConfig.weixinOcCdnBaseUrl")
-                                    }}</label
-                                >
-                                <input
-                                    v-model="formData.cdn_base_url"
-                                    type="text"
-                                    class="form-input"
-                                    placeholder="https://novac2c.cdn.weixin.qq.com/c2c"
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.weixinOcCdnBaseUrlHint")
-                                }}</span>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">
-                                    {{
-                                        t("platformConfig.weixinOcProxyUrl")
-                                    }}</label
-                                >
-                                <input
-                                    v-model="formData.weixin_proxy_url"
-                                    type="text"
-                                    class="form-input"
-                                    :placeholder="
+                                    }}</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        {{
+                                            t("platformConfig.weixinOcBaseUrl")
+                                        }}</label
+                                    >
+                                    <input
+                                        v-model="formData.base_url"
+                                        type="text"
+                                        class="form-input"
+                                        placeholder="https://ilinkai.weixin.qq.com"
+                                    />
+                                    <span class="form-hint">{{
+                                        t("platformConfig.weixinOcBaseUrlHint")
+                                    }}</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        {{
+                                            t(
+                                                "platformConfig.weixinOcCdnBaseUrl",
+                                            )
+                                        }}</label
+                                    >
+                                    <input
+                                        v-model="formData.cdn_base_url"
+                                        type="text"
+                                        class="form-input"
+                                        placeholder="https://novac2c.cdn.weixin.qq.com/c2c"
+                                    />
+                                    <span class="form-hint">{{
                                         t(
-                                            'platformConfig.weixinOcProxyUrlPlaceholder',
+                                            "platformConfig.weixinOcCdnBaseUrlHint",
                                         )
-                                    "
-                                />
-                                <span class="form-hint">{{
-                                    t("platformConfig.weixinOcProxyUrlHint")
-                                }}</span>
-                            </div>
+                                    }}</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        {{
+                                            t("platformConfig.weixinOcProxyUrl")
+                                        }}</label
+                                    >
+                                    <input
+                                        v-model="formData.weixin_proxy_url"
+                                        type="text"
+                                        class="form-input"
+                                        :placeholder="
+                                            t(
+                                                'platformConfig.weixinOcProxyUrlPlaceholder',
+                                            )
+                                        "
+                                    />
+                                    <span class="form-hint">{{
+                                        t("platformConfig.weixinOcProxyUrlHint")
+                                    }}</span>
+                                </div>
+                            </template>
                         </template>
 
                         <!-- Enable toggle -->
@@ -1885,6 +1963,16 @@ select.form-input {
     color: hsl(var(--foreground));
     padding-bottom: 0.35rem;
     border-bottom: 1px solid hsl(var(--border) / 0.2);
+}
+
+.weixin-oc-hint {
+    background: hsl(var(--accent) / 0.08);
+    border: 1px solid hsl(var(--accent) / 0.2);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: hsl(var(--muted-foreground));
+    line-height: 1.5;
 }
 
 .modal-footer {
