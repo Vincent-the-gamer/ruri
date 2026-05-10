@@ -9,7 +9,7 @@
 
 ## Features
 
-- [x] Model Provider - Anthropic, OpenAI, LM Studio, Custom
+- [x] Model Provider - Anthropic Compatible, OpenAI Compatible, Custom
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search

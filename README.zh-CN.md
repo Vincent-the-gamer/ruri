@@ -9,7 +9,7 @@
 
 ## 特性
 
-- [x] 模型提供商 - Anthropic, OpenAI, LM Studio, 自定义
+- [x] 模型提供商 - Anthropic兼容, OpenAI兼容, 自定义
 - [x] 工具调用
 - [x] 技能
 - [x] 网页搜索

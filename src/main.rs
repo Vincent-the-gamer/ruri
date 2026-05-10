@@ -27,9 +27,31 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
+use clap::Parser;
 use rust_embed::RustEmbed;
 use std::io::IsTerminal;
 use std::sync::Arc;
+
+/// CLI arguments parsed by clap.
+#[derive(Parser)]
+#[command(name = "ruri", version, about = "A customizable AI Agent")]
+struct Args {
+    /// Start in ACP mode (stdio transport)
+    #[arg(long, short = 'a')]
+    acp: bool,
+
+    /// Override config file path (used in ACP mode)
+    #[arg(long, short = 'c')]
+    acp_config: Option<std::path::PathBuf>,
+
+    /// Bind WebUI and API to 0.0.0.0 (accessible from network)
+    #[arg(long, short = 'r')]
+    remote: bool,
+
+    /// Port to listen on (default: 3000)
+    #[arg(long, short = 'p', default_value_t = 3000)]
+    port: u16,
+}
 
 /// Embedded frontend assets from the compiled Vue build.
 #[derive(RustEmbed)]
@@ -72,22 +94,12 @@ async fn static_handler(req: Request) -> Response {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // ── Check for ACP mode ──────────────────────────────────────
-    let args: Vec<String> = std::env::args().collect();
-    let acp_mode = args.iter().any(|arg| arg == "--acp");
+    // ── Parse CLI arguments ──────────────────────────────────────
+    let args = Args::parse();
 
-    // Check for --acp-config <path> to override the config file location
-    let acp_config_path = {
-        let mut path = None;
-        let mut iter = args.iter().peekable();
-        while let Some(arg) = iter.next() {
-            if arg == "--acp-config" {
-                path = iter.next().map(std::path::PathBuf::from);
-                break;
-            }
-        }
-        path
-    };
+    // ── Check for ACP mode ──────────────────────────────────────
+    let acp_mode = args.acp;
+    let acp_config_path = args.acp_config.clone();
 
     // Initialize logging
     if acp_mode {
@@ -529,9 +541,23 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new().merge(api_router).fallback(static_handler);
 
     // ── Start the server ─────────────────────────────────────────
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 3000));
-    tracing::info!("🌐 WebUI:  http://localhost:3000");
-    tracing::info!("📡 API:    http://localhost:3000/api");
+    let bind_addr = if args.remote { "0.0.0.0" } else { "127.0.0.1" };
+    let addr = format!("{}:{}", bind_addr, args.port)
+        .parse::<std::net::SocketAddr>()
+        .expect("failed to parse bind address");
+    if args.remote {
+        tracing::info!(
+            "🌐 WebUI:  http://0.0.0.0:{} (accessible from network)",
+            args.port
+        );
+        tracing::info!(
+            "📡 API:    http://0.0.0.0:{}/api (accessible from network)",
+            args.port
+        );
+    } else {
+        tracing::info!("🌐 WebUI:  http://localhost:{}", args.port);
+        tracing::info!("📡 API:    http://localhost:{}/api", args.port);
+    }
     tracing::info!("");
     tracing::info!("Available API endpoints:");
     tracing::info!("  POST   /api/chat              Send a chat message");

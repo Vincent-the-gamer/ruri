@@ -83,6 +83,9 @@ urlencoding = "2"
 # Discord platform support
 serenity = { version = "0.12", features = ["client", "gateway", "model", "rustls_backend"] }
 
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
 # QR code generation for WeChat login
 qrcode = { version = "0.14", features = ["svg"] }
 
