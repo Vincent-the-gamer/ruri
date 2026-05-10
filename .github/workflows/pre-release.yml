@@ -1,0 +1,152 @@
+name: Pre-release Build
+
+on:
+  push:
+    branches:
+      - pre-release
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  extract-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep "^version" Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION-alpha" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION-alpha"
+
+  build:
+    needs: extract-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: ruri.exe
+            platform: windows
+            arch: x64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: ruri.exe
+            platform: windows
+            arch: arm64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: ruri
+            platform: linux
+            arch: x64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: ruri
+            platform: linux
+            arch: arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: ruri
+            platform: macos
+            arch: x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: ruri
+            platform: macos
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Build frontend
+        run: pnpm -C webui run build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Set custom toolchain for Linux ARM64
+        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          PLATFORM="${{ matrix.platform }}"
+          ARCH="${{ matrix.arch }}"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} "release/ruri-${VERSION}-${PLATFORM}-${ARCH}.exe"
+          else
+            cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} "release/ruri-${VERSION}-${PLATFORM}-${ARCH}"
+            chmod +x "release/ruri-${VERSION}-${PLATFORM}-${ARCH}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: ruri-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/*
+
+  release:
+    needs: [extract-version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7.0.0
+        with:
+          path: artifacts
+
+      - name: Create GitHub Pre-release using gh CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v${{ needs.extract-version.outputs.version }}"
+
+          # Create pre-release
+          gh release create "$VERSION" \
+            --title "Pre-release $VERSION" \
+            --notes "Auto-generated pre-release for $VERSION" \
+            --prerelease \
+            --target "${{ github.sha }}"
+
+          # Upload assets
+          for file in artifacts/*/*; do
+            if [ -f "$file" ]; then
+              gh release upload "$VERSION" "$file" --clobber
+            fi
+          done

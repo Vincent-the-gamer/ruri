@@ -267,8 +267,6 @@ pub struct AppState {
     /// Knowledge base service (initialized after AppState creation).
     pub knowledge_base_service:
         std::sync::Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
-    /// Authentication state (session store).
-    pub auth_state: crate::auth::AuthState,
 }
 
 impl AppState {
@@ -459,7 +457,6 @@ impl AppState {
                 std::collections::HashMap::new(),
             )),
             knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            auth_state: crate::auth::AuthState::new(),
         }
     }
 

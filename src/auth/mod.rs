@@ -158,18 +158,6 @@ async fn remove_session(pool: &sqlx::SqlitePool, token: &str) -> Result<(), sqlx
     Ok(())
 }
 
-// ─── Auth State ──────────────────────────────────────────────────
-
-/// Shared authentication state held in AppState.
-#[derive(Debug, Default)]
-pub struct AuthState;
-
-impl AuthState {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 // ─── Database helpers ────────────────────────────────────────────
 
 /// Fetch a user by username from the database.
@@ -651,57 +639,6 @@ pub async fn require_auth(
                     message: "Invalid session".to_string(),
                 })
             }
-        }
-        None => Err(AuthError {
-            status: StatusCode::UNAUTHORIZED,
-            message: "Not authenticated".to_string(),
-        }),
-    }
-}
-
-/// Middleware that checks if the user must change their password.
-/// Returns 403 Forbidden with a specific message if password change is required.
-pub async fn require_password_changed(
-    State(state): State<Arc<AppState>>,
-    request: Request<Body>,
-    next: Next,
-) -> Result<impl IntoResponse, AuthError> {
-    let token = get_session_token(request.headers());
-
-    match token {
-        Some(token) => {
-            let pool = state.db_pool.read().await;
-            let user_id = if let Some(pool) = pool.as_ref() {
-                match validate_session(pool, &token).await {
-                    Ok(Some(id)) => id,
-                    _ => {
-                        return Err(AuthError {
-                            status: StatusCode::UNAUTHORIZED,
-                            message: "Invalid session".to_string(),
-                        });
-                    }
-                }
-            } else {
-                return Err(AuthError {
-                    status: StatusCode::SERVICE_UNAVAILABLE,
-                    message: "Database not available".to_string(),
-                });
-            };
-
-            let pool = state.db_pool.read().await;
-            if let Some(pool) = pool.as_ref() {
-                if let Ok(Some(user)) = get_user_by_id(pool, &user_id).await {
-                    if user.must_change_password {
-                        return Err(AuthError {
-                            status: StatusCode::FORBIDDEN,
-                            message: "Password change required".to_string(),
-                        });
-                    }
-                }
-            }
-
-            let response = next.run(request).await;
-            Ok(response)
         }
         None => Err(AuthError {
             status: StatusCode::UNAUTHORIZED,
