@@ -89,7 +89,7 @@ jobs:
           # Configure apt sources for cross-architecture support
           if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
             # DEB822 format (Ubuntu 24.04+)
-            sudo sed -i 's/^Types: deb$/Types: deb arch=amd64,arm64/' /etc/apt/sources.list.d/ubuntu.sources
+            sudo sed -i 's/^Architectures: amd64$/Architectures: amd64 arm64/' /etc/apt/sources.list.d/ubuntu.sources
           elif [ -f /etc/apt/sources.list ]; then
             # Traditional format
             sudo sed -i 's/deb http/deb [arch=amd64,arm64] http/g' /etc/apt/sources.list
