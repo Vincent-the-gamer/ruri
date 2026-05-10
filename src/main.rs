@@ -2,6 +2,7 @@
 mod acp;
 mod agent;
 mod api;
+mod auth;
 mod command;
 mod computer_use;
 mod conversation;
@@ -538,7 +539,33 @@ async fn main() -> anyhow::Result<()> {
     let api_router = api::create_router(state.clone());
 
     // ── Create the full app with API routes and static file serving ─
-    let app = Router::new().merge(api_router).fallback(static_handler);
+    // CORS middleware for cross-origin cookie support (dev: frontend 8080 -> backend 3000)
+    use tower_http::cors::{AllowOrigin, CorsLayer};
+    let cors_middleware = CorsLayer::new()
+        .allow_origin(AllowOrigin::mirror_request())
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+            axum::http::Method::PATCH,
+            axum::http::Method::OPTIONS,
+            axum::http::Method::HEAD,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::COOKIE,
+            header::ACCEPT,
+            header::ORIGIN,
+            header::REFERER,
+        ])
+        .allow_credentials(true);
+
+    let app = Router::new()
+        .merge(api_router)
+        .fallback(static_handler)
+        .layer(cors_middleware);
 
     // ── Start the server ─────────────────────────────────────────
     let bind_addr = if args.remote { "0.0.0.0" } else { "127.0.0.1" };

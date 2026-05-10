@@ -4,8 +4,8 @@
     <p><a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a></p>
 </div>
 
-> [!WARNING]
-> This project is under construction, it cannot be used in production for now.
+> [!IMPORTANT]
+> This project is in the alpha test stage, there will be a pre-release soon.
 
 ## Features
 

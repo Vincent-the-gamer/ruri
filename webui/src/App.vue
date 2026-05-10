@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, computed } from "vue";
 import { useRoute } from "vue-router";
+import { useAuthStore } from "./stores/auth";
 import Sidebar from "./components/Sidebar.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
 import LocaleSwitcher from "./components/LocaleSwitcher.vue";
+import UserMenu from "./components/UserMenu.vue";
 import ruriAvatar from "../assets/ruri-avatar.png";
 
 const route = useRoute();
 const isHome = ref(false);
+const authStore = useAuthStore();
+
+// Only show the app layout (sidebar, header) when logged in
+const showAppLayout = computed(() => authStore.isLoggedIn);
 
 // Hide loading screen when app is ready
 onMounted(() => {
@@ -37,11 +43,13 @@ onMounted(() => {
             <div class="orb orb-3"></div>
         </div>
 
-        <!-- Main Content Area -->
-        <div class="flex flex-1 overflow-hidden flex-col">
-            <!-- Header -->
+        <!-- Main Content Area (always rendered for SPA routing) -->
+        <!-- Changed overflow-hidden to overflow-visible to prevent dropdown menus from being clipped -->
+        <div class="flex flex-1 overflow-visible flex-col">
+            <!-- Header (only shown when logged in) -->
             <header
-                class="sticky top-0 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300"
+                v-if="showAppLayout"
+                class="sticky top-0 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300 relative z-50 overflow-visible"
             >
                 <div
                     class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
@@ -55,16 +63,17 @@ onMounted(() => {
                         <span>Ruri 琉璃</span>
                     </router-link>
 
-                    <!-- Right side: Locale & Theme Toggle -->
+                    <!-- Right side: Locale, Theme Toggle & User Menu -->
                     <div class="flex items-center gap-3">
                         <LocaleSwitcher />
                         <ThemeToggle />
+                        <UserMenu />
                     </div>
                 </div>
             </header>
 
-            <!-- Sidebar and Main Content -->
-            <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar and Main Content (only shown when logged in) -->
+            <div v-if="showAppLayout" class="flex flex-1 overflow-hidden">
                 <!-- Sidebar - Left Navigation -->
                 <Sidebar />
 
@@ -83,6 +92,11 @@ onMounted(() => {
                         </router-view>
                     </div>
                 </main>
+            </div>
+
+            <!-- Unauthenticated view (login/change-password pages) -->
+            <div v-else class="flex-1 overflow-hidden">
+                <router-view />
             </div>
         </div>
     </div>
@@ -114,6 +128,8 @@ onMounted(() => {
     bottom: 0;
     width: 100%;
     height: 100%;
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
     background:
         linear-gradient(
             135deg,

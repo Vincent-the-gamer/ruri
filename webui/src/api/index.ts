@@ -3,6 +3,7 @@ import type {
   AgentStatus,
   AcpConfig,
   BuiltinCommand,
+  ChangePasswordRequest,
   ChatRequest,
   ChatResponse,
   ChatMessage,
@@ -19,6 +20,8 @@ import type {
   KnowledgeBase,
   LogEntry,
   LogLevel,
+  LoginRequest,
+  LoginResponse,
   McpServerConfig,
   Persona,
   PlatformInstance,
@@ -36,6 +39,7 @@ import type {
   UpdatePlatformRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
+  UserInfo,
   WsFilterCommand,
   WsGetSinceCommand,
   WebSearchConfig,
@@ -43,6 +47,7 @@ import type {
 
 const client = axios.create({
   baseURL: '',
+  withCredentials: true,
   // Remove default Content-Type to allow FormData multipart uploads to work correctly
   // headers: {
   //   'Content-Type': 'application/json',
@@ -430,5 +435,32 @@ export async function searchKnowledgeBase(kbId: string, data: SearchRequest): Pr
 
 export async function getBuiltinCommands(): Promise<BuiltinCommand[]> {
   const res = await client.get('/api/commands')
+  return res.data
+}
+
+// ─── Auth ──────────────────────────────────────────────────────
+
+export async function login(data: LoginRequest): Promise<LoginResponse> {
+  const res = await client.post('/api/auth/login', data)
+  return res.data
+}
+
+export async function logout(): Promise<{ message: string }> {
+  const res = await client.post('/api/auth/logout')
+  return res.data
+}
+
+export async function getCurrentUser(): Promise<UserInfo> {
+  const res = await client.get('/api/auth/me')
+  return res.data
+}
+
+export async function changePassword(data: ChangePasswordRequest): Promise<{ message: string }> {
+  const res = await client.post('/api/auth/change-password', data)
+  return res.data
+}
+
+export async function updateUsername(data: { new_username: string }): Promise<{ message: string }> {
+  const res = await client.post('/api/auth/update-username', data)
   return res.data
 }

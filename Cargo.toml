@@ -33,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Web framework
 axum = { version = "0.8", features = ["macros", "ws", "multipart"] }
+tower-http = { version = "0.6", features = ["cors"] }
 
 # Embed frontend assets
 rust-embed = "8"
@@ -88,6 +89,9 @@ clap = { version = "4", features = ["derive"] }
 
 # QR code generation for WeChat login
 qrcode = { version = "0.14", features = ["svg"] }
+
+# Password hashing for auth
+argon2 = "0.5"
 
 # Random number generation for WeChat API headers
 rand = "0.8"

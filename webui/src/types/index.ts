@@ -623,4 +623,27 @@ export interface BuiltinCommand {
   hidden: boolean
 }
 
+// ─── Auth Types ─────────────────────────────────────────────────
+
+export interface UserInfo {
+  id: string
+  username: string
+  must_change_password: boolean
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: UserInfo
+}
+
+export interface ChangePasswordRequest {
+  old_password: string
+  new_password: string
+}
+
 

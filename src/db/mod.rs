@@ -9,11 +9,15 @@
 //! - `knowledge_bases`           — Knowledge base definitions
 //! - `kb_documents`              — Documents within knowledge bases
 //! - `kb_chunks`                 — Document chunks with embeddings for vector search
+//! - `users`                     — User accounts for WebUI authentication
 //! - Future tables can be added here as needed
 
 use anyhow::{Context, Result};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use rand::rngs::OsRng;
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -26,6 +30,31 @@ pub fn database_path() -> PathBuf {
         .map(|h| h.join(".ruri"))
         .unwrap_or_else(|| PathBuf::from(".ruri"));
     config_dir.join(DB_FILENAME)
+}
+
+/// Hash a password using Argon2id with a randomly generated salt.
+/// Returns the full PHC string which includes the salt, so we don't need to store it separately.
+pub fn hash_password(password: &str) -> Result<String> {
+    let argon2 = Argon2::default();
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
+
+    Ok(hash.to_string())
+}
+
+/// Verify a password against a stored Argon2 hash string.
+pub fn verify_password(password: &str, stored_hash: &str) -> bool {
+    let argon2 = Argon2::default();
+    let parsed_hash = match PasswordHash::new(stored_hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+
+    argon2
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok()
 }
 
 /// Open (or create) the unified `ruri.db` and ensure that every required table exists.
@@ -57,6 +86,9 @@ pub async fn init(db_path: PathBuf) -> Result<SqlitePool> {
 
     // Create all tables in one transaction so that the schema is always consistent
     init_schema(&pool).await?;
+
+    // Seed default user if table is empty
+    seed_default_user(&pool).await?;
 
     info!("Database schema initialized successfully ({:?})", db_path);
     Ok(pool)
@@ -192,6 +224,77 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create kb_chunks table")?;
+
+    // ─── Users ────────────────────────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            must_change_password INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create users table")?;
+
+    // ─── Sessions ───────────────────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create sessions table")?;
+
+    Ok(())
+}
+
+/// Seed the default user if the users table is empty
+async fn seed_default_user(pool: &SqlitePool) -> Result<()> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await
+        .context("Failed to count users")?;
+
+    if count == 0 {
+        let default_id = uuid::Uuid::new_v4().to_string();
+        let default_username = "ruri";
+        let default_password = "ruri";
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let password_hash =
+            hash_password(default_password).context("Failed to hash default password")?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, username, password_hash, must_change_password, created_at, updated_at)
+            VALUES (?, ?, ?, 1, ?, ?)
+            "#,
+        )
+        .bind(&default_id)
+        .bind(default_username)
+        .bind(&password_hash)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .context("Failed to seed default user")?;
+
+        info!("Default user 'ruri' created with password 'ruri' (must change on first login)");
+    }
 
     Ok(())
 }

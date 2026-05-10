@@ -4,8 +4,8 @@
     <p><a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a></p>
 </div>
 
-> [!WARNING]
-> 本项目仍在建设中，目前尚不能用于生产环境。
+> [!IMPORTANT]
+> 本项目已进入内测阶段，即将放出预发布版本(pre-release)
 
 ## 特性
 

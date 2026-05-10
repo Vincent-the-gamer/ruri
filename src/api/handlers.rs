@@ -102,7 +102,8 @@ fn parse_skill_markdown(content: &str) -> Result<ParsedSkillMarkdown, String> {
 // ─── Router ──────────────────────────────────────────────────────
 
 pub fn create_router(state: Arc<AppState>) -> Router {
-    Router::new()
+    // Build protected API routes with authentication middleware
+    let protected_routes = Router::new()
         // Providers
         .route("/api/providers", get(list_providers).post(create_provider))
         .route(
@@ -245,7 +246,17 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/knowledge-bases/{kb_id}/search",
             post(search_knowledge_base),
         )
-        .with_state(state)
+        // Apply authentication middleware to all protected routes
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::require_auth,
+        ))
+        .with_state(state.clone());
+
+    // Merge auth routes (login, logout, etc.) with protected routes
+    let auth_router = crate::auth::create_auth_router(state.clone());
+
+    Router::new().merge(protected_routes).merge(auth_router)
 }
 
 // ─── Provider Handlers ───────────────────────────────────────────
