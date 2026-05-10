@@ -43,42 +43,41 @@ onMounted(() => {
             <div class="orb orb-3"></div>
         </div>
 
-        <!-- Main Content Area (always rendered for SPA routing) -->
-        <!-- Changed overflow-hidden to overflow-visible to prevent dropdown menus from being clipped -->
-        <div class="flex flex-1 overflow-visible flex-col">
-            <!-- Header (only shown when logged in) -->
-            <header
-                v-if="showAppLayout"
-                class="sticky top-0 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300 relative z-50 overflow-visible"
+        <!-- Header (only shown when logged in) -->
+        <header
+            v-if="showAppLayout"
+            class="relative z-50 flex-shrink-0 h-[68px] w-full border-b border-border/30 bg-background/30 backdrop-blur-xl supports-[backdrop-filter]:bg-background/20 transition-all duration-300 overflow-visible"
+        >
+            <div
+                class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
             >
-                <div
-                    class="max-w-[1440px] mx-auto h-full flex items-center justify-between px-6"
+                <!-- Logo -->
+                <router-link
+                    to="/"
+                    class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
                 >
-                    <!-- Logo -->
-                    <router-link
-                        to="/"
-                        class="flex items-center gap-2 text-xl font-bold text-foreground hover:opacity-80 transition-opacity"
-                    >
-                        <img :src="ruriAvatar" alt="Ruri" class="logo-avatar" />
-                        <span>Ruri 琉璃</span>
-                    </router-link>
+                    <img :src="ruriAvatar" alt="Ruri" class="logo-avatar" />
+                    <span>Ruri 琉璃</span>
+                </router-link>
 
-                    <!-- Right side: Locale, Theme Toggle & User Menu -->
-                    <div class="flex items-center gap-3">
-                        <LocaleSwitcher />
-                        <ThemeToggle />
-                        <UserMenu />
-                    </div>
+                <!-- Right side: Locale, Theme Toggle & User Menu -->
+                <div class="flex items-center gap-3">
+                    <LocaleSwitcher />
+                    <ThemeToggle />
+                    <UserMenu />
                 </div>
-            </header>
+            </div>
+        </header>
 
+        <!-- Content Area (always rendered for SPA routing) -->
+        <div class="flex flex-1 overflow-hidden">
             <!-- Sidebar and Main Content (only shown when logged in) -->
-            <div v-if="showAppLayout" class="flex flex-1 overflow-hidden">
+            <template v-if="showAppLayout">
                 <!-- Sidebar - Left Navigation -->
                 <Sidebar />
 
                 <!-- Main Content -->
-                <main class="flex-1 overflow-y-auto">
+                <main class="flex-1 overflow-y-auto scroll-hover">
                     <div class="max-w-[1440px] mx-auto w-full p-6">
                         <router-view v-slot="{ Component, route }">
                             <transition name="fade" mode="out-in">
@@ -92,7 +91,7 @@ onMounted(() => {
                         </router-view>
                     </div>
                 </main>
-            </div>
+            </template>
 
             <!-- Unauthenticated view (login/change-password pages) -->
             <div v-else class="flex-1 overflow-hidden">
@@ -106,7 +105,9 @@ onMounted(() => {
 /* App Container with gradient background */
 .app-container {
     position: relative;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
 }
 
 /* Logo avatar image */
@@ -188,7 +189,13 @@ onMounted(() => {
         );
 }
 
-.app-container > .flex:first-child {
+/* Ensure content layers above background */
+.app-container > header {
+    position: relative;
+    z-index: 50;
+}
+
+.app-container > .flex {
     position: relative;
     z-index: 1;
 }

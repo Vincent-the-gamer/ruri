@@ -6,7 +6,6 @@ import type {
     ProviderConfig,
     OpenAIProviderConfig,
     AnthropicProviderConfig,
-    LmStudioProviderConfig,
     CustomProviderConfig,
     Provider,
 } from "../types";
@@ -55,17 +54,6 @@ const anthropicConfig = reactive<AnthropicProviderConfig>({
         : {}),
 });
 
-const lmStudioConfig = reactive<LmStudioProviderConfig>({
-    type: "lm_studio",
-    host: "localhost",
-    port: 1234,
-    api_key: "",
-    default_model: "default",
-    ...(props.provider?.provider_type === "lm_studio"
-        ? (props.provider.config as LmStudioProviderConfig)
-        : {}),
-});
-
 const customConfig = reactive<CustomProviderConfig>({
     type: "custom",
     base_url: "http://localhost:11434",
@@ -107,9 +95,6 @@ function handleSave() {
             break;
         case "anthropic":
             config = { ...anthropicConfig };
-            break;
-        case "lm_studio":
-            config = { ...lmStudioConfig };
             break;
         case "custom":
             try {
@@ -183,7 +168,6 @@ function handleSave() {
                             v-for="typeItem in [
                                 'openai',
                                 'anthropic',
-                                'lm_studio',
                                 'custom',
                             ] as ProviderType[]"
                             :key="typeItem"
@@ -237,35 +221,12 @@ function handleSave() {
                                     d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
                                 />
                             </svg>
-                            <svg
-                                v-if="typeItem === 'lm_studio'"
-                                class="type-icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.5"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <rect
-                                    x="2"
-                                    y="3"
-                                    width="20"
-                                    height="14"
-                                    rx="2"
-                                    ry="2"
-                                />
-                                <line x1="8" y1="21" x2="16" y2="21" />
-                                <line x1="12" y1="17" x2="12" y2="21" />
-                            </svg>
                             {{
                                 typeItem === "openai"
                                     ? t("providers.type.openai")
                                     : typeItem === "anthropic"
                                       ? t("providers.type.anthropic")
-                                      : typeItem === "lm_studio"
-                                        ? t("providers.type.lmStudio")
-                                        : t("providers.type.custom")
+                                      : t("providers.type.custom")
                             }}
                         </button>
                     </div>
@@ -434,68 +395,6 @@ function handleSave() {
                     </div>
                 </template>
 
-                <!-- LM Studio Config -->
-                <template v-if="providerType === 'lm_studio'">
-                    <div class="section-title">
-                        {{ t("providers.form.lmStudioConfig") }}
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("providers.form.lmStudioHost")
-                        }}</label>
-                        <input
-                            v-model="lmStudioConfig.host"
-                            type="text"
-                            class="form-input"
-                            :placeholder="
-                                t('providers.form.lmStudioHostPlaceholder')
-                            "
-                        />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("providers.form.lmStudioPort")
-                        }}</label>
-                        <input
-                            v-model.number="lmStudioConfig.port"
-                            type="number"
-                            class="form-input"
-                            :placeholder="
-                                t('providers.form.lmStudioPortPlaceholder')
-                            "
-                        />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("providers.form.apiKey")
-                        }}</label>
-                        <input
-                            v-model="lmStudioConfig.api_key"
-                            type="text"
-                            class="form-input"
-                            :placeholder="
-                                t('providers.form.lmStudioApiKeyPlaceholder')
-                            "
-                        />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("providers.form.defaultModel")
-                        }}</label>
-                        <input
-                            v-model="lmStudioConfig.default_model"
-                            type="text"
-                            class="form-input"
-                            :placeholder="
-                                t(
-                                    'providers.form.lmStudioDefaultModelPlaceholder',
-                                )
-                            "
-                        />
-                    </div>
-                </template>
-
-                <!-- Custom Config -->
                 <template v-if="providerType === 'custom'">
                     <div class="form-grid-2">
                         <div class="form-group">

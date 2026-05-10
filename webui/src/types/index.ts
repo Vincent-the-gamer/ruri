@@ -15,14 +15,6 @@ export interface AnthropicProviderConfig {
   api_version: string
 }
 
-export interface LmStudioProviderConfig {
-  type: 'lm_studio'
-  host: string
-  port: number
-  api_key?: string | null
-  default_model: string
-}
-
 export interface CustomProviderConfig {
   type: 'custom'
   base_url: string
@@ -41,9 +33,9 @@ export interface CustomProviderConfig {
   use_openai_format: boolean
 }
 
-export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | LmStudioProviderConfig | CustomProviderConfig
+export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | CustomProviderConfig
 
-export type ProviderType = 'openai' | 'anthropic' | 'lm_studio' | 'custom'
+export type ProviderType = 'openai' | 'anthropic' | 'custom'
 
 export interface Provider {
   id: string

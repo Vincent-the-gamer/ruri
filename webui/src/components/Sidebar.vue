@@ -184,7 +184,7 @@ const isGroupActive = (group: (typeof navGroups.value)[0]) => {
         class="sidebar-container w-64 border-r border-border/30 bg-background/25 backdrop-blur-xl supports-[backdrop-filter]:bg-background/15 flex flex-col transition-all duration-300"
     >
         <!-- Navigation -->
-        <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+        <nav class="flex-1 p-3 space-y-1 overflow-y-auto scroll-hover">
             <div v-for="group in navGroups" :key="group.key" class="nav-group">
                 <!-- Group Header -->
                 <button
@@ -454,9 +454,9 @@ const isGroupActive = (group: (typeof navGroups.value)[0]) => {
     }
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - handled by scroll-hover class globally */
 nav::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
 }
 
 nav::-webkit-scrollbar-track {
@@ -464,12 +464,17 @@ nav::-webkit-scrollbar-track {
 }
 
 nav::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
-    border-radius: 3px;
+    background: transparent;
+    border-radius: 2px;
+    transition: background 0.3s ease;
+}
+
+nav:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
 }
 
 nav::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.4);
 }
 
 /* Responsive */

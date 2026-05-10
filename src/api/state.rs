@@ -926,26 +926,6 @@ impl AppState {
                     api_key,
                 )))
             }
-            "lm_studio" => {
-                let host = config["host"].as_str().unwrap_or("localhost").to_string();
-                let port = config["port"].as_u64().unwrap_or(1234) as u16;
-                let api_key = config["api_key"].as_str().map(|s| s.to_string());
-                let default_model = config["default_model"]
-                    .as_str()
-                    .unwrap_or("local-model")
-                    .to_string();
-
-                let mut provider = crate::provider::lm_studio::LmStudioProvider::builder()
-                    .host(host)
-                    .port(port)
-                    .default_model(default_model);
-
-                if let Some(key) = api_key {
-                    provider = provider.api_key(key);
-                }
-
-                Ok(Box::new(provider.build()))
-            }
             other => Err(format!("Unknown provider type: {}", other)),
         }
     }

@@ -70,8 +70,6 @@ const providerTypeLabel = (type: string) => {
             return t("providers.type.openai");
         case "anthropic":
             return t("providers.type.anthropic");
-        case "lm_studio":
-            return t("providers.type.lmStudio");
         case "custom":
             return t("providers.type.custom");
         default:

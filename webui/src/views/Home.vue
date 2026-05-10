@@ -12,6 +12,8 @@ const mousePos = ref({ x: 0, y: 0 });
 const imageOffset = ref({ x: 0, y: 0 });
 const shadow1Offset = ref({ x: 8, y: 8 });
 const shadow2Offset = ref({ x: -8, y: -8 });
+const introOffset = ref({ x: 0, y: 0 });
+const introRotation = ref(0);
 
 // Animation frame for smooth movement
 let animationFrame: number;
@@ -36,6 +38,14 @@ const updateImagePosition = () => {
     // Smooth interpolation
     imageOffset.value.x += (targetX - imageOffset.value.x) * 0.08;
     imageOffset.value.y += (targetY - imageOffset.value.y) * 0.08;
+
+    // Intro section sway - follows character with softer, delayed motion
+    const introTargetX = -normalizedX * 6;
+    const introTargetY = -normalizedY * 4;
+    const introTargetRotation = normalizedX * 1.2;
+    introOffset.value.x += (introTargetX - introOffset.value.x) * 0.05;
+    introOffset.value.y += (introTargetY - introOffset.value.y) * 0.05;
+    introRotation.value += (introTargetRotation - introRotation.value) * 0.05;
 
     // Shadow offsets - different directions for 3D effect
     shadow1Offset.value = {
@@ -118,7 +128,12 @@ const goToDashboard = () => {
             </div>
 
             <!-- Text section -->
-            <div class="intro-section">
+            <div
+                class="intro-section"
+                :style="{
+                    transform: `translate(${introOffset.x}px, ${introOffset.y}px) rotate(${introRotation}deg)`,
+                }"
+            >
                 <div class="intro-content">
                     <h1 class="title">
                         <span class="title-gradient">{{
@@ -342,6 +357,8 @@ const goToDashboard = () => {
 /* Intro section */
 .intro-section {
     max-width: 540px;
+    transition: transform 0.15s ease-out;
+    will-change: transform;
 }
 
 .intro-content {

@@ -177,8 +177,9 @@ html.dark {
 body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
     font-feature-settings: normal;
     font-synthesis-weight: none;
     text-rendering: optimizeLegibility;
@@ -190,8 +191,9 @@ body {
 }
 
 #app {
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
 }
 
 /* Selection */
@@ -210,8 +212,8 @@ body {
  * ═══════════════════════════════════════════════════════════════ */
 
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 4px;
+    height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -219,17 +221,36 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
-    border-radius: 4px;
-    transition: background 0.2s ease-in-out;
+    background: transparent;
+    border-radius: 2px;
+    transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.3);
 }
 
 ::-webkit-scrollbar-corner {
     background: transparent;
+}
+
+/* Show scrollbar on hover for scrollable areas */
+.scroll-hover:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
+}
+
+.scroll-hover:hover::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Firefox: thin scrollbar */
+.scroll-hover {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.scroll-hover:hover {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
 }
 
 /* Hide scrollbar for specific elements */

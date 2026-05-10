@@ -1,6 +1,5 @@
 pub mod anthropic;
 pub mod custom;
-pub mod lm_studio;
 pub mod openai;
 
 use crate::types::{ChatRequest, ChatResponse};
