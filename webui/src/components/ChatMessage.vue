@@ -213,16 +213,16 @@ function renderMarkdown(content: string): string {
 }
 
 .user-avatar {
-    order: 2;
+    /* No order override — avatar naturally appears after content (right side) */
 }
 
 .assistant-avatar {
-    order: 1;
+    /* No order override — avatar naturally appears before content (left side) */
     border: 2px solid hsl(var(--primary));
 }
 
 .tool-avatar {
-    order: 1;
+    /* No order override — avatar naturally appears before content (left side) */
     background: hsl(38 92% 50% / 0.1);
     border-color: hsl(38 92% 50% / 0.3);
     border-radius: 0.625rem;

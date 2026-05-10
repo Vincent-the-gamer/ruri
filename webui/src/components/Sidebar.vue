@@ -115,6 +115,11 @@ const navGroups = computed(() => [
                 label: t("nav.webSearch"),
                 icon: "lucide:search",
             },
+            {
+                path: "/knowledge-base",
+                label: t("nav.knowledgeBase", "Knowledge Base"),
+                icon: "lucide:book-open",
+            },
         ],
     },
     {

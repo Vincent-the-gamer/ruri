@@ -10,12 +10,13 @@ use axum::{
     routing::{delete, get, post},
 };
 use chrono::Utc;
-use tracing::{debug, error};
-// futures::sink::SinkExt is not needed for axum WebSocket
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
+use tokio::sync::broadcast;
+use tracing::{debug, error};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -221,6 +222,29 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // System
         .route("/api/system/restart", post(restart_system))
+        // Knowledge base
+        .route(
+            "/api/knowledge-bases",
+            get(list_knowledge_bases).post(create_knowledge_base),
+        )
+        .route(
+            "/api/knowledge-bases/{id}",
+            get(get_knowledge_base)
+                .put(update_knowledge_base)
+                .delete(delete_knowledge_base),
+        )
+        .route(
+            "/api/knowledge-bases/{kb_id}/documents",
+            get(list_kb_documents).post(upload_kb_document),
+        )
+        .route(
+            "/api/knowledge-bases/{kb_id}/documents/{doc_id}",
+            delete(delete_kb_document),
+        )
+        .route(
+            "/api/knowledge-bases/{kb_id}/search",
+            post(search_knowledge_base),
+        )
         .with_state(state)
 }
 
@@ -909,6 +933,20 @@ async fn send_chat_message(
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
 
+    // Add Knowledge Base skill if knowledge_base_ids are specified in the request
+    if !req.knowledge_base_ids.is_empty() {
+        let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
+            state.knowledge_base_service.clone(),
+            req.knowledge_base_ids.clone(),
+            5, // top_k
+        );
+        agent.add_skill(std::sync::Arc::new(kb_skill));
+        tracing::info!(
+            kb_count = req.knowledge_base_ids.len(),
+            "KnowledgeBaseSkill added to agent from chat request"
+        );
+    }
+
     // Register a cancellation token for this session so /stop can cancel it
     let session_key = req
         .session_id
@@ -1590,6 +1628,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_platform_ids: p.active_platform_ids.clone(),
+            active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
         })
@@ -1619,6 +1658,7 @@ async fn get_config_profile(
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_platform_ids: p.active_platform_ids.clone(),
+            active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
         };
@@ -1661,6 +1701,7 @@ async fn create_config_profile(
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names.clone(),
         active_platform_ids: req.active_platform_ids.clone(),
+        active_knowledge_base_ids: req.active_knowledge_base_ids.clone(),
         proxy_config: req.proxy_config.clone(),
         command_prefix: req.command_prefix.clone(),
     };
@@ -1686,6 +1727,7 @@ async fn create_config_profile(
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names,
         active_platform_ids: req.active_platform_ids,
+        active_knowledge_base_ids: req.active_knowledge_base_ids,
         proxy_config: req.proxy_config,
         command_prefix: req.command_prefix,
     };
@@ -1742,6 +1784,9 @@ async fn update_config_profile(
         if let Some(ref active_platform_ids) = req.active_platform_ids {
             profile.active_platform_ids = active_platform_ids.clone();
         }
+        if let Some(ref active_knowledge_base_ids) = req.active_knowledge_base_ids {
+            profile.active_knowledge_base_ids = active_knowledge_base_ids.clone();
+        }
         let platforms_changed = req.active_platform_ids.is_some();
         let enable_changed = req.enable.is_some();
         let proxy_changed = req.proxy_config.is_some();
@@ -1768,6 +1813,7 @@ async fn update_config_profile(
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_platform_ids: profile.active_platform_ids.clone(),
+            active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
         };
@@ -1885,6 +1931,7 @@ async fn activate_config_profile(
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_platform_ids: active_platform_ids.clone(),
+            active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
         };
@@ -1978,22 +2025,127 @@ async fn get_config_profile_persona(
 }
 
 /// WebSocket日志推送处理器
-async fn ws_logs_handler(mut socket: WebSocket, state: Arc<AppState>) {
-    // 订阅日志广播
+async fn ws_logs_handler(socket: WebSocket, state: Arc<AppState>) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
     let mut log_rx = state.log_manager.subscribe();
+    let mut current_level_filter: Option<crate::logging::LogLevel> = None;
 
-    // 注意：历史日志由前端通过 HTTP API 获取，WebSocket 只推送新日志
-    // 这样避免历史日志重复发送
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    // Consume the first immediate tick
+    ping_interval.tick().await;
 
-    // 持续接收新日志并推送
-    while let Ok(log) = log_rx.recv().await {
-        if let Ok(log_json) = serde_json::to_string(&log) {
-            if socket
-                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(log_json)))
-                .await
-                .is_err()
-            {
-                break;
+    loop {
+        tokio::select! {
+            // 1. Broadcast log events
+            log_result = log_rx.recv() => {
+                match log_result {
+                    Ok(log) => {
+                        // Apply level filter if set
+                        if let Some(ref filter) = current_level_filter {
+                            if log.level < *filter {
+                                continue;
+                            }
+                        }
+                        if let Ok(log_json) = serde_json::to_string(&log) {
+                            if ws_sender
+                                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(log_json)))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        // Client fell behind – log and continue rather than breaking
+                        debug!("WebSocket log receiver lagged, skipped {} messages", skipped);
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // Channel closed, no more logs
+                        break;
+                    }
+                }
+            }
+
+            // 2. Incoming messages from client (filter / get_since)
+            maybe_msg = ws_receiver.next() => {
+                match maybe_msg {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        // Try to parse as a client command
+                        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
+                            match cmd.get("type").and_then(|v| v.as_str()) {
+                                Some("filter") => {
+                                    if let Some(level_str) = cmd.get("level").and_then(|v| v.as_str()) {
+                                        match serde_json::from_str::<crate::logging::LogLevel>(
+                                            &format!("\"{}\"", level_str),
+                                        ) {
+                                            Ok(level) => {
+                                                debug!("WebSocket log level filter set to {:?}", level);
+                                                current_level_filter = Some(level);
+                                            }
+                                            Err(_) => {
+                                                debug!("Invalid log level in filter: {}", level_str);
+                                            }
+                                        }
+                                    }
+                                }
+                                Some("get_since") => {
+                                    if let Some(ts) = cmd.get("timestamp").and_then(|v| v.as_u64()) {
+                                        let logs = state.log_manager.get_logs_since(ts).await;
+                                        for log in &logs {
+                                            if let Ok(log_json) = serde_json::to_string(log) {
+                                                if ws_sender
+                                                    .send(axum::extract::ws::Message::Text(
+                                                        Utf8Bytes::from(log_json),
+                                                    ))
+                                                    .await
+                                                    .is_err()
+                                                {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    debug!("Unknown WebSocket command type");
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Ping(data))) => {
+                        // Respond with pong (axum handles this automatically in most cases,
+                        // but we handle it explicitly for safety)
+                        let _ = ws_sender
+                            .send(axum::extract::ws::Message::Pong(data))
+                            .await;
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => {
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        debug!("WebSocket receive error: {}", e);
+                        break;
+                    }
+                    None => {
+                        // Stream ended – client disconnected
+                        break;
+                    }
+                    _ => {
+                        // Ignore Binary, Pong, etc.
+                    }
+                }
+            }
+
+            // 3. Periodic ping to keep connection alive
+            _ = ping_interval.tick() => {
+                if ws_sender
+                    .send(axum::extract::ws::Message::Ping(Vec::new().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
             }
         }
     }
@@ -3125,4 +3277,335 @@ async fn weixin_qr_login_status(
         )
             .into_response(),
     }
+}
+
+// ─── Knowledge Base ──────────────────────────────────────────────
+
+async fn list_knowledge_bases(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<KnowledgeBaseDto>>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let kbs = service.list_knowledge_bases().await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(Json(kbs.into_iter().map(KnowledgeBaseDto::from).collect()))
+}
+
+async fn get_knowledge_base(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<KnowledgeBaseDto>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let kb = service.get_knowledge_base(&id).await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(Json(KnowledgeBaseDto::from(kb)))
+}
+
+async fn create_knowledge_base(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateKnowledgeBaseRequest>,
+) -> Result<Json<KnowledgeBaseDto>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let kb_req = crate::knowledge::CreateKnowledgeBaseRequest {
+        name: req.name,
+        description: req.description,
+        embedding_provider_config: req.embedding_provider_config.into(),
+        rerank_provider_config: req.rerank_provider_config.map(Into::into),
+        chunk_size: Some(req.chunk_size),
+        chunk_overlap: Some(req.chunk_overlap),
+    };
+    let kb = service.create_knowledge_base(kb_req).await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(Json(KnowledgeBaseDto::from(kb)))
+}
+
+async fn update_knowledge_base(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateKnowledgeBaseRequestDto>,
+) -> Result<Json<KnowledgeBaseDto>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let kb_req = crate::knowledge::UpdateKnowledgeBaseRequest {
+        name: req.name,
+        description: req.description,
+        rerank_provider_config: req.rerank_provider_config.map(|opt| opt.map(Into::into)),
+        chunk_size: req.chunk_size,
+        chunk_overlap: req.chunk_overlap,
+    };
+    let kb = service
+        .update_knowledge_base(&id, kb_req)
+        .await
+        .map_err(|e| {
+            error!("{e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("{e:#}") })),
+            )
+        })?;
+    Ok(Json(KnowledgeBaseDto::from(kb)))
+}
+
+async fn delete_knowledge_base(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    service.delete_knowledge_base(&id).await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_kb_documents(
+    State(state): State<Arc<AppState>>,
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<KbDocumentDto>>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let docs = service.list_documents(&kb_id).await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(Json(docs.into_iter().map(KbDocumentDto::from).collect()))
+}
+
+async fn upload_kb_document(
+    State(state): State<Arc<AppState>>,
+    Path(kb_id): Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Vec<KbDocumentDto>>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+
+    let mut results = Vec::new();
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })? {
+        let filename = field.file_name().unwrap_or("unknown").to_string();
+        let data = field.bytes().await.map_err(|e| {
+            error!("{e:#}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("{e:#}") })),
+            )
+        })?;
+
+        let filename_lower = filename.to_lowercase();
+        let content = if filename_lower.ends_with(".pdf") {
+            // PDF file – extract text content using pdf-extract
+            tracing::info!(filename = %filename, "Extracting text from PDF file");
+            match pdf_extract::extract_text_from_mem(&data) {
+                Ok(text) => {
+                    tracing::info!(
+                        filename = %filename,
+                        text_len = text.len(),
+                        "PDF text extraction succeeded"
+                    );
+                    text
+                }
+                Err(e) => {
+                    tracing::error!(
+                        filename = %filename,
+                        error = %e,
+                        "Failed to extract text from PDF"
+                    );
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": format!(
+                            "Failed to extract text from PDF '{}': {}. The PDF may be an image-based scan (OCR required) or use an unsupported encoding.",
+                            filename, e
+                        ) })),
+                    ));
+                }
+            }
+        } else {
+            // Non-PDF file – try UTF-8 decoding
+            match String::from_utf8(data.to_vec()) {
+                Ok(s) => s,
+                Err(e) => {
+                    // The file contains non-UTF-8 bytes – likely a binary file
+                    // (DOCX, XLS, etc.) or text in a non-UTF-8 encoding (GBK, etc.).
+                    let is_likely_binary = filename_lower.ends_with(".doc")
+                        || filename_lower.ends_with(".docx")
+                        || filename_lower.ends_with(".xls")
+                        || filename_lower.ends_with(".xlsx")
+                        || filename_lower.ends_with(".ppt")
+                        || filename_lower.ends_with(".pptx")
+                        || filename_lower.ends_with(".zip")
+                        || filename_lower.ends_with(".rar")
+                        || filename_lower.ends_with(".7z");
+
+                    if is_likely_binary {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({ "error": format!(
+                                "File '{}' appears to be a binary format. Please upload plain text files (txt, md, csv) or PDF files instead.",
+                                filename
+                            ) })),
+                        ));
+                    }
+
+                    tracing::warn!(
+                        filename = %filename,
+                        invalid_utf8_bytes = e.utf8_error().valid_up_to(),
+                        "File contains non-UTF-8 bytes, converting with lossy replacement"
+                    );
+                    String::from_utf8_lossy(&data).to_string()
+                }
+            }
+        };
+
+        let doc = service
+            .upload_document(&kb_id, &filename, &content)
+            .await
+            .map_err(|e| {
+                error!("{e:#}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("{e:#}") })),
+                )
+            })?;
+        results.push(KbDocumentDto::from(doc));
+    }
+    Ok(Json(results))
+}
+
+async fn delete_kb_document(
+    State(state): State<Arc<AppState>>,
+    Path((_kb_id, doc_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    service.delete_document(&doc_id).await.map_err(|e| {
+        error!("{e:#}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+    })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn search_knowledge_base(
+    State(state): State<Arc<AppState>>,
+    Path(kb_id): Path<String>,
+    Json(req): Json<SearchRequest>,
+) -> Result<Json<Vec<SearchResultDto>>, (StatusCode, Json<Value>)> {
+    let kb_service = state.knowledge_base_service.read().await;
+    let service = match kb_service.as_ref() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": "Knowledge base service is not available" })),
+            ));
+        }
+    };
+    let results = service
+        .search(&kb_id, &req.query, req.top_k)
+        .await
+        .map_err(|e| {
+            error!("{e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("{e:#}") })),
+            )
+        })?;
+    Ok(Json(
+        results.into_iter().map(SearchResultDto::from).collect(),
+    ))
 }

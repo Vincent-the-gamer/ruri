@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive } from "vue";
+import { useI18n } from "vue-i18n";
 import type {
     ProviderType,
     ProviderConfig,
@@ -24,6 +25,8 @@ const emit = defineEmits<{
     ];
     cancel: [];
 }>();
+
+const { t } = useI18n();
 
 const name = ref(props.provider?.name || "");
 const providerType = ref<ProviderType>(
@@ -134,7 +137,11 @@ function handleSave() {
             <!-- Header -->
             <div class="modal-header">
                 <h2 class="modal-title">
-                    {{ provider ? "编辑供应商" : "添加供应商" }}
+                    {{
+                        provider
+                            ? t("providers.editProvider")
+                            : t("providers.addProvider")
+                    }}
                 </h2>
                 <button @click="emit('cancel')" class="btn-close">
                     <svg
@@ -155,33 +162,39 @@ function handleSave() {
             <div class="modal-body">
                 <!-- Name -->
                 <div class="form-group">
-                    <label class="form-label">供应商名称</label>
+                    <label class="form-label">{{
+                        t("providers.form.name")
+                    }}</label>
                     <input
                         v-model="name"
                         type="text"
-                        placeholder="例如：我的 OpenAI、Claude Pro"
+                        :placeholder="t('providers.form.namePlaceholder')"
                         class="form-input"
                     />
                 </div>
 
                 <!-- Type Selector -->
                 <div class="form-group">
-                    <label class="form-label">供应商类型</label>
+                    <label class="form-label">{{
+                        t("providers.form.type")
+                    }}</label>
                     <div class="type-selector">
                         <button
-                            v-for="t in [
+                            v-for="typeItem in [
                                 'openai',
                                 'anthropic',
                                 'lm_studio',
                                 'custom',
                             ] as ProviderType[]"
-                            :key="t"
-                            @click="providerType = t"
+                            :key="typeItem"
+                            @click="providerType = typeItem"
                             class="type-btn"
-                            :class="{ 'type-btn-active': providerType === t }"
+                            :class="{
+                                'type-btn-active': providerType === typeItem,
+                            }"
                         >
                             <svg
-                                v-if="t === 'openai'"
+                                v-if="typeItem === 'openai'"
                                 class="type-icon"
                                 viewBox="0 0 24 24"
                                 fill="none"
@@ -196,7 +209,7 @@ function handleSave() {
                                 />
                             </svg>
                             <svg
-                                v-if="t === 'anthropic'"
+                                v-if="typeItem === 'anthropic'"
                                 class="type-icon"
                                 viewBox="0 0 24 24"
                                 fill="none"
@@ -210,7 +223,7 @@ function handleSave() {
                                 />
                             </svg>
                             <svg
-                                v-if="t === 'custom'"
+                                v-if="typeItem === 'custom'"
                                 class="type-icon"
                                 viewBox="0 0 24 24"
                                 fill="none"
@@ -225,7 +238,7 @@ function handleSave() {
                                 />
                             </svg>
                             <svg
-                                v-if="t === 'lm_studio'"
+                                v-if="typeItem === 'lm_studio'"
                                 class="type-icon"
                                 viewBox="0 0 24 24"
                                 fill="none"
@@ -246,13 +259,13 @@ function handleSave() {
                                 <line x1="12" y1="17" x2="12" y2="21" />
                             </svg>
                             {{
-                                t === "openai"
-                                    ? "OpenAI"
-                                    : t === "anthropic"
-                                      ? "Anthropic"
-                                      : t === "lm_studio"
-                                        ? "LM Studio"
-                                        : "Custom"
+                                typeItem === "openai"
+                                    ? t("providers.type.openai")
+                                    : typeItem === "anthropic"
+                                      ? t("providers.type.anthropic")
+                                      : typeItem === "lm_studio"
+                                        ? t("providers.type.lmStudio")
+                                        : t("providers.type.custom")
                             }}
                         </button>
                     </div>
@@ -261,7 +274,9 @@ function handleSave() {
                 <!-- OpenAI Config -->
                 <template v-if="providerType === 'openai'">
                     <div class="form-group">
-                        <label class="form-label">接口地址</label>
+                        <label class="form-label">{{
+                            t("providers.form.baseUrl")
+                        }}</label>
                         <input
                             v-model="openaiConfig.base_url"
                             type="text"
@@ -269,12 +284,16 @@ function handleSave() {
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API 密钥</label>
+                        <label class="form-label">{{
+                            t("providers.form.apiKey")
+                        }}</label>
                         <div class="input-with-action">
                             <input
                                 v-model="openaiConfig.api_key"
                                 :type="showApiKey ? 'text' : 'password'"
-                                placeholder="sk-..."
+                                :placeholder="
+                                    t('providers.form.apiKeyPlaceholder')
+                                "
                                 class="form-input"
                             />
                             <button
@@ -313,11 +332,15 @@ function handleSave() {
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">默认模型</label>
+                        <label class="form-label">{{
+                            t("providers.form.defaultModel")
+                        }}</label>
                         <input
                             v-model="openaiConfig.default_model"
                             type="text"
-                            placeholder="gpt-4o"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
                             class="form-input"
                         />
                     </div>
@@ -326,7 +349,9 @@ function handleSave() {
                 <!-- Anthropic Config -->
                 <template v-if="providerType === 'anthropic'">
                     <div class="form-group">
-                        <label class="form-label">接口地址</label>
+                        <label class="form-label">{{
+                            t("providers.form.baseUrl")
+                        }}</label>
                         <input
                             v-model="anthropicConfig.base_url"
                             type="text"
@@ -334,12 +359,16 @@ function handleSave() {
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API 密钥</label>
+                        <label class="form-label">{{
+                            t("providers.form.apiKey")
+                        }}</label>
                         <div class="input-with-action">
                             <input
                                 v-model="anthropicConfig.api_key"
                                 :type="showApiKey ? 'text' : 'password'"
-                                placeholder="sk-ant-..."
+                                :placeholder="
+                                    t('providers.form.apiKeyPlaceholder')
+                                "
                                 class="form-input"
                             />
                             <button
@@ -378,20 +407,28 @@ function handleSave() {
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">默认模型</label>
+                        <label class="form-label">{{
+                            t("providers.form.defaultModel")
+                        }}</label>
                         <input
                             v-model="anthropicConfig.default_model"
                             type="text"
-                            placeholder="claude-sonnet-4-20250514"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
                             class="form-input"
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API 版本</label>
+                        <label class="form-label">{{
+                            t("providers.form.apiVersion")
+                        }}</label>
                         <input
                             v-model="anthropicConfig.api_version"
                             type="text"
-                            placeholder="2023-06-01"
+                            :placeholder="
+                                t('providers.form.apiVersionPlaceholder')
+                            "
                             class="form-input"
                         />
                     </div>
@@ -399,41 +436,61 @@ function handleSave() {
 
                 <!-- LM Studio Config -->
                 <template v-if="providerType === 'lm_studio'">
-                    <div class="section-title">LM Studio Configuration</div>
+                    <div class="section-title">
+                        {{ t("providers.form.lmStudioConfig") }}
+                    </div>
                     <div class="form-group">
-                        <label class="form-label">Host</label>
+                        <label class="form-label">{{
+                            t("providers.form.lmStudioHost")
+                        }}</label>
                         <input
                             v-model="lmStudioConfig.host"
                             type="text"
                             class="form-input"
-                            placeholder="e.g., localhost"
+                            :placeholder="
+                                t('providers.form.lmStudioHostPlaceholder')
+                            "
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Port</label>
+                        <label class="form-label">{{
+                            t("providers.form.lmStudioPort")
+                        }}</label>
                         <input
                             v-model.number="lmStudioConfig.port"
                             type="number"
                             class="form-input"
-                            placeholder="e.g., 1234"
+                            :placeholder="
+                                t('providers.form.lmStudioPortPlaceholder')
+                            "
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API Key</label>
+                        <label class="form-label">{{
+                            t("providers.form.apiKey")
+                        }}</label>
                         <input
                             v-model="lmStudioConfig.api_key"
                             type="text"
                             class="form-input"
-                            placeholder="Optional"
+                            :placeholder="
+                                t('providers.form.lmStudioApiKeyPlaceholder')
+                            "
                         />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Default Model</label>
+                        <label class="form-label">{{
+                            t("providers.form.defaultModel")
+                        }}</label>
                         <input
                             v-model="lmStudioConfig.default_model"
                             type="text"
                             class="form-input"
-                            placeholder="e.g., default"
+                            :placeholder="
+                                t(
+                                    'providers.form.lmStudioDefaultModelPlaceholder',
+                                )
+                            "
                         />
                     </div>
                 </template>
@@ -442,7 +499,9 @@ function handleSave() {
                 <template v-if="providerType === 'custom'">
                     <div class="form-grid-2">
                         <div class="form-group">
-                            <label class="form-label">接口地址</label>
+                            <label class="form-label">{{
+                                t("providers.form.baseUrl")
+                            }}</label>
                             <input
                                 v-model="customConfig.base_url"
                                 type="text"
@@ -450,7 +509,9 @@ function handleSave() {
                             />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">对话路径</label>
+                            <label class="form-label">{{
+                                t("providers.form.chatPath")
+                            }}</label>
                             <input
                                 v-model="customConfig.chat_path"
                                 type="text"
@@ -460,7 +521,9 @@ function handleSave() {
                     </div>
                     <div class="form-grid-2">
                         <div class="form-group">
-                            <label class="form-label">请求方式</label>
+                            <label class="form-label">{{
+                                t("providers.form.method")
+                            }}</label>
                             <select
                                 v-model="customConfig.method"
                                 class="form-select"
@@ -470,7 +533,9 @@ function handleSave() {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">默认模型</label>
+                            <label class="form-label">{{
+                                t("providers.form.defaultModel")
+                            }}</label>
                             <input
                                 v-model="customConfig.default_model"
                                 type="text"
@@ -480,31 +545,45 @@ function handleSave() {
                     </div>
                     <div class="form-grid-2">
                         <div class="form-group">
-                            <label class="form-label">认证请求头</label>
+                            <label class="form-label">{{
+                                t("providers.form.authHeader")
+                            }}</label>
                             <input
                                 v-model="customConfig.auth_header"
                                 type="text"
-                                placeholder="Authorization"
+                                :placeholder="
+                                    t('providers.form.authHeaderPlaceholder')
+                                "
                                 class="form-input"
                             />
                         </div>
                         <div class="form-group">
-                            <label class="form-label">认证前缀</label>
+                            <label class="form-label">{{
+                                t("providers.form.authPrefix")
+                            }}</label>
                             <input
                                 v-model="customConfig.auth_prefix"
                                 type="text"
-                                placeholder="Bearer "
+                                :placeholder="
+                                    t('providers.form.authPrefixPlaceholder')
+                                "
                                 class="form-input"
                             />
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API 密钥（可选）</label>
+                        <label class="form-label">{{
+                            t("providers.form.apiKeyOptional")
+                        }}</label>
                         <div class="input-with-action">
                             <input
                                 v-model="customConfig.api_key"
                                 :type="showApiKey ? 'text' : 'password'"
-                                placeholder="如不需要请留空"
+                                :placeholder="
+                                    t(
+                                        'providers.form.apiKeyOptionalPlaceholder',
+                                    )
+                                "
                                 class="form-input"
                             />
                             <button
@@ -545,11 +624,15 @@ function handleSave() {
 
                     <!-- Response path mapping -->
                     <div class="section-divider">
-                        <h4 class="section-title">响应路径映射</h4>
+                        <h4 class="section-title">
+                            {{ t("providers.form.responsePathMapping") }}
+                        </h4>
                     </div>
                     <div class="form-grid-2">
                         <div class="form-group">
-                            <label class="form-label-sm">内容路径</label>
+                            <label class="form-label-sm">{{
+                                t("providers.form.contentPath")
+                            }}</label>
                             <input
                                 v-model="customConfig.response_content_path"
                                 type="text"
@@ -558,7 +641,9 @@ function handleSave() {
                             />
                         </div>
                         <div class="form-group">
-                            <label class="form-label-sm">工具调用路径</label>
+                            <label class="form-label-sm">{{
+                                t("providers.form.toolCallsPath")
+                            }}</label>
                             <input
                                 v-model="customConfig.response_tool_calls_path"
                                 type="text"
@@ -567,7 +652,9 @@ function handleSave() {
                             />
                         </div>
                         <div class="form-group">
-                            <label class="form-label-sm">模型路径</label>
+                            <label class="form-label-sm">{{
+                                t("providers.form.modelPath")
+                            }}</label>
                             <input
                                 v-model="customConfig.response_model_path"
                                 type="text"
@@ -576,7 +663,9 @@ function handleSave() {
                             />
                         </div>
                         <div class="form-group">
-                            <label class="form-label-sm">结束原因路径</label>
+                            <label class="form-label-sm">{{
+                                t("providers.form.finishReasonPath")
+                            }}</label>
                             <input
                                 v-model="
                                     customConfig.response_finish_reason_path
@@ -590,7 +679,9 @@ function handleSave() {
 
                     <!-- Toggle -->
                     <div class="toggle-row">
-                        <label class="form-label">使用 OpenAI 格式</label>
+                        <label class="form-label">{{
+                            t("providers.form.useOpenaiFormat")
+                        }}</label>
                         <button
                             @click="
                                 customConfig.use_openai_format =
@@ -613,7 +704,9 @@ function handleSave() {
 
                     <!-- Extra headers -->
                     <div class="form-group">
-                        <label class="form-label">额外请求头 (JSON)</label>
+                        <label class="form-label">{{
+                            t("providers.form.extraHeaders")
+                        }}</label>
                         <textarea
                             v-model="extraHeadersText"
                             rows="3"
@@ -626,13 +719,19 @@ function handleSave() {
 
             <!-- Footer -->
             <div class="modal-footer">
-                <button @click="emit('cancel')" class="btn-ghost">取消</button>
+                <button @click="emit('cancel')" class="btn-ghost">
+                    {{ t("common.cancel") }}
+                </button>
                 <button
                     @click="handleSave"
                     :disabled="!name.trim()"
                     class="btn-accent"
                 >
-                    {{ provider ? "更新" : "创建" }}
+                    {{
+                        provider
+                            ? t("providers.form.update")
+                            : t("providers.form.create")
+                    }}
                 </button>
             </div>
         </div>

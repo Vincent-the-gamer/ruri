@@ -9,26 +9,35 @@ import type {
   ComputerUseConfig,
   ConfigProfile,
   CreateConfigProfileRequest,
+  CreateKnowledgeBaseRequest,
   CreateMcpServerRequest,
   CreatePlatformRequest,
   CreateProviderRequest,
   CreateSkillRequest,
   CreatePersonaRequest,
+  KbDocument,
+  KnowledgeBase,
   LogEntry,
+  LogLevel,
   McpServerConfig,
   Persona,
   PlatformInstance,
   Provider,
+  SearchResult,
+  SearchRequest,
   Skill,
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
   UpdateConfigProfileRequest,
+  UpdateKnowledgeBaseRequest,
   UpdateMcpServerRequest,
   UpdatePersonaRequest,
   UpdatePlatformRequest,
   UpdateWebSearchConfigRequest,
   UploadSkillPackageResponse,
+  WsFilterCommand,
+  WsGetSinceCommand,
   WebSearchConfig,
 } from '../types'
 
@@ -174,10 +183,31 @@ export async function clearLogs(): Promise<void> {
   await client.delete('/api/logs')
 }
 
+/**
+ * Open a WebSocket connection to the log stream.
+ * Supports reconnection by sending `get_since` command after connect,
+ * and level filtering via `filter` command.
+ */
 export function openLogsStream(): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
   return new WebSocket(`${protocol}//${host}/api/logs/stream`)
+}
+
+/** Send a filter command to the log WebSocket */
+export function sendLogFilter(ws: WebSocket, level: LogLevel): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    const cmd: WsFilterCommand = { type: 'filter', level }
+    ws.send(JSON.stringify(cmd))
+  }
+}
+
+/** Send a get_since command to fill gap after reconnection */
+export function sendGetSince(ws: WebSocket, timestamp: number): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    const cmd: WsGetSinceCommand = { type: 'get_since', timestamp }
+    ws.send(JSON.stringify(cmd))
+  }
 }
 
 // ─── Web Search ───────────────────────────────────────────────────
@@ -344,6 +374,55 @@ export async function weixinQrLoginStatus(id: string, qrcode: string): Promise<{
 
 export async function restartSystem(): Promise<{ message: string }> {
   const res = await client.post('/api/system/restart')
+  return res.data
+}
+
+// ─── Knowledge Base ──────────────────────────────────────────
+
+export async function getKnowledgeBases(): Promise<KnowledgeBase[]> {
+  const res = await client.get('/api/knowledge-bases')
+  return res.data
+}
+
+export async function getKnowledgeBase(id: string): Promise<KnowledgeBase> {
+  const res = await client.get(`/api/knowledge-bases/${id}`)
+  return res.data
+}
+
+export async function createKnowledgeBase(data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> {
+  const res = await client.post('/api/knowledge-bases', data)
+  return res.data
+}
+
+export async function updateKnowledgeBase(id: string, data: UpdateKnowledgeBaseRequest): Promise<KnowledgeBase> {
+  const res = await client.put(`/api/knowledge-bases/${id}`, data)
+  return res.data
+}
+
+export async function deleteKnowledgeBase(id: string): Promise<void> {
+  await client.delete(`/api/knowledge-bases/${id}`)
+}
+
+export async function getKbDocuments(kbId: string): Promise<KbDocument[]> {
+  const res = await client.get(`/api/knowledge-bases/${kbId}/documents`)
+  return res.data
+}
+
+export async function uploadKbDocument(kbId: string, files: File[]): Promise<KbDocument[]> {
+  const formData = new FormData()
+  for (const file of files) {
+    formData.append('files', file)
+  }
+  const res = await client.post(`/api/knowledge-bases/${kbId}/documents`, formData)
+  return res.data
+}
+
+export async function deleteKbDocument(kbId: string, docId: string): Promise<void> {
+  await client.delete(`/api/knowledge-bases/${kbId}/documents/${docId}`)
+}
+
+export async function searchKnowledgeBase(kbId: string, data: SearchRequest): Promise<SearchResult[]> {
+  const res = await client.post(`/api/knowledge-bases/${kbId}/search`, data)
   return res.data
 }
 

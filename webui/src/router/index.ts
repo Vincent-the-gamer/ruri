@@ -32,7 +32,6 @@ const router = createRouter({
       path: '/chat',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),
-      meta: { keepAlive: true },
     },
     {
       path: '/personas',
@@ -53,6 +52,11 @@ const router = createRouter({
       path: '/web-search-config',
       name: 'Web Search Config',
       component: () => import('../views/WebSearchConfig.vue'),
+    },
+    {
+      path: '/knowledge-base',
+      name: 'KnowledgeBase',
+      component: () => import('../views/KnowledgeBase.vue'),
     },
     {
       path: '/api-test',

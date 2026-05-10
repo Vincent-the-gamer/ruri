@@ -72,16 +72,14 @@ onMounted(() => {
                 <main class="flex-1 overflow-y-auto">
                     <div class="max-w-[1440px] mx-auto w-full p-6">
                         <router-view v-slot="{ Component, route }">
-                            <keep-alive v-if="route.meta.keepAlive">
-                                <transition name="fade" mode="out-in">
-                                    <component :is="Component" />
-                                </transition>
-                            </keep-alive>
-                            <template v-else>
-                                <transition name="fade" mode="out-in">
-                                    <component :is="Component" />
-                                </transition>
-                            </template>
+                            <transition name="fade" mode="out-in">
+                                <keep-alive :include="['Chat']">
+                                    <component
+                                        :is="Component"
+                                        :key="route.path"
+                                    />
+                                </keep-alive>
+                            </transition>
                         </router-view>
                     </div>
                 </main>

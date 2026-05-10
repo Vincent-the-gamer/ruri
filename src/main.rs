@@ -6,6 +6,7 @@ mod command;
 mod computer_use;
 mod conversation;
 mod db;
+mod knowledge;
 mod logging;
 mod mcp;
 mod platform;
@@ -108,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Normal mode: use our logging system with LogManager
-    let log_manager = logging::init_logging(1000);
+    let log_manager = logging::init_logging(5000);
 
     tracing::info!("══════════════════════════════════════");
     tracing::info!("         🤖 Ruri AI Agent             ");
@@ -171,6 +172,20 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("Failed to verify MCP database schema: {}", e);
             }
             *state.mcp_config.write().await = Some(mcp_config_manager);
+
+            // ── Knowledge base sub-module ─────────────────────────────
+            match crate::knowledge::KnowledgeBaseStore::new(pool.clone()).await {
+                Ok(kb_store) => {
+                    let kb_service =
+                        crate::knowledge::KnowledgeBaseService::new(std::sync::Arc::new(kb_store));
+                    *state.knowledge_base_service.write().await = Some(kb_service);
+                    tracing::info!("Knowledge base service initialized");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize knowledge base store: {}", e);
+                    tracing::warn!("Knowledge base features will be unavailable");
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("Failed to initialize unified database: {}", e);

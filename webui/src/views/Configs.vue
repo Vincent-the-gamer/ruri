@@ -7,6 +7,7 @@ import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
+import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import ConfigForm from "../components/ConfigForm.vue";
 import type { ConfigProfile } from "../types";
 
@@ -16,6 +17,7 @@ const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
+const kbStore = useKnowledgeBaseStore();
 
 const showForm = ref(false);
 const editingConfig = ref<ConfigProfile | null>(null);
@@ -28,6 +30,7 @@ onMounted(async () => {
         configStore.fetchConfigProfiles(),
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
+        kbStore.fetchKnowledgeBases(),
         skillStore.fetchSkills(),
         platformStore.fetchInstances(),
     ]);
@@ -236,7 +239,7 @@ function getPersonaName(personaId: string | null): string {
                 :style="{ animationDelay: `${index * 0.05}s` }"
             >
                 <div
-                    v-if="config.is_active"
+                    v-if="config.is_active && config.enable"
                     class="card-glow card-glow--active"
                 ></div>
                 <div class="card-content">

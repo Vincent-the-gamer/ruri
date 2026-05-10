@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import * as api from "../api";
 import type { LogEntry, LogLevel } from "../types";
 
 const { t } = useI18n();
+
+// ── State ────────────────────────────────────────────────────────
 const logs = ref<LogEntry[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -15,12 +17,24 @@ const filterTarget = ref("");
 const searchQuery = ref("");
 const logContainer = ref<HTMLElement | null>(null);
 
+// ── Reconnection state ───────────────────────────────────────────
+const RECONNECT_BASE_DELAY = 1000; // 1s initial delay
+const RECONNECT_MAX_DELAY = 30000; // 30s max delay
+let reconnectAttempt = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── Track latest log ID for deduplication ────────────────────────
+const lastKnownLogId = ref<number>(0);
+
+// ── Compute filtered logs ────────────────────────────────────────
+const LEVEL_ORDER: LogLevel[] = ["error", "warn", "info", "debug", "trace"];
+
 const filteredLogs = computed(() => {
-    const levels: LogLevel[] = ["error", "warn", "info", "debug", "trace"];
     return logs.value.filter((log) => {
+        // Level filter
         if (filterLevel.value !== "all") {
-            const currentLevelIndex = levels.indexOf(log.level);
-            const filterLevelIndex = levels.indexOf(
+            const currentLevelIndex = LEVEL_ORDER.indexOf(log.level);
+            const filterLevelIndex = LEVEL_ORDER.indexOf(
                 filterLevel.value as LogLevel,
             );
             if (
@@ -31,22 +45,46 @@ const filteredLogs = computed(() => {
             }
         }
 
-        if (
-            filterTarget.value &&
-            !log.target.toLowerCase().includes(filterTarget.value.toLowerCase())
-        ) {
-            return false;
+        // Target/module filter
+        const targetQuery = filterTarget.value.toLowerCase();
+        if (targetQuery) {
+            const matchesTarget = log.target
+                .toLowerCase()
+                .includes(targetQuery);
+            const matchesModule =
+                log.module_path?.toLowerCase().includes(targetQuery) ?? false;
+            if (!matchesTarget && !matchesModule) {
+                return false;
+            }
         }
 
         return true;
     });
 });
 
+// ── Log counts by level for status bar ───────────────────────────
+const logCounts = computed(() => {
+    const counts = { error: 0, warn: 0, info: 0, debug: 0, trace: 0 };
+    for (const log of logs.value) {
+        counts[log.level]++;
+    }
+    return counts;
+});
+
+// ── Watch filter level changes → update server-side filter ───────
+watch(filterLevel, (newLevel) => {
+    if (ws.value && newLevel !== "all") {
+        api.sendLogFilter(ws.value, newLevel as LogLevel);
+    }
+});
+
+// ── Fetch historical logs via HTTP ───────────────────────────────
 async function fetchLogs() {
     loading.value = true;
     error.value = null;
     try {
-        logs.value = await api.getLogs();
+        const fetched = await api.getLogs();
+        replaceLogsWithDedup(fetched);
         await nextTick();
         if (autoScroll.value) scrollToBottom();
     } catch (e: unknown) {
@@ -56,17 +94,50 @@ async function fetchLogs() {
     }
 }
 
+// ── Clear all logs ───────────────────────────────────────────────
 async function clearLogs() {
     if (confirm(t("logs.clearConfirm"))) {
         try {
             await api.clearLogs();
             logs.value = [];
+            lastKnownLogId.value = 0;
         } catch (e: unknown) {
             alert(e instanceof Error ? e.message : t("errors.unknown"));
         }
     }
 }
 
+// ── Replace logs with deduplication ──────────────────────────────
+function replaceLogsWithDedup(newLogs: LogEntry[]) {
+    logs.value = newLogs;
+    if (newLogs.length > 0) {
+        lastKnownLogId.value = Math.max(
+            lastKnownLogId.value,
+            newLogs[newLogs.length - 1].id,
+        );
+    }
+}
+
+// ── Add a single log entry with deduplication ────────────────────
+function addLogEntry(entry: LogEntry) {
+    // Deduplicate by ID
+    if (entry.id <= lastKnownLogId.value) {
+        // Could be a duplicate from get_since overlap; still check if it exists
+        if (logs.value.some((l) => l.id === entry.id)) {
+            return;
+        }
+    }
+    logs.value.push(entry);
+    lastKnownLogId.value = Math.max(lastKnownLogId.value, entry.id);
+}
+
+// ── Get the latest timestamp from current logs ───────────────────
+function getLatestTimestamp(): number {
+    if (logs.value.length === 0) return 0;
+    return logs.value[logs.value.length - 1].timestamp;
+}
+
+// ── Scroll helpers ───────────────────────────────────────────────
 function scrollToBottom() {
     if (logContainer.value) {
         logContainer.value.scrollTop = logContainer.value.scrollHeight;
@@ -80,54 +151,98 @@ function handleScroll() {
     }
 }
 
+// ── WebSocket: open with reconnection support ────────────────────
 function openLogsStream() {
     if (ws.value) return;
 
     try {
-        ws.value = api.openLogsStream();
-        ws.value.onmessage = (event) => {
+        const socket = api.openLogsStream();
+
+        socket.onopen = () => {
+            // Reset reconnection state on successful connect
+            reconnectAttempt = 0;
+
+            // Request any logs we may have missed during disconnect
+            const latestTs = getLatestTimestamp();
+            if (latestTs > 0) {
+                api.sendGetSince(socket, latestTs);
+            }
+
+            // Send current filter level to server
+            if (filterLevel.value !== "all") {
+                api.sendLogFilter(socket, filterLevel.value as LogLevel);
+            }
+        };
+
+        socket.onmessage = (event) => {
             try {
                 const logEntry: LogEntry = JSON.parse(event.data);
-                logs.value.push(logEntry);
+                addLogEntry(logEntry);
                 if (autoScroll.value) nextTick(() => scrollToBottom());
             } catch (e) {
                 console.error("Failed to parse log entry:", e);
             }
         };
 
-        ws.value.onerror = () => {
-            ws.value?.close();
-            ws.value = null;
+        socket.onerror = () => {
+            // onclose will fire after onerror, schedule reconnect there
         };
 
-        ws.value.onclose = () => {
+        socket.onclose = () => {
             ws.value = null;
+            scheduleReconnect();
         };
+
+        ws.value = socket;
     } catch (e) {
         console.error("Failed to open logs stream:", e);
+        scheduleReconnect();
     }
 }
 
 function closeLogsStream() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    reconnectAttempt = 0;
     if (ws.value) {
         ws.value.close();
         ws.value = null;
     }
 }
 
-// Highlight search query in text - search in original, highlight in escaped
+// ── Reconnection with exponential backoff ────────────────────────
+function scheduleReconnect() {
+    if (reconnectTimer) return; // already scheduled
+
+    const delay = Math.min(
+        RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttempt),
+        RECONNECT_MAX_DELAY,
+    );
+    reconnectAttempt++;
+
+    console.log(
+        `[Logs] Reconnecting in ${delay}ms (attempt ${reconnectAttempt})`,
+    );
+
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        openLogsStream();
+    }, delay);
+}
+
+// ── Text formatting helpers ───────────────────────────────────────
+
+// Highlight search query in text
 function highlightText(text: string): string {
     const query = searchQuery.value;
     if (!query) return escapeHtml(text);
-    // Escape the query for regex special characters
     const regexSafeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Build regex to find the original query in the original text
     const regex = new RegExp(regexSafeQuery, "gi");
-    // Split by matches, escape each part, then wrap matches in highlight
     const parts = text.split(regex);
     const result = parts.map((part, i) => {
         const escaped = escapeHtml(part);
-        // Even indices are non-matches, odd indices are matches
         return i % 2 === 1
             ? `<mark class="search-highlight">${escaped}</mark>`
             : escaped;
@@ -135,13 +250,36 @@ function highlightText(text: string): string {
     return result.join("");
 }
 
-// Format a log line exactly like a terminal would
+// Format structured fields as inline key=value
+function formatFields(fields: Record<string, string> | undefined): string {
+    if (!fields || Object.keys(fields).length === 0) return "";
+    const parts = Object.entries(fields)
+        .map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(v)}`)
+        .join(", ");
+    return ` <span class="log-fields">{${parts}}</span>`;
+}
+
+// Format file:line location
+function formatLocation(log: LogEntry): string {
+    if (!log.file) return "";
+    const shortFile = log.file.split("/").pop() || log.file;
+    const loc = log.line
+        ? `${escapeHtml(shortFile)}:${log.line}`
+        : escapeHtml(shortFile);
+    return ` <span class="log-location">@ ${loc}</span>`;
+}
+
+// Format a log line with full detail
 function formatLogLine(log: LogEntry): string {
     const ts = formatTimestamp(log.timestamp);
     const level = log.level.toUpperCase().padStart(5);
-    const target = log.target;
+    const target = log.module_path
+        ? `${log.target}::${log.module_path}`
+        : log.target;
     const msg = highlightText(log.message);
-    return `${ts} ${level} ${target}: ${msg}`;
+    const fields = formatFields(log.fields);
+    const location = formatLocation(log);
+    return `${ts} ${level} ${escapeHtml(target)}: ${msg}${fields}${location}`;
 }
 
 function getLevelClass(level: LogLevel): string {
@@ -164,14 +302,23 @@ function getLevelClass(level: LogLevel): string {
 function formatTimestamp(timestamp: number): string {
     const date = new Date(timestamp);
     const pad = (n: number, len: number) => n.toString().padStart(len, "0");
-    const year = date.getFullYear();
-    const month = pad(date.getMonth() + 1, 2);
-    const day = pad(date.getDate(), 2);
     const hours = pad(date.getHours(), 2);
     const minutes = pad(date.getMinutes(), 2);
     const seconds = pad(date.getSeconds(), 2);
     const ms = pad(date.getMilliseconds(), 3);
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${ms}Z`;
+    // Only show time (not full ISO date) for compact display
+    // Show date only if not today
+    const now = new Date();
+    if (
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate()
+    ) {
+        return `${hours}:${minutes}:${seconds}.${ms}`;
+    }
+    const month = pad(date.getMonth() + 1, 2);
+    const day = pad(date.getDate(), 2);
+    return `${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
 }
 
 function escapeHtml(text: string): string {
@@ -181,6 +328,7 @@ function escapeHtml(text: string): string {
         .replace(/>/g, "&gt;");
 }
 
+// ── Lifecycle ────────────────────────────────────────────────────
 onMounted(() => {
     fetchLogs();
     openLogsStream();
@@ -240,7 +388,10 @@ onUnmounted(() => {
                 <span class="toolbar-title">{{ t("logs.terminal") }}</span>
                 <span
                     class="toolbar-dot"
-                    :class="{ online: ws !== null }"
+                    :class="{
+                        online: ws !== null,
+                        reconnecting: ws === null && reconnectAttempt > 0,
+                    }"
                 ></span>
             </div>
 
@@ -354,25 +505,23 @@ onUnmounted(() => {
         <div class="terminal-status">
             <span class="status-chunk">Ln {{ filteredLogs.length }}</span>
             <span class="status-chunk status-error"
-                >E:{{ logs.filter((l) => l.level === "error").length }}</span
+                >E:{{ logCounts.error }}</span
             >
-            <span class="status-chunk status-warn"
-                >W:{{ logs.filter((l) => l.level === "warn").length }}</span
-            >
-            <span class="status-chunk status-info"
-                >I:{{ logs.filter((l) => l.level === "info").length }}</span
-            >
+            <span class="status-chunk status-warn">W:{{ logCounts.warn }}</span>
+            <span class="status-chunk status-info">I:{{ logCounts.info }}</span>
             <span class="status-chunk status-debug"
-                >D:{{ logs.filter((l) => l.level === "debug").length }}</span
+                >D:{{ logCounts.debug }}</span
             >
             <span class="status-chunk status-trace"
-                >T:{{ logs.filter((l) => l.level === "trace").length }}</span
+                >T:{{ logCounts.trace }}</span
             >
             <span class="status-spacer"></span>
             <span class="status-chunk">{{
                 ws !== null
                     ? t("logs.realtimeConnected")
-                    : t("logs.disconnected")
+                    : reconnectAttempt > 0
+                      ? t("logs.reconnecting")
+                      : t("logs.disconnected")
             }}</span>
         </div>
     </div>
@@ -489,6 +638,21 @@ onUnmounted(() => {
 .toolbar-dot.online {
     background: #4ec9b0;
     box-shadow: 0 0 6px rgba(78, 201, 176, 0.4);
+}
+
+.toolbar-dot.reconnecting {
+    background: #dcdcaa;
+    animation: reconnect-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes reconnect-pulse {
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
 }
 
 .toolbar-center {
@@ -664,6 +828,18 @@ onUnmounted(() => {
     color: #ffa657;
     padding: 0 2px;
     border-radius: 2px;
+}
+
+/* ── Log detail styles ── */
+:deep(.log-fields) {
+    color: #6a9955;
+    font-size: 0.85em;
+}
+
+:deep(.log-location) {
+    color: #569cd6;
+    font-size: 0.85em;
+    opacity: 0.7;
 }
 
 /* ── Status Bar ── */

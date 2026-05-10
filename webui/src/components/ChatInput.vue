@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
+const props = defineProps<{
+    disabled?: boolean;
+}>();
+
 const emit = defineEmits<{
     send: [message: string];
 }>();
@@ -10,7 +14,7 @@ const isComposing = ref(false);
 
 function handleSend() {
     const text = inputText.value.trim();
-    if (!text) return;
+    if (!text || props.disabled) return;
     emit("send", text);
     inputText.value = "";
 }

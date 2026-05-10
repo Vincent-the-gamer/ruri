@@ -200,6 +200,10 @@ impl Agent {
     }
 
     /// Initialize skills that haven't been attached yet.
+    ///
+    /// Calls `on_attach()` on every skill and inserts the returned system
+    /// messages **after** any existing system messages in the history, so
+    /// that previously loaded system prompts keep their relative order.
     pub async fn initialize_skills(&mut self) {
         for skill in &self.skills {
             let system_messages = skill.on_attach().await;
@@ -208,9 +212,17 @@ impl Agent {
                 num_system_messages = system_messages.len(),
                 "Initializing skill with on_attach"
             );
-            for msg in system_messages {
-                // Insert system messages at the beginning of history
-                self.history.insert(0, msg);
+            if system_messages.is_empty() {
+                continue;
+            }
+            // Find the index right after the last system message
+            let insert_pos = self
+                .history
+                .iter()
+                .take_while(|m| m.role == MessageRole::System)
+                .count();
+            for (i, msg) in system_messages.into_iter().enumerate() {
+                self.history.insert(insert_pos + i, msg);
             }
         }
     }

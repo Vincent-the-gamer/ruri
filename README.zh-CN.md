@@ -7,26 +7,30 @@
 > [!WARNING]
 > 本项目仍在建设中，目前尚不能用于生产环境。
 
-## 计划
+## 特性
 
+- [x] 模型提供商 - Anthropic, OpenAI, 自定义
 - [x] 工具调用
-- [x] 技能系统
-- [x] 网络搜索
-- [x] ACP (Agent Client Protocol)
-- [x] 人设系统
-- [x] MCP (Model Context Protocol)
+- [x] 技能
+- [x] 网页搜索
+- [x] ACP (Agent Client Protocol) 服务端
+- [x] 人格系统
+- [x] MCP (Model Context Protocol) 客户端
 - [x] 指令系统
-- [ ] 基于RAG的知识库 (嵌入模型 + 重排序模型) 支持
+- [x] 基于RAG的知识库 (嵌入模型 + 重排序模型) 支持
+- [x] 聊天平台 - 钉钉
+- [x] 聊天平台 - Discord
+- [ ] 聊天平台 - OneBot V11
+- [x] 聊天平台 - 个人微信(微信ClawBot插件)
+
+### 未来计划
+
 - [ ] Sub Agent
-- [x] 聊天 - Discord
-- [ ] 聊天 - OneBot V11
-- [x] 聊天 - 个人微信 (Wechat ClawBot)
-- [ ] 聊天 - Matrix
-- [ ] 聊天 - VoceChat
-- [ ] 聊天 - QQ
-- [x] 聊天 - 钉钉
-- [ ] 聊天 - 企业微信
-- [ ] 聊天 - 自定义 API（你可以编写自己的程序与琉璃对话）
+- [ ] 聊天平台 - Matrix
+- [ ] 聊天平台 - VoceChat
+- [ ] 聊天平台 - QQ
+- [ ] 聊天平台 - WeCom
+- [ ] 聊天平台 - Custom API(You can write your own program to talk to Ruri)
 
 ...
 

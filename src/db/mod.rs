@@ -6,11 +6,14 @@
 //! Tables:
 //! - `conversations` / `messages` — Chat conversation history
 //! - `mcp_servers`                — MCP server configurations
+//! - `knowledge_bases`           — Knowledge base definitions
+//! - `kb_documents`              — Documents within knowledge bases
+//! - `kb_chunks`                 — Document chunks with embeddings for vector search
 //! - Future tables can be added here as needed
 
 use anyhow::{Context, Result};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
-use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 use tracing::info;
 
@@ -37,12 +40,18 @@ pub async fn init(db_path: PathBuf) -> Result<SqlitePool> {
             .with_context(|| format!("Failed to create database directory: {:?}", parent))?;
     }
 
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    info!("Connecting to database at: {}", db_url);
+    let connect_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(std::time::Duration::from_secs(5));
+
+    info!("Connecting to database at: {:?}", db_path);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(10) // shared pool — a bit larger than before
-        .connect(&db_url)
+        .connect_with(connect_options)
         .await
         .context("Failed to connect to database")?;
 
@@ -114,6 +123,75 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create mcp_servers table")?;
+
+    // ─── Knowledge Bases ──────────────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS knowledge_bases (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            embedding_provider_config TEXT NOT NULL,
+            rerank_provider_config TEXT,
+            chunk_size INTEGER NOT NULL DEFAULT 512,
+            chunk_overlap INTEGER NOT NULL DEFAULT 64,
+            document_count INTEGER NOT NULL DEFAULT 0,
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create knowledge_bases table")?;
+
+    // ─── KB Documents ─────────────────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS kb_documents (
+            id TEXT PRIMARY KEY,
+            knowledge_base_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            file_type TEXT NOT NULL DEFAULT '',
+            content_hash TEXT NOT NULL DEFAULT '',
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+        );
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create kb_documents table")?;
+
+    // ─── KB Chunks ────────────────────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS kb_chunks (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            knowledge_base_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL DEFAULT 0,
+            start_char INTEGER NOT NULL DEFAULT 0,
+            end_char INTEGER NOT NULL DEFAULT 0,
+            embedding BLOB,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (document_id) REFERENCES kb_documents(id) ON DELETE CASCADE,
+            FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_kb_chunks_knowledge_base_id ON kb_chunks(knowledge_base_id);
+        CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id);
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create kb_chunks table")?;
 
     Ok(())
 }

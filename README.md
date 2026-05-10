@@ -7,8 +7,9 @@
 > [!WARNING]
 > This project is under construction, it cannot be used in production for now.
 
-## Plan
+## Features
 
+- [x] Model Provider - Anthropic, OpenAI, Custom
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search
@@ -16,15 +17,18 @@
 - [x] Persona
 - [x] MCP (Model Context Protocol) Client
 - [x] Command System
-- [ ] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
-- [ ] Sub Agent
+- [x] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
+- [x] Chat - DingTalk
 - [x] Chat - Discord
 - [ ] Chat - OneBot V11
 - [x] Chat - Personal WeChat(Wechat ClawBot)
+
+### Planned in the future
+
+- [ ] Sub Agent
 - [ ] Chat - Matrix
 - [ ] Chat - VoceChat
 - [ ] Chat - QQ
-- [x] Chat - DingTalk
 - [ ] Chat - WeCom
 - [ ] Chat - Custom API(You can write your own program to talk to Ruri)
 

@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { ChatMessage, ChatRequest } from '../types'
 import * as api from '../api'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([])
   const loading = ref(false)
+  const sending = ref(false)
   const error = ref<string | null>(null)
+
+  // Computed: true when the agent is actively processing a message
+  const isThinking = computed(() => sending.value)
 
   // Always fetch chat history from database, no local caching
   async function fetchHistory() {
@@ -31,7 +35,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(userMessage)
 
-    loading.value = true
+    sending.value = true
     error.value = null
     try {
       const response = await api.sendMessage(req)
@@ -57,7 +61,7 @@ export const useChatStore = defineStore('chat', () => {
       })
       throw e
     } finally {
-      loading.value = false
+      sending.value = false
     }
   }
 
@@ -78,6 +82,8 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages,
     loading,
+    sending,
+    isThinking,
     error,
     fetchHistory,
     sendMessage,

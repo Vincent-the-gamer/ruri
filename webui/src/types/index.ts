@@ -140,6 +140,7 @@ export interface ChatRequest {
   persona_id?: string
   temperature?: number
   max_tokens?: number
+  knowledge_base_ids?: string[]
 }
 
 export interface ToolResult {
@@ -201,12 +202,27 @@ export interface UpdateAcpConfigRequest {
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error'
 
 export interface LogEntry {
+  id: number
   timestamp: number
   level: LogLevel
   target: string
   message: string
+  module_path?: string
   file?: string
   line?: number
+  fields?: Record<string, string>
+}
+
+/** WebSocket command to set log level filter */
+export interface WsFilterCommand {
+  type: 'filter'
+  level: LogLevel
+}
+
+/** WebSocket command to request logs since a timestamp */
+export interface WsGetSinceCommand {
+  type: 'get_since'
+  timestamp: number
 }
 
 // ─── Computer Use Types ────────────────────────────────────────────
@@ -309,6 +325,7 @@ export interface ConfigProfile {
   acp_enabled: boolean
   // 技能配置
   active_skill_names: string[]
+  active_knowledge_base_ids: string[]
   // 平台配置
   active_platform_ids: string[]
   // 内置指令前缀
@@ -327,6 +344,7 @@ export interface CreateConfigProfileRequest {
   computer_use_enabled: boolean
   acp_enabled: boolean
   active_skill_names: string[]
+  active_knowledge_base_ids: string[]
   active_platform_ids: string[]
   command_prefix: string
   proxy_config: ProxyConfig
@@ -342,6 +360,7 @@ export interface UpdateConfigProfileRequest {
   computer_use_enabled?: boolean
   acp_enabled?: boolean
   active_skill_names?: string[]
+  active_knowledge_base_ids?: string[]
   active_platform_ids?: string[]
   command_prefix?: string
   proxy_config?: ProxyConfig
@@ -520,6 +539,78 @@ export interface ProxyConfig {
   bypass_localhost: boolean
   /** Clash-style rules (preferred over proxy_domains/bypass_domains when non-empty) */
   rules: ProxyRule[]
+}
+
+// ─── Knowledge Base Types ──────────────────────────────────────
+
+export interface EmbeddingProviderConfig {
+  base_url: string
+  api_key?: string | null
+  model: string
+  dimension: number
+}
+
+export interface RerankProviderConfig {
+  base_url: string
+  api_key?: string | null
+  model: string
+}
+
+export interface KnowledgeBase {
+  id: string
+  name: string
+  description: string
+  embedding_provider_config: EmbeddingProviderConfig
+  rerank_provider_config: RerankProviderConfig | null
+  chunk_size: number
+  chunk_overlap: number
+  document_count: number
+  chunk_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateKnowledgeBaseRequest {
+  name: string
+  description?: string
+  embedding_provider_config: EmbeddingProviderConfig
+  rerank_provider_config?: RerankProviderConfig | null
+  chunk_size?: number
+  chunk_overlap?: number
+}
+
+export interface UpdateKnowledgeBaseRequest {
+  name?: string
+  description?: string
+  rerank_provider_config?: RerankProviderConfig | null
+  chunk_size?: number
+  chunk_overlap?: number
+}
+
+export interface KbDocument {
+  id: string
+  knowledge_base_id: string
+  filename: string
+  file_size: number
+  file_type: string
+  content_hash: string
+  chunk_count: number
+  status: string
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SearchResult {
+  content: string
+  score: number
+  source: string
+  chunk_index: number
+}
+
+export interface SearchRequest {
+  query: string
+  top_k?: number
 }
 
 // ─── Built-in Command Types ──────────────────────────────────────

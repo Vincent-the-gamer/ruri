@@ -32,7 +32,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Web framework
-axum = { version = "0.8", features = ["macros", "ws"] }
+axum = { version = "0.8", features = ["macros", "ws", "multipart"] }
 
 # Embed frontend assets
 rust-embed = "8"
@@ -88,3 +88,6 @@ qrcode = { version = "0.14", features = ["svg"] }
 
 # Random number generation for WeChat API headers
 rand = "0.8"
+
+# PDF text extraction for knowledge base
+pdf-extract = "0.10"

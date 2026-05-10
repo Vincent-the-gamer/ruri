@@ -308,11 +308,11 @@ const getIconSvg = (icon: string) => {
                             }}</span>
                         </div>
                         <div
-                            v-if="activeProvider.default_model"
+                            v-if="activeProvider.config.default_model"
                             class="detail-item"
                         >
                             <span class="detail-label">{{
-                                activeProvider.default_model
+                                activeProvider.config.default_model
                             }}</span>
                         </div>
                     </div>

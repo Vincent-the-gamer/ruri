@@ -164,6 +164,8 @@ pub struct ChatRequestDto {
     pub persona_id: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub knowledge_base_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,6 +458,8 @@ pub struct ConfigProfileDto {
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
     #[serde(default)]
+    pub active_knowledge_base_ids: Vec<String>,
+    #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
@@ -478,6 +482,8 @@ pub struct CreateConfigProfileRequest {
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
+    #[serde(default)]
+    pub active_knowledge_base_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
@@ -506,6 +512,8 @@ pub struct UpdateConfigProfileRequest {
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_platform_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_knowledge_base_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_config: Option<crate::types::ProxyConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -653,4 +661,200 @@ pub struct UpdatePlatformRequest {
     pub platform_type: Option<String>,
     #[serde(flatten)]
     pub config: Option<serde_json::Value>,
+}
+
+// ─── Knowledge Base Types ────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingProviderConfigDto {
+    pub base_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    pub model: String,
+    pub dimension: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RerankProviderConfigDto {
+    pub base_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeBaseDto {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub embedding_provider_config: EmbeddingProviderConfigDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_provider_config: Option<RerankProviderConfigDto>,
+    pub chunk_size: usize,
+    pub chunk_overlap: usize,
+    pub document_count: usize,
+    pub chunk_count: usize,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateKnowledgeBaseRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub embedding_provider_config: EmbeddingProviderConfigDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_provider_config: Option<RerankProviderConfigDto>,
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size: usize,
+    #[serde(default = "default_chunk_overlap")]
+    pub chunk_overlap: usize,
+}
+
+fn default_chunk_size() -> usize {
+    512
+}
+fn default_chunk_overlap() -> usize {
+    64
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateKnowledgeBaseRequestDto {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_provider_config: Option<Option<RerankProviderConfigDto>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_overlap: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KbDocumentDto {
+    pub id: String,
+    pub knowledge_base_id: String,
+    pub filename: String,
+    pub file_size: i64,
+    pub file_type: String,
+    pub content_hash: String,
+    pub chunk_count: usize,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRequest {
+    pub query: String,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+}
+
+fn default_top_k() -> usize {
+    5
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResultDto {
+    pub content: String,
+    pub score: f64,
+    pub source: String,
+    pub chunk_index: usize,
+}
+
+// ─── Knowledge Base From impls ──────────────────────────────────
+
+impl From<crate::knowledge::EmbeddingProviderConfig> for EmbeddingProviderConfigDto {
+    fn from(config: crate::knowledge::EmbeddingProviderConfig) -> Self {
+        Self {
+            base_url: config.base_url,
+            api_key: config.api_key,
+            model: config.model,
+            dimension: config.dimension,
+        }
+    }
+}
+
+impl From<EmbeddingProviderConfigDto> for crate::knowledge::EmbeddingProviderConfig {
+    fn from(dto: EmbeddingProviderConfigDto) -> Self {
+        Self {
+            base_url: dto.base_url,
+            api_key: dto.api_key,
+            model: dto.model,
+            dimension: dto.dimension,
+        }
+    }
+}
+
+impl From<crate::knowledge::RerankProviderConfig> for RerankProviderConfigDto {
+    fn from(config: crate::knowledge::RerankProviderConfig) -> Self {
+        Self {
+            base_url: config.base_url,
+            api_key: config.api_key,
+            model: config.model,
+        }
+    }
+}
+
+impl From<RerankProviderConfigDto> for crate::knowledge::RerankProviderConfig {
+    fn from(dto: RerankProviderConfigDto) -> Self {
+        Self {
+            base_url: dto.base_url,
+            api_key: dto.api_key,
+            model: dto.model,
+        }
+    }
+}
+
+impl From<crate::knowledge::KnowledgeBase> for KnowledgeBaseDto {
+    fn from(kb: crate::knowledge::KnowledgeBase) -> Self {
+        Self {
+            id: kb.id,
+            name: kb.name,
+            description: kb.description,
+            embedding_provider_config: kb.embedding_provider_config.into(),
+            rerank_provider_config: kb.rerank_provider_config.map(Into::into),
+            chunk_size: kb.chunk_size,
+            chunk_overlap: kb.chunk_overlap,
+            document_count: kb.document_count,
+            chunk_count: kb.chunk_count,
+            created_at: kb.created_at,
+            updated_at: kb.updated_at,
+        }
+    }
+}
+
+impl From<crate::knowledge::KbDocument> for KbDocumentDto {
+    fn from(doc: crate::knowledge::KbDocument) -> Self {
+        Self {
+            id: doc.id,
+            knowledge_base_id: doc.knowledge_base_id,
+            filename: doc.filename,
+            file_size: doc.file_size,
+            file_type: doc.file_type,
+            content_hash: doc.content_hash,
+            chunk_count: doc.chunk_count,
+            status: doc.status,
+            error_message: doc.error_message,
+            created_at: doc.created_at,
+            updated_at: doc.updated_at,
+        }
+    }
+}
+
+impl From<crate::knowledge::SearchResult> for SearchResultDto {
+    fn from(result: crate::knowledge::SearchResult) -> Self {
+        Self {
+            content: result.chunk.content,
+            score: result.score as f64,
+            source: result.document_filename,
+            chunk_index: result.chunk.chunk_index,
+        }
+    }
 }

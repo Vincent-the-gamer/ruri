@@ -5,6 +5,7 @@ import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
+import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import type {
     ConfigProfile,
     CreateConfigProfileRequest,
@@ -41,6 +42,7 @@ const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
+const kbStore = useKnowledgeBaseStore();
 
 // Form data
 const formData = ref({
@@ -55,6 +57,7 @@ const formData = ref({
     acp_enabled: false,
     active_skill_names: [] as string[],
     active_platform_ids: [] as string[],
+    active_knowledge_base_ids: [] as string[],
     proxy_config: {
         enabled: false,
         url: "",
@@ -85,6 +88,9 @@ watch(
                 acp_enabled: config.acp_enabled,
                 active_skill_names: [...config.active_skill_names],
                 active_platform_ids: [...config.active_platform_ids],
+                active_knowledge_base_ids: [
+                    ...(config.active_knowledge_base_ids || []),
+                ],
                 proxy_config: {
                     enabled: config.proxy_config?.enabled ?? false,
                     url: config.proxy_config?.url || "",
@@ -118,6 +124,7 @@ watch(
                 acp_enabled: false,
                 active_skill_names: [],
                 active_platform_ids: [],
+                active_knowledge_base_ids: [],
                 proxy_config: {
                     enabled: false,
                     url: "",
@@ -246,6 +253,20 @@ function togglePlatform(platformId: string) {
 
 function isPlatformActive(platformId: string): boolean {
     return formData.value.active_platform_ids.includes(platformId);
+}
+
+// Knowledge base toggle
+function toggleKb(kbId: string) {
+    const index = formData.value.active_knowledge_base_ids.indexOf(kbId);
+    if (index === -1) {
+        formData.value.active_knowledge_base_ids.push(kbId);
+    } else {
+        formData.value.active_knowledge_base_ids.splice(index, 1);
+    }
+}
+
+function isKbActive(kbId: string): boolean {
+    return formData.value.active_knowledge_base_ids.includes(kbId);
 }
 
 function getPlatformStatus(platformId: string): string {
@@ -562,6 +583,45 @@ function handleSubmit() {
                                     <polyline points="20 6 9 17 4 12" />
                                 </svg>
                             </span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Knowledge Bases -->
+            <div class="form-section">
+                <h3 class="section-title">
+                    {{ t("config.form.knowledgeBases", "Knowledge Bases") }}
+                </h3>
+                <div
+                    v-if="kbStore.knowledgeBases.length === 0"
+                    class="no-skills"
+                >
+                    {{
+                        t(
+                            "config.form.noKbAvailable",
+                            "No knowledge bases available. Create one in the Knowledge Base page.",
+                        )
+                    }}
+                </div>
+                <div v-else class="skills-grid">
+                    <div
+                        v-for="kb in kbStore.knowledgeBases"
+                        :key="kb.id"
+                        :class="['skill-item', { active: isKbActive(kb.id) }]"
+                        @click="toggleKb(kb.id)"
+                    >
+                        <span class="skill-name">{{ kb.name }}</span>
+                        <span class="skill-checkbox">
+                            <svg
+                                v-if="isKbActive(kb.id)"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <polyline points="20 6 9 17 4 12" />
+                            </svg>
                         </span>
                     </div>
                 </div>

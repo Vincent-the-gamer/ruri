@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { onMounted, onActivated, ref, nextTick, computed } from "vue";
+import {
+    onMounted,
+    onActivated,
+    ref,
+    nextTick,
+    computed,
+    reactive,
+    watch,
+} from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
+import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
+import type { ProxyConfig, ProxyMode } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
 import ruriAvatar from "../../assets/ruri-avatar.png";
@@ -14,12 +24,80 @@ const chatStore = useChatStore();
 const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const configStore = useConfigStore();
+const knowledgeBaseStore = useKnowledgeBaseStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
 const temperature = ref(0.7);
 const maxTokens = ref(4096);
 const showSettings = ref(false);
-const showProfileSelector = ref(false);
+const selectedKbIds = ref<string[]>([]);
+
+// Available knowledge bases for selection
+const knowledgeBases = computed(() => knowledgeBaseStore.knowledgeBases);
+
+// Toggle a knowledge base selection
+function toggleKbSelection(kbId: string) {
+    const idx = selectedKbIds.value.indexOf(kbId);
+    if (idx === -1) {
+        selectedKbIds.value.push(kbId);
+    } else {
+        selectedKbIds.value.splice(idx, 1);
+    }
+}
+
+function selectAllKb() {
+    selectedKbIds.value = knowledgeBases.value.map((kb) => kb.id);
+}
+
+function clearAllKb() {
+    selectedKbIds.value = [];
+}
+
+// Proxy configuration (synced with active config profile)
+const proxyConfig = reactive<ProxyConfig>({
+    enabled: false,
+    url: "",
+    mode: "global" as ProxyMode,
+    proxy_domains: [],
+    bypass_domains: [],
+    username: null,
+    password: null,
+    bypass_localhost: true,
+    rules: [],
+});
+
+// Sync proxy config from active config profile
+watch(
+    () => configStore.activeConfigProfile,
+    (profile) => {
+        if (profile?.proxy_config) {
+            Object.assign(proxyConfig, profile.proxy_config);
+        } else {
+            proxyConfig.enabled = false;
+            proxyConfig.url = "";
+            proxyConfig.mode = "global";
+            proxyConfig.proxy_domains = [];
+            proxyConfig.bypass_domains = [];
+            proxyConfig.username = null;
+            proxyConfig.password = null;
+            proxyConfig.bypass_localhost = true;
+            proxyConfig.rules = [];
+        }
+    },
+    { immediate: true },
+);
+
+async function saveProxyConfig() {
+    const activeProfileId = configStore.activeProfileId;
+    if (!activeProfileId) return;
+    try {
+        await configStore.updateConfigProfile(activeProfileId, {
+            proxy_config: { ...proxyConfig },
+        });
+    } catch (e) {
+        console.error("Failed to save proxy config:", e);
+    }
+}
 
 const isConfigEnabled = computed(
     () => configStore.activeConfigProfile?.enable ?? false,
@@ -31,6 +109,7 @@ onMounted(async () => {
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
+        knowledgeBaseStore.fetchKnowledgeBases(),
     ]);
     scrollToBottom();
 });
@@ -60,6 +139,8 @@ async function handleSend(message: string) {
         persona_id: personaStore.activePersona?.id,
         temperature: temperature.value,
         max_tokens: maxTokens.value,
+        knowledge_base_ids:
+            selectedKbIds.value.length > 0 ? selectedKbIds.value : undefined,
     });
     scrollToBottom();
 }
@@ -71,22 +152,6 @@ async function handleClear() {
 
 function toggleSettings() {
     showSettings.value = !showSettings.value;
-}
-
-async function switchConfigProfile(profileId: string) {
-    try {
-        await configStore.activateConfigProfile(profileId);
-        // Refresh stores to reflect the new active config
-        await providerStore.fetchProviders();
-        await personaStore.fetchPersonas();
-        showProfileSelector.value = false;
-    } catch (e) {
-        console.error("Failed to switch config profile:", e);
-    }
-}
-
-function toggleProfileSelector() {
-    showProfileSelector.value = !showProfileSelector.value;
 }
 </script>
 
@@ -104,7 +169,10 @@ function toggleProfileSelector() {
                         <span>{{ t("chat.title") }}</span>
                         <span>✨</span>
                     </h1>
-                    <span v-if="chatStore.loading" class="thinking-indicator">
+                    <span
+                        v-if="chatStore.isThinking"
+                        class="thinking-indicator"
+                    >
                         <svg
                             class="spinner-icon"
                             viewBox="0 0 24 24"
@@ -150,70 +218,18 @@ function toggleProfileSelector() {
                     }}</span>
                 </div>
                 <div
+                    v-if="selectedKbIds.length > 0"
+                    class="model-badge kb-badge"
+                >
+                    <span class="badge-icon">📚</span>
+                    <span>{{
+                        t("chat.kbBadge", { count: selectedKbIds.length })
+                    }}</span>
+                </div>
+                <div
                     class="header-actions"
                     :class="{ 'has-badge': !!providerStore.activeProvider }"
                 >
-                    <!-- Config Profile Selector -->
-                    <div class="profile-selector-wrapper">
-                        <button
-                            class="icon-btn"
-                            :class="{ active: showProfileSelector }"
-                            @click="toggleProfileSelector"
-                            :title="t('chat.switchProfile') + ' 📋'"
-                        >
-                            <span class="btn-icon">📋</span>
-                        </button>
-                        <Transition name="slide-down">
-                            <div
-                                v-if="showProfileSelector"
-                                class="profile-dropdown glass"
-                            >
-                                <div class="dropdown-header">
-                                    <span
-                                        >📋 {{ t("chat.configProfiles") }}</span
-                                    >
-                                </div>
-                                <div class="dropdown-list">
-                                    <button
-                                        v-for="profile in configStore.configProfiles"
-                                        :key="profile.id"
-                                        class="dropdown-item"
-                                        :class="{
-                                            active: profile.is_active,
-                                        }"
-                                        @click="switchConfigProfile(profile.id)"
-                                    >
-                                        <span class="item-icon">
-                                            {{
-                                                profile.is_active ? "✅" : "📄"
-                                            }}
-                                        </span>
-                                        <span class="item-name">{{
-                                            profile.name
-                                        }}</span>
-                                        <span
-                                            v-if="profile.is_active"
-                                            class="item-badge"
-                                        >
-                                            {{ t("chat.active") }}
-                                        </span>
-                                    </button>
-                                    <div
-                                        v-if="
-                                            !configStore.configProfiles ||
-                                            configStore.configProfiles
-                                                .length === 0
-                                        "
-                                        class="dropdown-empty"
-                                    >
-                                        <span>
-                                            {{ t("chat.noProfiles") }}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </Transition>
-                    </div>
                     <button
                         class="icon-btn"
                         :class="{ active: showSettings }"
@@ -272,6 +288,116 @@ function toggleProfileSelector() {
                             />
                         </div>
                     </div>
+                    <!-- Proxy Configuration -->
+                    <div class="setting-item proxy-setting">
+                        <label class="setting-label font-cute">
+                            <span>🌐</span>
+                            <span>{{ t("chat.proxyConfig") }}</span>
+                        </label>
+                        <div class="setting-control proxy-control">
+                            <label class="proxy-toggle-label">
+                                <input
+                                    v-model="proxyConfig.enabled"
+                                    type="checkbox"
+                                    class="proxy-checkbox"
+                                    @change="saveProxyConfig"
+                                />
+                                <span class="proxy-toggle-text">{{
+                                    t("chat.proxyEnabled")
+                                }}</span>
+                                <span class="proxy-toggle-desc">{{
+                                    t("chat.proxyEnabledDesc")
+                                }}</span>
+                            </label>
+                            <template v-if="proxyConfig.enabled">
+                                <div class="proxy-field">
+                                    <label class="proxy-field-label">{{
+                                        t("chat.proxyUrl")
+                                    }}</label>
+                                    <input
+                                        v-model="proxyConfig.url"
+                                        type="text"
+                                        class="proxy-input"
+                                        :placeholder="
+                                            t('chat.proxyUrlPlaceholder')
+                                        "
+                                        @change="saveProxyConfig"
+                                    />
+                                </div>
+                                <div class="proxy-field">
+                                    <label class="proxy-field-label">{{
+                                        t("chat.proxyMode")
+                                    }}</label>
+                                    <select
+                                        v-model="proxyConfig.mode"
+                                        class="proxy-select"
+                                        @change="saveProxyConfig"
+                                    >
+                                        <option value="global">
+                                            {{ t("chat.proxyModeGlobal") }}
+                                        </option>
+                                        <option value="rules">
+                                            {{ t("chat.proxyModeRules") }}
+                                        </option>
+                                    </select>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <!-- Knowledge Base Selector -->
+                    <div class="setting-item kb-setting">
+                        <label class="setting-label font-cute">
+                            <span>📚</span>
+                            <span>{{ t("chat.knowledgeBases") }}</span>
+                        </label>
+                        <div class="setting-control kb-control">
+                            <div
+                                v-if="knowledgeBases.length > 0"
+                                class="kb-list"
+                            >
+                                <div class="kb-actions">
+                                    <button
+                                        class="kb-action-btn"
+                                        @click="selectAllKb"
+                                    >
+                                        {{ t("chat.selectAllKb") }}
+                                    </button>
+                                    <button
+                                        class="kb-action-btn"
+                                        @click="clearAllKb"
+                                    >
+                                        {{ t("chat.clearAllKb") }}
+                                    </button>
+                                </div>
+                                <label
+                                    v-for="kb in knowledgeBases"
+                                    :key="kb.id"
+                                    class="kb-checkbox-item"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        :checked="selectedKbIds.includes(kb.id)"
+                                        @change="toggleKbSelection(kb.id)"
+                                        class="kb-checkbox"
+                                    />
+                                    <span class="kb-name">{{ kb.name }}</span>
+                                    <span
+                                        v-if="kb.document_count > 0"
+                                        class="kb-doc-count"
+                                        >{{ kb.document_count }} docs</span
+                                    >
+                                </label>
+                            </div>
+                            <div v-else class="kb-empty">
+                                <span>{{ t("chat.noKnowledgeBases") }}</span>
+                                <router-link
+                                    to="/knowledge-base"
+                                    class="kb-link"
+                                    >{{ t("chat.goToKb") }}</router-link
+                                >
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </Transition>
@@ -325,39 +451,43 @@ function toggleProfileSelector() {
                 />
 
                 <!-- Thinking Indicator Message -->
-                <div v-if="chatStore.loading" class="thinking-message">
-                    <div class="thinking-avatar">
-                        <img
-                            :src="ruriAvatar"
-                            alt="琉璃"
-                            class="thinking-avatar-img"
-                        />
-                        <div class="thinking-dots">
-                            <span class="dot dot-1"></span>
-                            <span class="dot dot-2"></span>
-                            <span class="dot dot-3"></span>
+                <Transition name="thinking-fade">
+                    <div v-if="chatStore.isThinking" class="thinking-message">
+                        <div class="thinking-avatar">
+                            <img
+                                :src="ruriAvatar"
+                                alt="琉璃"
+                                class="thinking-avatar-img"
+                            />
+                            <div class="thinking-dots">
+                                <span class="dot dot-1"></span>
+                                <span class="dot dot-2"></span>
+                                <span class="dot dot-3"></span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="thinking-content-wrapper">
-                        <div class="thinking-label">
-                            <span>琉璃</span>
-                            <span class="thinking-status">💭 思考中...</span>
-                        </div>
-                        <div class="thinking-content">
-                            <div class="thinking-animation">
-                                <span class="spark sparkle-1">✨</span>
-                                <span class="spark sparkle-2">💫</span>
-                                <span class="spark sparkle-3">⭐</span>
+                        <div class="thinking-content-wrapper">
+                            <div class="thinking-label">
+                                <span>琉璃</span>
+                                <span class="thinking-status"
+                                    >💭 思考中...</span
+                                >
+                            </div>
+                            <div class="thinking-content">
+                                <div class="thinking-animation">
+                                    <span class="spark sparkle-1">✨</span>
+                                    <span class="spark sparkle-2">💫</span>
+                                    <span class="spark sparkle-3">⭐</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </Transition>
             </div>
         </div>
 
         <!-- Input Area -->
         <div class="input-area">
-            <ChatInput @send="handleSend" />
+            <ChatInput @send="handleSend" :disabled="chatStore.isThinking" />
         </div>
     </div>
 </template>
@@ -441,6 +571,9 @@ function toggleProfileSelector() {
     color: var(--color-accent);
     font-weight: 600;
     margin-top: 0.25rem;
+    transition:
+        color 0.3s ease,
+        opacity 0.3s ease;
 }
 
 .thinking-indicator.ready {
@@ -675,6 +808,202 @@ function toggleProfileSelector() {
 .number-input:focus {
     border-color: hsl(var(--primary));
     box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+/* ── Proxy Configuration ─────────────────────────── */
+
+.proxy-setting {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.proxy-control {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.proxy-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.8125rem;
+}
+
+.proxy-checkbox {
+    width: 1rem;
+    height: 1rem;
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+}
+
+.proxy-toggle-text {
+    font-weight: 600;
+    color: hsl(var(--foreground));
+}
+
+.proxy-toggle-desc {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+}
+
+.proxy-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.proxy-field-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+}
+
+.proxy-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1.5px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+    font-size: 0.8125rem;
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.proxy-input:focus {
+    outline: none;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+.proxy-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1.5px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+    font-size: 0.8125rem;
+    transition: border-color 0.2s ease;
+}
+
+.proxy-select:focus {
+    outline: none;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+/* ── Knowledge Base Selector ────────────────────── */
+
+.kb-setting {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.kb-control {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.kb-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.kb-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-bottom: 0.25rem;
+}
+
+.kb-action-btn {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.6875rem;
+    border: 1.5px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--card));
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.kb-action-btn:hover {
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
+}
+
+.kb-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.8125rem;
+    transition: background 0.2s ease;
+}
+
+.kb-checkbox-item:hover {
+    background: hsl(var(--primary) / 0.05);
+}
+
+.kb-checkbox {
+    width: 0.875rem;
+    height: 0.875rem;
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+}
+
+.kb-name {
+    flex: 1;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+}
+
+.kb-doc-count {
+    font-size: 0.6875rem;
+    color: hsl(var(--muted-foreground));
+    padding: 0.125rem 0.375rem;
+    background: hsl(var(--secondary));
+    border-radius: var(--radius-sm);
+}
+
+.kb-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.kb-link {
+    font-size: 0.75rem;
+    color: hsl(var(--primary));
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.kb-link:hover {
+    text-decoration: underline;
+}
+
+.kb-badge {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--secondary)) 0%,
+        hsl(var(--primary) / 0.1) 100%
+    ) !important;
 }
 
 /* ── Warning Bar ─────────────────────────────────── */
@@ -1045,103 +1374,22 @@ function toggleProfileSelector() {
     transform: translateY(-12px) scale(0.95);
 }
 
-/* 动画 */
-@keyframes float {
-    0%,
-    100% {
-        transform: translateY(0) rotate(0deg);
-    }
-    50% {
-        transform: translateY(-6px) rotate(3deg);
-    }
+.thinking-fade-enter-active {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Config Profile Selector ──────────────────────── */
-
-.profile-selector-wrapper {
-    position: relative;
-    display: inline-flex;
+.thinking-fade-leave-active {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.profile-dropdown {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    right: 0;
-    min-width: 220px;
-    max-height: 320px;
-    border-radius: var(--radius-md);
-    border: 2px solid hsl(var(--border));
-    overflow: hidden;
-    z-index: 50;
-    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.15);
+.thinking-fade-enter-from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
 }
 
-.dropdown-header {
-    padding: 0.75rem 1rem;
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: hsl(var(--primary));
-    border-bottom: 1px solid hsl(var(--border));
-    background: hsl(var(--primary) / 0.05);
-}
-
-.dropdown-list {
-    max-height: 260px;
-    overflow-y: auto;
-}
-
-.dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.625rem 1rem;
-    background: transparent;
-    border: none;
-    color: hsl(var(--foreground));
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: left;
-}
-
-.dropdown-item:hover {
-    background: hsl(var(--primary) / 0.1);
-}
-
-.dropdown-item.active {
-    background: hsl(var(--primary) / 0.15);
-    color: hsl(var(--primary));
-    font-weight: 600;
-}
-
-.item-icon {
-    font-size: 1rem;
-    flex-shrink: 0;
-}
-
-.item-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.item-badge {
-    font-size: 0.6875rem;
-    padding: 0.125rem 0.375rem;
-    background: hsl(var(--primary) / 0.2);
-    color: hsl(var(--primary));
-    border-radius: var(--radius-sm);
-    font-weight: 600;
-    flex-shrink: 0;
-}
-
-.dropdown-empty {
-    padding: 1.5rem 1rem;
-    text-align: center;
-    color: hsl(var(--muted-foreground));
-    font-size: 0.8125rem;
+.thinking-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
 }
 
 /* 响应式 */

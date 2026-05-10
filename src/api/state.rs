@@ -76,6 +76,8 @@ pub struct PersistedConfigProfile {
     #[serde(default)]
     pub active_platform_ids: Vec<String>,
     #[serde(default)]
+    pub active_knowledge_base_ids: Vec<String>,
+    #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     /// Built-in command prefix for this profile (default: "/").
     #[serde(default = "default_command_prefix")]
@@ -131,6 +133,7 @@ pub struct StoredConfigProfile {
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
     pub active_platform_ids: Vec<String>,
+    pub active_knowledge_base_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
     pub command_prefix: String,
 }
@@ -261,6 +264,9 @@ pub struct AppState {
     pub running_agent_tasks: std::sync::Arc<
         tokio::sync::RwLock<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
     >,
+    /// Knowledge base service (initialized after AppState creation).
+    pub knowledge_base_service:
+        std::sync::Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
 }
 
 impl AppState {
@@ -375,6 +381,7 @@ impl AppState {
                                 acp_enabled: p.acp_enabled,
                                 active_skill_names: p.active_skill_names,
                                 active_platform_ids: p.active_platform_ids,
+                                active_knowledge_base_ids: p.active_knowledge_base_ids,
                                 proxy_config: p.proxy_config,
                                 command_prefix: p.command_prefix,
                             },
@@ -449,6 +456,7 @@ impl AppState {
             running_agent_tasks: std::sync::Arc::new(tokio::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
+            knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
@@ -841,6 +849,7 @@ impl AppState {
                         acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names.clone(),
                         active_platform_ids: p.active_platform_ids.clone(),
+                        active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
                         command_prefix: p.command_prefix.clone(),
                     },
@@ -1186,6 +1195,26 @@ impl AppState {
             );
         }
 
+        // Add Knowledge Base skill if configured in the active profile
+        {
+            let profiles = self.config_profiles.read().await;
+            let active_profile = profiles.values().find(|p| p.is_active && p.enable);
+            if let Some(profile) = active_profile {
+                if !profile.active_knowledge_base_ids.is_empty() {
+                    let kb_ids = profile.active_knowledge_base_ids.clone();
+                    drop(profiles);
+
+                    let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
+                        self.knowledge_base_service.clone(),
+                        kb_ids,
+                        5, // top_k
+                    );
+                    agent.add_skill(std::sync::Arc::new(kb_skill));
+                    tracing::info!("KnowledgeBaseSkill added to agent");
+                }
+            }
+        }
+
         // Load chat history from database if conversation exists
         let conversation_id = self.ensure_chat_conversation().await.ok();
         if let Some(ref conv_id) = conversation_id {
@@ -1213,6 +1242,10 @@ impl AppState {
                             })
                             .collect();
                         agent.set_history(chat_messages);
+                        // Always initialize skills (even with existing history)
+                        // so that system prompts from skills like KnowledgeBase
+                        // are injected into the conversation.
+                        agent.initialize_skills().await;
                     } else {
                         agent.initialize_skills().await;
                     }
