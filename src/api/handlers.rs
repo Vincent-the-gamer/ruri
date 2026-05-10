@@ -3279,6 +3279,149 @@ async fn weixin_qr_login_status(
     }
 }
 
+// ─── Knowledge Base File Extraction Helpers ─────────────────────
+
+/// Extract text content from an Excel file (xls or xlsx) using calamine.
+fn extract_excel_text(data: &[u8]) -> Result<String, anyhow::Error> {
+    use calamine::{Data, Reader, open_workbook_auto_from_rs};
+    use std::io::Cursor;
+
+    let cursor = Cursor::new(data.to_vec());
+    let mut workbook = open_workbook_auto_from_rs(cursor)?;
+
+    let mut text = String::new();
+    let sheets = workbook.sheet_names().to_vec();
+
+    for sheet_name in &sheets {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(&format!("--- Sheet: {} ---\n", sheet_name));
+
+        if let Ok(range) = workbook.worksheet_range(sheet_name) {
+            let mut row_count = 0u32;
+            for row in range.rows() {
+                let cells: Vec<String> = row
+                    .iter()
+                    .map(|cell| match cell {
+                        Data::String(s) => s.clone(),
+                        Data::Float(f) => {
+                            // Show integers without decimal point
+                            if *f == (*f as i64) as f64 {
+                                (*f as i64).to_string()
+                            } else {
+                                f.to_string()
+                            }
+                        }
+                        Data::Int(i) => i.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        Data::DateTime(dt) => dt.to_string(),
+                        Data::DateTimeIso(s) => s.clone(),
+                        Data::DurationIso(s) => s.clone(),
+                        Data::Error(e) => format!("ERR:{:?}", e),
+                        Data::Empty => String::new(),
+                    })
+                    .collect();
+                text.push_str(&cells.join("\t"));
+                text.push('\n');
+                row_count += 1;
+                // Limit to prevent extremely large extractions
+                if row_count >= 10000 {
+                    text.push_str("... (truncated after 10000 rows)\n");
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(text)
+}
+
+/// Extract text content from a DOCX file using docx-rs.
+fn extract_docx_text(data: &[u8]) -> Result<String, anyhow::Error> {
+    use docx_rs::{DocumentChild, ParagraphChild, RunChild, read_docx};
+
+    let docx = read_docx(data)?;
+    let mut text = String::new();
+
+    for child in &docx.document.children {
+        match child {
+            DocumentChild::Paragraph(paragraph) => {
+                let mut para_text = String::new();
+                for pchild in &paragraph.children {
+                    match pchild {
+                        ParagraphChild::Run(run) => {
+                            for rchild in &run.children {
+                                if let RunChild::Text(t) = rchild {
+                                    if !para_text.is_empty() {
+                                        para_text.push(' ');
+                                    }
+                                    para_text.push_str(&t.text);
+                                }
+                            }
+                        }
+                        ParagraphChild::Hyperlink(hyperlink) => {
+                            for pchild in &hyperlink.children {
+                                if let ParagraphChild::Run(run) = pchild {
+                                    for rchild in &run.children {
+                                        if let RunChild::Text(t) = rchild {
+                                            if !para_text.is_empty() {
+                                                para_text.push(' ');
+                                            }
+                                            para_text.push_str(&t.text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !para_text.is_empty() {
+                    text.push_str(&para_text);
+                    text.push('\n');
+                }
+            }
+            DocumentChild::Table(table) => {
+                // Extract text from table cells
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                for row_child in &table.rows {
+                    let mut row_texts = Vec::new();
+                    let docx_rs::TableChild::TableRow(row) = row_child;
+                    for cell_child in &row.cells {
+                        let docx_rs::TableRowChild::TableCell(cell) = cell_child;
+                        let mut cell_text = String::new();
+                        for content in &cell.children {
+                            if let docx_rs::TableCellContent::Paragraph(para) = content {
+                                for pchild in &para.children {
+                                    if let ParagraphChild::Run(run) = pchild {
+                                        for rchild in &run.children {
+                                            if let RunChild::Text(t) = rchild {
+                                                if !cell_text.is_empty() {
+                                                    cell_text.push(' ');
+                                                }
+                                                cell_text.push_str(&t.text);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        row_texts.push(cell_text);
+                    }
+                    text.push_str(&row_texts.join("\t"));
+                    text.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(text)
+}
+
 // ─── Knowledge Base ──────────────────────────────────────────────
 
 async fn list_knowledge_bases(
@@ -3504,17 +3647,68 @@ async fn upload_kb_document(
                     ));
                 }
             }
+        } else if filename_lower.ends_with(".xlsx") || filename_lower.ends_with(".xls") {
+            // Excel file – extract text content using calamine
+            tracing::info!(filename = %filename, "Extracting text from Excel file");
+            match extract_excel_text(&data) {
+                Ok(text) => {
+                    tracing::info!(
+                        filename = %filename,
+                        text_len = text.len(),
+                        "Excel text extraction succeeded"
+                    );
+                    text
+                }
+                Err(e) => {
+                    tracing::error!(
+                        filename = %filename,
+                        error = %e,
+                        "Failed to extract text from Excel file"
+                    );
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": format!(
+                            "Failed to extract text from Excel '{}': {}",
+                            filename, e
+                        ) })),
+                    ));
+                }
+            }
+        } else if filename_lower.ends_with(".docx") {
+            // DOCX file – extract text content using docx-rs
+            tracing::info!(filename = %filename, "Extracting text from DOCX file");
+            match extract_docx_text(&data) {
+                Ok(text) => {
+                    tracing::info!(
+                        filename = %filename,
+                        text_len = text.len(),
+                        "DOCX text extraction succeeded"
+                    );
+                    text
+                }
+                Err(e) => {
+                    tracing::error!(
+                        filename = %filename,
+                        error = %e,
+                        "Failed to extract text from DOCX file"
+                    );
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": format!(
+                            "Failed to extract text from DOCX '{}': {}",
+                            filename, e
+                        ) })),
+                    ));
+                }
+            }
         } else {
-            // Non-PDF file – try UTF-8 decoding
+            // Non-binary file – try UTF-8 decoding
             match String::from_utf8(data.to_vec()) {
                 Ok(s) => s,
                 Err(e) => {
                     // The file contains non-UTF-8 bytes – likely a binary file
-                    // (DOCX, XLS, etc.) or text in a non-UTF-8 encoding (GBK, etc.).
+                    // (PPT, ZIP, etc.) or text in a non-UTF-8 encoding (GBK, etc.).
                     let is_likely_binary = filename_lower.ends_with(".doc")
-                        || filename_lower.ends_with(".docx")
-                        || filename_lower.ends_with(".xls")
-                        || filename_lower.ends_with(".xlsx")
                         || filename_lower.ends_with(".ppt")
                         || filename_lower.ends_with(".pptx")
                         || filename_lower.ends_with(".zip")
@@ -3525,9 +3719,9 @@ async fn upload_kb_document(
                         return Err((
                             StatusCode::BAD_REQUEST,
                             Json(json!({ "error": format!(
-                                "File '{}' appears to be a binary format. Please upload plain text files (txt, md, csv) or PDF files instead.",
-                                filename
-                            ) })),
+                            "File '{}' appears to be a binary format. Please upload plain text files (txt, md, csv), PDF, Excel (xls/xlsx), or DOCX files instead.",
+                            filename
+                        ) })),
                         ));
                     }
 

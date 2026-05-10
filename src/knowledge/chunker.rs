@@ -44,19 +44,6 @@ impl Chunker {
         Self { config }
     }
 
-    /// Create a chunker with default configuration.
-    pub fn default_config() -> Self {
-        Self::new(ChunkerConfig::default())
-    }
-
-    /// Split text into chunks, returning just the content strings.
-    pub fn chunk(&self, text: &str) -> Vec<String> {
-        self.chunk_with_metadata(text)
-            .into_iter()
-            .map(|c| c.content)
-            .collect()
-    }
-
     /// Split text into chunks with full metadata (index, start/end offsets).
     ///
     /// The algorithm works as follows:
@@ -211,8 +198,8 @@ mod tests {
 
     #[test]
     fn test_chunk_empty_text() {
-        let chunker = Chunker::default_config();
-        let result = chunker.chunk("");
+        let chunker = Chunker::new(ChunkerConfig::default());
+        let result = chunker.chunk_with_metadata("");
         assert!(result.is_empty());
     }
 
@@ -223,9 +210,9 @@ mod tests {
             chunk_overlap: 64,
             separator: "\n\n".to_string(),
         });
-        let result = chunker.chunk("Hello, world!");
+        let result = chunker.chunk_with_metadata("Hello, world!");
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], "Hello, world!");
+        assert_eq!(result[0].content, "Hello, world!");
     }
 
     #[test]
@@ -236,7 +223,7 @@ mod tests {
             separator: "\n\n".to_string(),
         });
         let text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
-        let result = chunker.chunk(text);
+        let result = chunker.chunk_with_metadata(text);
         assert!(!result.is_empty());
     }
 
@@ -415,7 +402,7 @@ mod tests {
         let text = paragraphs.join("\n\n");
         assert!(text.chars().count() > 600);
 
-        let chunker = Chunker::default_config();
+        let chunker = Chunker::new(ChunkerConfig::default());
         assert_full_coverage(&chunker, &text);
     }
 

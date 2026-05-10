@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import {
     listConversations,
     deleteConversation,
+    getConversationMessages,
     type Conversation,
     type ConversationFilter,
+    type Message,
 } from "../api/conversations";
 import { Icon } from "@iconify/vue";
+import { marked } from "marked";
 
 const { t } = useI18n();
 
@@ -31,6 +34,14 @@ const chatTypeOptions = [
     { value: "group", label: t("conversationHistory.chatTypeGroup") },
     { value: "private", label: t("conversationHistory.chatTypePrivate") },
 ];
+
+// ======== 详情面板状态 ========
+const detailOpen = ref(false);
+const detailConversation = ref<Conversation | null>(null);
+const detailMessages = ref<Message[]>([]);
+const detailLoading = ref(false);
+const detailError = ref<string | null>(null);
+const messagesContainer = ref<HTMLElement | null>(null);
 
 // 加载对话列表
 async function loadConversations() {
@@ -71,6 +82,10 @@ async function handleDeleteConversation(id: string) {
 
     try {
         await deleteConversation(id);
+        // 如果删除的是当前正在查看的对话，关闭面板
+        if (detailConversation.value?.id === id) {
+            closeDetail();
+        }
         await loadConversations();
     } catch (err: any) {
         console.error("Failed to delete conversation:", err);
@@ -79,9 +94,59 @@ async function handleDeleteConversation(id: string) {
     }
 }
 
+// 打开对话详情面板
+async function openConversationDetail(conversation: Conversation) {
+    detailConversation.value = conversation;
+    detailMessages.value = [];
+    detailError.value = null;
+    detailOpen.value = true;
+    detailLoading.value = true;
+
+    try {
+        const messages = await getConversationMessages(conversation.id);
+        detailMessages.value = messages;
+        // 等待 DOM 更新后滚动到底部
+        await nextTick();
+        scrollToBottom();
+    } catch (err: any) {
+        console.error("Failed to load messages:", err);
+        detailError.value =
+            err.response?.data?.error || err.message || t("common.error");
+    } finally {
+        detailLoading.value = false;
+    }
+}
+
+// 关闭详情面板
+function closeDetail() {
+    detailOpen.value = false;
+    // 延迟清除数据，等动画结束
+    setTimeout(() => {
+        detailConversation.value = null;
+        detailMessages.value = [];
+        detailError.value = null;
+    }, 300);
+}
+
+// 滚动到底部
+function scrollToBottom() {
+    if (messagesContainer.value) {
+        messagesContainer.value.scrollTop =
+            messagesContainer.value.scrollHeight;
+    }
+}
+
 // 格式化日期时间
 function formatDateTime(dateString: string) {
     return new Date(dateString).toLocaleString();
+}
+
+// 格式化时间（短格式，用于消息时间戳）
+function formatTime(dateString: string) {
+    return new Date(dateString).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 }
 
 // 聊天类型显示文本
@@ -93,6 +158,31 @@ const chatTypeLabel = computed(() => (type: string) => {
     }
     return type;
 });
+
+// 角色标签
+function roleLabel(role: string): string {
+    switch (role) {
+        case "user":
+            return t("conversationHistory.roleUser");
+        case "assistant":
+            return t("conversationHistory.roleAssistant");
+        case "system":
+            return t("conversationHistory.roleSystem");
+        case "tool":
+            return t("conversationHistory.roleTool");
+        default:
+            return role;
+    }
+}
+
+// 渲染 Markdown
+function renderMarkdown(content: string): string {
+    try {
+        return marked.parse(content, { async: false }) as string;
+    } catch {
+        return content;
+    }
+}
 
 // 页面加载时获取对话列表
 onMounted(() => {
@@ -221,6 +311,8 @@ onMounted(() => {
                     <tr
                         v-for="conversation in conversations"
                         :key="conversation.id"
+                        class="conversation-row"
+                        @click="openConversationDetail(conversation)"
                     >
                         <td class="title-cell">
                             {{
@@ -240,7 +332,14 @@ onMounted(() => {
                         <td class="chat-id-cell">{{ conversation.chat_id }}</td>
                         <td>{{ formatDateTime(conversation.created_at) }}</td>
                         <td>{{ formatDateTime(conversation.updated_at) }}</td>
-                        <td class="actions-cell">
+                        <td class="actions-cell" @click.stop>
+                            <button
+                                class="btn-icon btn-view"
+                                :title="t('conversationHistory.view')"
+                                @click="openConversationDetail(conversation)"
+                            >
+                                <Icon icon="lucide:eye" />
+                            </button>
                             <button
                                 class="btn-icon btn-delete"
                                 :title="t('conversationHistory.delete')"
@@ -262,6 +361,236 @@ onMounted(() => {
             <h2>{{ t("conversationHistory.emptyTitle") }}</h2>
             <p>{{ t("conversationHistory.emptyDescription") }}</p>
         </div>
+
+        <!-- 遮罩层 -->
+        <Transition name="overlay">
+            <div
+                v-if="detailOpen"
+                class="detail-overlay"
+                @click="closeDetail"
+            ></div>
+        </Transition>
+
+        <!-- 详情侧边面板 -->
+        <Transition name="slide-over">
+            <div v-if="detailOpen" class="detail-panel">
+                <!-- 面板头部 -->
+                <div class="detail-header">
+                    <div class="detail-header-info">
+                        <h2 class="detail-title">
+                            {{
+                                detailConversation?.title ||
+                                t("conversationHistory.noTitle")
+                            }}
+                        </h2>
+                        <div class="detail-meta">
+                            <span
+                                v-if="detailConversation?.bot_name"
+                                class="detail-meta-item"
+                            >
+                                <Icon icon="lucide:bot" class="meta-icon" />
+                                {{ detailConversation.bot_name }}
+                            </span>
+                            <span
+                                v-if="detailConversation?.chat_type"
+                                class="detail-meta-item"
+                            >
+                                <Icon
+                                    icon="lucide:message-circle"
+                                    class="meta-icon"
+                                />
+                                {{
+                                    chatTypeLabel(detailConversation.chat_type)
+                                }}
+                            </span>
+                            <span class="detail-meta-item">
+                                <Icon icon="lucide:mail" class="meta-icon" />
+                                {{ detailMessages.length }}
+                                {{ t("conversationHistory.messages") }}
+                            </span>
+                        </div>
+                    </div>
+                    <button
+                        class="btn-icon btn-close"
+                        :title="t('conversationHistory.close')"
+                        @click="closeDetail"
+                    >
+                        <Icon icon="lucide:x" />
+                    </button>
+                </div>
+
+                <!-- 加载状态 -->
+                <div v-if="detailLoading" class="detail-loading">
+                    <Icon icon="lucide:loader-2" class="icon spin" />
+                    <span>{{ t("conversationHistory.loadingMessages") }}</span>
+                </div>
+
+                <!-- 错误提示 -->
+                <div v-else-if="detailError" class="detail-error">
+                    <Icon icon="lucide:alert-circle" class="icon" />
+                    <span>{{ detailError }}</span>
+                </div>
+
+                <!-- 无消息 -->
+                <div
+                    v-else-if="detailMessages.length === 0"
+                    class="detail-empty"
+                >
+                    <Icon icon="lucide:message-square-off" class="icon" />
+                    <span>{{ t("conversationHistory.noMessages") }}</span>
+                </div>
+
+                <!-- 消息列表 -->
+                <div v-else ref="messagesContainer" class="detail-messages">
+                    <div
+                        v-for="message in detailMessages"
+                        :key="message.id"
+                        class="detail-message"
+                        :class="`detail-message-${message.role}`"
+                    >
+                        <!-- 用户消息 -->
+                        <div
+                            v-if="message.role === 'user'"
+                            class="msg msg-user"
+                        >
+                            <div class="msg-body msg-body-user">
+                                <div class="msg-header msg-header-user">
+                                    <span class="msg-role">{{
+                                        roleLabel(message.role)
+                                    }}</span>
+                                    <span class="msg-time">{{
+                                        formatTime(message.created_at)
+                                    }}</span>
+                                </div>
+                                <div
+                                    class="msg-content msg-content-user"
+                                    v-html="renderMarkdown(message.content)"
+                                ></div>
+                            </div>
+                            <div class="msg-avatar avatar-user">
+                                <svg
+                                    class="avatar-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                >
+                                    <circle
+                                        cx="12"
+                                        cy="8"
+                                        r="4"
+                                        fill="hsl(var(--primary))"
+                                    />
+                                    <path
+                                        d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8"
+                                        stroke="hsl(var(--primary))"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                    />
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- 助手消息 -->
+                        <div
+                            v-else-if="message.role === 'assistant'"
+                            class="msg msg-assistant"
+                        >
+                            <div class="msg-avatar avatar-assistant">
+                                <Icon
+                                    icon="lucide:sparkles"
+                                    class="avatar-icon-inner"
+                                />
+                            </div>
+                            <div class="msg-body msg-body-assistant">
+                                <div class="msg-header msg-header-assistant">
+                                    <span class="msg-role msg-role-assistant">{{
+                                        roleLabel(message.role)
+                                    }}</span>
+                                    <span class="msg-time">{{
+                                        formatTime(message.created_at)
+                                    }}</span>
+                                </div>
+                                <div
+                                    class="msg-content msg-content-assistant"
+                                    v-html="renderMarkdown(message.content)"
+                                ></div>
+                            </div>
+                        </div>
+
+                        <!-- 系统消息 -->
+                        <div
+                            v-else-if="message.role === 'system'"
+                            class="msg msg-system"
+                        >
+                            <div class="msg-body msg-body-system">
+                                <div class="msg-header msg-header-system">
+                                    <span class="msg-role msg-role-system">{{
+                                        roleLabel(message.role)
+                                    }}</span>
+                                    <span class="msg-time">{{
+                                        formatTime(message.created_at)
+                                    }}</span>
+                                </div>
+                                <div
+                                    class="msg-content msg-content-system"
+                                    v-html="renderMarkdown(message.content)"
+                                ></div>
+                            </div>
+                        </div>
+
+                        <!-- 工具消息 -->
+                        <div
+                            v-else-if="message.role === 'tool'"
+                            class="msg msg-tool"
+                        >
+                            <div class="msg-avatar avatar-tool">
+                                <Icon
+                                    icon="lucide:wrench"
+                                    class="avatar-icon-inner"
+                                />
+                            </div>
+                            <div class="msg-body msg-body-tool">
+                                <div class="msg-header msg-header-tool">
+                                    <span class="msg-role msg-role-tool">{{
+                                        roleLabel(message.role)
+                                    }}</span>
+                                    <span class="msg-time">{{
+                                        formatTime(message.created_at)
+                                    }}</span>
+                                </div>
+                                <div
+                                    class="msg-content msg-content-tool"
+                                    v-html="renderMarkdown(message.content)"
+                                ></div>
+                            </div>
+                        </div>
+
+                        <!-- 其他角色 -->
+                        <div v-else class="msg msg-other">
+                            <div class="msg-avatar avatar-other">
+                                <Icon
+                                    icon="lucide:user"
+                                    class="avatar-icon-inner"
+                                />
+                            </div>
+                            <div class="msg-body">
+                                <div class="msg-header">
+                                    <span class="msg-role">{{
+                                        roleLabel(message.role)
+                                    }}</span>
+                                    <span class="msg-time">{{
+                                        formatTime(message.created_at)
+                                    }}</span>
+                                </div>
+                                <div
+                                    class="msg-content"
+                                    v-html="renderMarkdown(message.content)"
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Transition>
     </div>
 </template>
 
@@ -500,12 +829,22 @@ onMounted(() => {
     font-size: 14px;
 }
 
-.conversations-table tbody tr:hover {
+.conversations-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* 可点击的对话行 */
+.conversation-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.conversations-table tbody tr.conversation-row:hover {
     background: hsl(var(--muted) / 0.2);
 }
 
-.conversations-table tbody tr:last-child td {
-    border-bottom: none;
+.conversations-table tbody tr.conversation-row:active {
+    background: hsl(var(--muted) / 0.3);
 }
 
 /* 特殊单元格 */
@@ -546,6 +885,9 @@ onMounted(() => {
 .actions-cell {
     text-align: right;
     white-space: nowrap;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
 }
 
 .btn-icon {
@@ -568,9 +910,25 @@ onMounted(() => {
     color: hsl(var(--foreground));
 }
 
+.btn-icon.btn-view:hover {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
 .btn-icon.btn-delete:hover {
     background: hsl(var(--destructive) / 0.1);
     color: hsl(var(--destructive));
+}
+
+.btn-icon.btn-close {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+}
+
+.btn-icon.btn-close:hover {
+    background: hsl(var(--muted) / 0.3);
+    color: hsl(var(--foreground));
 }
 
 /* 空状态 */
@@ -602,6 +960,501 @@ onMounted(() => {
     margin: 0;
 }
 
+/* ======== 遮罩层 ======== */
+.detail-overlay {
+    position: fixed;
+    inset: 0;
+    background: hsl(var(--foreground) / 0.4);
+    z-index: 40;
+    transition: opacity 0.3s ease;
+}
+
+.overlay-enter-active,
+.overlay-leave-active {
+    transition: opacity 0.3s ease;
+}
+
+.overlay-enter-from,
+.overlay-leave-to {
+    opacity: 0;
+}
+
+/* ======== 详情侧边面板 ======== */
+.detail-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(560px, 90vw);
+    background: hsl(var(--background));
+    border-left: 1px solid hsl(var(--border));
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -8px 0 24px hsl(var(--foreground) / 0.1);
+}
+
+.slide-over-enter-active,
+.slide-over-leave-active {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-over-enter-from,
+.slide-over-leave-to {
+    transform: translateX(100%);
+}
+
+/* 面板头部 */
+.detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    flex-shrink: 0;
+    gap: 12px;
+}
+
+.detail-header-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.detail-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin: 0 0 8px 0;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.detail-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.meta-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+/* 面板加载/错误/空状态 */
+.detail-loading,
+.detail-error,
+.detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 64px 24px;
+    color: hsl(var(--muted-foreground));
+    flex: 1;
+    justify-content: center;
+}
+
+.detail-loading .icon,
+.detail-empty .icon {
+    width: 32px;
+    height: 32px;
+}
+
+.detail-error {
+    color: hsl(var(--destructive));
+}
+
+.detail-error .icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* ======== 消息列表 ======== */
+.detail-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.detail-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.detail-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.detail-messages::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+}
+
+.detail-messages::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.3);
+}
+
+/* 消息容器 */
+.detail-message {
+    display: flex;
+    width: 100%;
+}
+
+/* 用户消息 - 右对齐 */
+.detail-message-user {
+    justify-content: flex-end;
+}
+
+/* 助手/工具/系统消息 - 左对齐 */
+.detail-message-assistant,
+.detail-message-tool,
+.detail-message-system,
+.detail-message-other {
+    justify-content: flex-start;
+}
+
+/* 消息行 */
+.msg {
+    display: flex;
+    gap: 10px;
+    max-width: 85%;
+}
+
+.msg-user {
+    flex-direction: row-reverse;
+}
+
+.msg-system {
+    max-width: 100%;
+    justify-content: center;
+}
+
+/* 头像 */
+.msg-avatar {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+}
+
+.avatar-user {
+    background: hsl(var(--primary) / 0.15);
+    border: 1px solid hsl(var(--primary) / 0.3);
+}
+
+.avatar-user .avatar-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.avatar-assistant {
+    background: hsl(var(--primary) / 0.15);
+    border: 2px solid hsl(var(--primary));
+}
+
+.avatar-icon-inner {
+    width: 16px;
+    height: 16px;
+    color: hsl(var(--primary));
+}
+
+.avatar-tool {
+    background: hsl(38 92% 50% / 0.1);
+    border: 1px solid hsl(38 92% 50% / 0.3);
+    border-radius: 0.5rem;
+}
+
+.avatar-tool .avatar-icon-inner {
+    color: hsl(38 92% 50%);
+}
+
+.avatar-other {
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+}
+
+/* 消息体 */
+.msg-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.msg-body-user {
+    align-items: flex-end;
+}
+
+.msg-body-system {
+    align-items: center;
+}
+
+/* 消息头部 */
+.msg-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+}
+
+.msg-header-user {
+    flex-direction: row-reverse;
+}
+
+.msg-header-system {
+    justify-content: center;
+}
+
+.msg-role {
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.msg-role-assistant {
+    color: hsl(var(--primary));
+}
+
+.msg-role-system {
+    color: hsl(200 80% 50%);
+}
+
+.msg-role-tool {
+    color: hsl(38 92% 50%);
+}
+
+.msg-time {
+    font-size: 0.625rem;
+    color: hsl(var(--muted-foreground) / 0.7);
+}
+
+/* 消息内容 */
+.msg-content {
+    padding: 10px 14px;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* 用户消息样式 */
+.msg-content-user {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)) 0%,
+        hsl(280 70% 60%) 100%
+    );
+    color: white;
+    border-radius: 1rem 0.25rem 1rem 1rem;
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.15);
+}
+
+/* 助手消息样式 */
+.msg-content-assistant {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.25rem 1rem 1rem 1rem;
+    color: hsl(var(--foreground));
+    box-shadow: 0 1px 3px hsl(var(--primary) / 0.04);
+}
+
+/* 系统消息样式 */
+.msg-content-system {
+    background: hsl(200 80% 50% / 0.08);
+    border: 1px dashed hsl(200 80% 50% / 0.3);
+    border-radius: 0.5rem;
+    color: hsl(200 80% 40%);
+    font-size: 0.8125rem;
+    text-align: center;
+    max-width: 400px;
+}
+
+.dark .msg-content-system {
+    color: hsl(200 80% 70%);
+    border-color: hsl(200 80% 50% / 0.4);
+}
+
+/* 工具消息样式 */
+.msg-content-tool {
+    background: hsl(38 92% 50% / 0.08);
+    border: 1px solid hsl(38 92% 50% / 0.25);
+    border-radius: 1rem 1rem 1rem 0.25rem;
+    color: hsl(38 92% 30%);
+    font-size: 0.8125rem;
+}
+
+.dark .msg-content-tool {
+    color: hsl(38 92% 70%);
+}
+
+/* 其他消息 */
+.detail-message-other .msg-content {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.75rem;
+    color: hsl(var(--foreground));
+}
+
+/* ======== Markdown 渲染样式 ======== */
+.msg-content :deep(p) {
+    margin: 0.25rem 0;
+}
+
+.msg-content :deep(p:first-child) {
+    margin-top: 0;
+}
+
+.msg-content :deep(p:last-child) {
+    margin-bottom: 0;
+}
+
+.msg-content :deep(pre) {
+    background: hsl(var(--muted) / 0.5);
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
+.msg-content :deep(code) {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 0.8125rem;
+}
+
+.msg-content :deep(:not(pre) > code) {
+    background: hsl(var(--muted) / 0.5);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.msg-content :deep(pre code) {
+    background: none;
+    padding: 0;
+}
+
+.msg-content :deep(ul),
+.msg-content :deep(ol) {
+    margin: 0.25rem 0;
+    padding-left: 1.5rem;
+}
+
+.msg-content :deep(li) {
+    margin: 0.125rem 0;
+}
+
+.msg-content :deep(blockquote) {
+    border-left: 3px solid hsl(var(--primary) / 0.5);
+    padding-left: 0.75rem;
+    margin: 0.5rem 0;
+    color: hsl(var(--muted-foreground));
+}
+
+.msg-content :deep(a) {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.msg-content :deep(a:hover) {
+    text-decoration-thickness: 2px;
+}
+
+.msg-content :deep(hr) {
+    border: none;
+    border-top: 1px solid hsl(var(--border));
+    margin: 0.75rem 0;
+}
+
+.msg-content :deep(table) {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5rem 0;
+}
+
+.msg-content :deep(th),
+.msg-content :deep(td) {
+    border: 1px solid hsl(var(--border));
+    padding: 0.375rem 0.625rem;
+    text-align: left;
+}
+
+.msg-content :deep(th) {
+    background: hsl(var(--muted) / 0.3);
+    font-weight: 600;
+}
+
+.msg-content :deep(img) {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    margin: 0.25rem 0;
+}
+
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4),
+.msg-content :deep(h5),
+.msg-content :deep(h6) {
+    margin: 0.5rem 0 0.25rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.msg-content :deep(h1) {
+    font-size: 1.25rem;
+}
+
+.msg-content :deep(h2) {
+    font-size: 1.125rem;
+}
+
+.msg-content :deep(h3) {
+    font-size: 1rem;
+}
+
+/* 用户消息中的链接需要确保可读 */
+.msg-content-user :deep(a) {
+    color: white;
+    text-decoration: underline;
+}
+
+.msg-content-user :deep(code) {
+    background: hsl(0 0% 100% / 0.2);
+}
+
+.msg-content-user :deep(pre) {
+    background: hsl(0 0% 100% / 0.15);
+    border-color: hsl(0 0% 100% / 0.2);
+}
+
+.msg-content-user :deep(pre code) {
+    background: none;
+}
+
+.msg-content-user :deep(blockquote) {
+    border-left-color: hsl(0 0% 100% / 0.5);
+    color: hsl(0 0% 100% / 0.85);
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
     .conversation-history-view {
@@ -623,12 +1476,28 @@ onMounted(() => {
     .filter-actions .btn {
         flex: 1;
     }
+
+    .detail-panel {
+        width: 100vw;
+    }
 }
 
 @media (max-width: 640px) {
     .page-header {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .detail-header {
+        padding: 16px;
+    }
+
+    .detail-messages {
+        padding: 12px;
+    }
+
+    .msg {
+        max-width: 92%;
     }
 }
 </style>

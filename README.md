@@ -9,7 +9,7 @@
 
 ## Features
 
-- [x] Model Provider - Anthropic, OpenAI, Custom
+- [x] Model Provider - Anthropic, OpenAI, LM Studio, Custom
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search
@@ -25,12 +25,13 @@
 
 ### Planned in the future
 
-- [ ] Sub Agent
-- [ ] Chat - Matrix
-- [ ] Chat - VoceChat
-- [ ] Chat - QQ
-- [ ] Chat - WeCom
-- [ ] Chat - Custom API(You can write your own program to talk to Ruri)
+- More Providers
+- Sub Agent
+- Chat - Matrix
+- Chat - VoceChat
+- Chat - QQ
+- Chat - WeCom
+- Chat - Custom API(You can write your own program to talk to Ruri)
 
 ...
 
@@ -46,7 +47,7 @@ cargo run
 
 Open the web UI at `http://localhost:3000`.
 
-### ACP (Agent Client Protocol)
+### ACP (Agent Client Protocol) Server Config
 
 Config example in Zed:
 

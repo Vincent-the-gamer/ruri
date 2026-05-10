@@ -539,42 +539,6 @@ impl KnowledgeBaseStore {
         Ok(())
     }
 
-    pub async fn get_chunks_by_document(&self, document_id: &str) -> Result<Vec<KbChunk>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, document_id, knowledge_base_id, content, chunk_index,
-                   start_char, end_char, embedding, created_at
-            FROM kb_chunks
-            WHERE document_id = ?1
-            ORDER BY chunk_index ASC
-            "#,
-        )
-        .bind(document_id)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to get chunks by document")?;
-
-        rows.iter().map(|row| self.row_to_chunk(row)).collect()
-    }
-
-    pub async fn get_all_chunks(&self, knowledge_base_id: &str) -> Result<Vec<KbChunk>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, document_id, knowledge_base_id, content, chunk_index,
-                   start_char, end_char, embedding, created_at
-            FROM kb_chunks
-            WHERE knowledge_base_id = ?1
-            ORDER BY document_id, chunk_index ASC
-            "#,
-        )
-        .bind(knowledge_base_id)
-        .fetch_all(&self.pool)
-        .await
-        .context("Failed to get all chunks")?;
-
-        rows.iter().map(|row| self.row_to_chunk(row)).collect()
-    }
-
     pub async fn update_chunk_embedding(&self, chunk_id: &str, embedding: Vec<f32>) -> Result<()> {
         let blob = embedding_to_bytes(&embedding);
 

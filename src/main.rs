@@ -28,6 +28,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use rust_embed::RustEmbed;
+use std::io::IsTerminal;
 use std::sync::Arc;
 
 /// Embedded frontend assets from the compiled Vue build.
@@ -91,12 +92,16 @@ async fn main() -> anyhow::Result<()> {
     // Initialize logging
     if acp_mode {
         // ACP mode: logging goes to stderr so it doesn't interfere with JSON-RPC on stdout
+        // Check if stderr is a terminal for ANSI color support
+        logging::set_color_enabled(std::io::stderr().is_terminal());
+
         tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()
                     .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
             )
             .with_writer(std::io::stderr)
+            .event_format(logging::RuriFormat)
             .init();
 
         tracing::info!("Starting Ruri in ACP mode (stdio)");

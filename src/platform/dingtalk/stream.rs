@@ -353,7 +353,7 @@ async fn handle_text_frame(
             "data": frame.data,
         });
         ws_sink
-            .send(Message::Text(pong.to_string()))
+            .send(Message::Text(pong.to_string().into()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send pong: {}", e))?;
         return Ok(());
@@ -370,7 +370,7 @@ async fn handle_text_frame(
             "data": {},
         });
         ws_sink
-            .send(Message::Text(ack.to_string()))
+            .send(Message::Text(ack.to_string().into()))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send ACK: {}", e))?;
     }

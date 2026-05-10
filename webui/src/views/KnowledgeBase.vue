@@ -584,6 +584,14 @@ const formValid = computed(() => {
                             )
                         }}
                     </p>
+                    <p class="text-xs text-muted-foreground/60 mt-1">
+                        {{
+                            t(
+                                "knowledgeBase.supportedFormats",
+                                "Supported: txt, md, csv, pdf, xls, xlsx, docx",
+                            )
+                        }}
+                    </p>
                     <div
                         v-if="uploadLoading"
                         class="flex items-center justify-center gap-2 mt-3 text-primary"

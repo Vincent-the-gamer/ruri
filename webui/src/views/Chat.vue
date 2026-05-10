@@ -184,12 +184,9 @@ function toggleSettings() {
                                 cy="12"
                                 r="10"
                                 stroke="currentColor"
-                                stroke-width="2"
-                            />
-                            <path
-                                class="spinner-head"
-                                fill="currentColor"
-                                d="M12 2a10 10 0 0 1 10 10h-2a8 8 0 0 0-8-8V2z"
+                                stroke-width="2.5"
+                                stroke-dasharray="31.4 31.4"
+                                stroke-linecap="round"
                             />
                         </svg>
                         <span>{{ t("chat.thinking") }}</span>
@@ -454,29 +451,38 @@ function toggleSettings() {
                 <Transition name="thinking-fade">
                     <div v-if="chatStore.isThinking" class="thinking-message">
                         <div class="thinking-avatar">
+                            <div class="thinking-ring"></div>
                             <img
                                 :src="ruriAvatar"
                                 alt="琉璃"
                                 class="thinking-avatar-img"
                             />
-                            <div class="thinking-dots">
-                                <span class="dot dot-1"></span>
-                                <span class="dot dot-2"></span>
-                                <span class="dot dot-3"></span>
-                            </div>
                         </div>
                         <div class="thinking-content-wrapper">
                             <div class="thinking-label">
-                                <span>琉璃</span>
-                                <span class="thinking-status"
-                                    >💭 思考中...</span
+                                <svg
+                                    class="thinking-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
                                 >
+                                    <circle
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-dasharray="31.4 31.4"
+                                        stroke-linecap="round"
+                                    />
+                                </svg>
+                                <span>琉璃</span>
+                                <span class="thinking-status">思考中...</span>
                             </div>
                             <div class="thinking-content">
                                 <div class="thinking-animation">
-                                    <span class="spark sparkle-1">✨</span>
-                                    <span class="spark sparkle-2">💫</span>
-                                    <span class="spark sparkle-3">⭐</span>
+                                    <span class="wave-dot wave-dot-1"></span>
+                                    <span class="wave-dot wave-dot-2"></span>
+                                    <span class="wave-dot wave-dot-3"></span>
                                 </div>
                             </div>
                         </div>
@@ -583,21 +589,15 @@ function toggleSettings() {
 .spinner-icon {
     width: 14px;
     height: 14px;
-    animation: spin 1s linear infinite;
+    animation: ruriSpin 1s linear infinite;
+    transform-origin: center;
 }
 
 .spinner-track {
-    opacity: 0.25;
     stroke: var(--color-accent);
 }
 
-.spinner-head {
-    opacity: 0.8;
-    fill: var(--color-accent);
-    stroke: var(--color-accent);
-}
-
-@keyframes spin {
+@keyframes ruriSpin {
     from {
         transform: rotate(0deg);
     }
@@ -1196,55 +1196,37 @@ function toggleSettings() {
     align-items: center;
     justify-content: center;
     background: hsl(var(--secondary));
-    border: 2px solid hsl(var(--primary));
-    overflow: hidden;
+    border: none;
+    overflow: visible;
+}
+
+.thinking-ring {
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    border-radius: 50%;
+    border: 2.5px solid transparent;
+    border-top-color: hsl(var(--primary));
+    border-right-color: hsl(var(--primary) / 0.4);
+    animation: ringSpin 1s linear infinite;
 }
 
 .thinking-avatar-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-}
-
-.thinking-dots {
-    position: absolute;
-    bottom: -8px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 3px;
-}
-
-.dot {
-    width: 4px;
-    height: 4px;
     border-radius: 50%;
-    background: hsl(var(--primary));
-    animation: bounceDot 1.4s ease-in-out infinite;
+    border: 2px solid hsl(var(--primary) / 0.3);
 }
 
-.dot-1 {
-    animation-delay: 0s;
-}
-
-.dot-2 {
-    animation-delay: 0.2s;
-}
-
-.dot-3 {
-    animation-delay: 0.4s;
-}
-
-@keyframes bounceDot {
-    0%,
-    80%,
-    100% {
-        transform: scale(1);
-        opacity: 0.6;
+@keyframes ringSpin {
+    from {
+        transform: rotate(0deg);
     }
-    40% {
-        transform: scale(1.5);
-        opacity: 1;
+    to {
+        transform: rotate(360deg);
     }
 }
 
@@ -1266,6 +1248,14 @@ function toggleSettings() {
     color: hsl(var(--primary));
 }
 
+.thinking-icon {
+    width: 14px;
+    height: 14px;
+    animation: ruriSpin 1s linear infinite;
+    transform-origin: center;
+    color: hsl(var(--primary));
+}
+
 .thinking-status {
     background: linear-gradient(
         90deg,
@@ -1274,13 +1264,13 @@ function toggleSettings() {
     );
     padding: 0.125rem 0.5rem;
     border-radius: 0.375rem;
-    animation: pulse 2s ease-in-out infinite;
+    animation: statusPulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
+@keyframes statusPulse {
     0%,
     100% {
-        opacity: 0.8;
+        opacity: 0.7;
     }
     50% {
         opacity: 1;
@@ -1296,6 +1286,19 @@ function toggleSettings() {
     box-shadow: 0 2px 8px hsl(var(--primary) / 0.15);
     position: relative;
     overflow: hidden;
+    animation: borderGlow 2s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+    0%,
+    100% {
+        border-color: hsl(var(--primary) / 0.2);
+        box-shadow: 0 2px 8px hsl(var(--primary) / 0.1);
+    }
+    50% {
+        border-color: hsl(var(--primary) / 0.5);
+        box-shadow: 0 2px 16px hsl(var(--primary) / 0.25);
+    }
 }
 
 .thinking-content::before {
@@ -1327,36 +1330,40 @@ function toggleSettings() {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     padding: 0.5rem 0;
 }
 
-.spark {
-    font-size: 1.5rem;
-    display: inline-flex;
-    animation: float 2s ease-in-out infinite;
+.wave-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(var(--primary));
+    display: inline-block;
+    animation: waveBounce 1.4s ease-in-out infinite;
 }
 
-.sparkle-1 {
+.wave-dot-1 {
     animation-delay: 0s;
 }
 
-.sparkle-2 {
-    animation-delay: 0.3s;
+.wave-dot-2 {
+    animation-delay: 0.2s;
 }
 
-.sparkle-3 {
-    animation-delay: 0.6s;
+.wave-dot-3 {
+    animation-delay: 0.4s;
 }
 
-@keyframes float {
+@keyframes waveBounce {
     0%,
+    80%,
     100% {
-        transform: translateY(0) rotate(0deg);
-        opacity: 0.7;
+        transform: scale(0.6);
+        opacity: 0.4;
     }
-    50% {
-        transform: translateY(-10px) rotate(10deg);
+    40% {
+        transform: scale(1.2);
         opacity: 1;
     }
 }

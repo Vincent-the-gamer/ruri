@@ -65,7 +65,7 @@ multer = "3"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 
 # WebSocket for MCP
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 futures-util = "0.3"
@@ -89,5 +89,12 @@ qrcode = { version = "0.14", features = ["svg"] }
 # Random number generation for WeChat API headers
 rand = "0.8"
 
+### knowledge base
 # PDF text extraction for knowledge base
 pdf-extract = "0.10"
+
+# Excel (xls/xlsx) text extraction for knowledge base
+calamine = "0.26"
+
+# DOCX text extraction for knowledge base
+docx-rs = "0.4"

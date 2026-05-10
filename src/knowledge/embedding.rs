@@ -43,17 +43,8 @@ pub enum EmbeddingError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
-    #[error("Authentication failed: {0}")]
-    AuthFailed(String),
-
-    #[error("Request timeout")]
-    Timeout,
-
     #[error("No embeddings returned")]
     NoEmbeddings,
-
-    #[error("Custom error: {0}")]
-    Custom(String),
 }
 
 /// OpenAI-compatible embedding provider.

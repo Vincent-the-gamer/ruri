@@ -1042,7 +1042,7 @@ async fn run_custom_gateway_once(
 
     ws_sink
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            identify.to_string(),
+            identify.to_string().into(),
         ))
         .await
         .map_err(|e| anyhow::anyhow!("Failed to send Identify: {}", e))?;
@@ -1196,7 +1196,7 @@ async fn run_custom_gateway_once(
                                 });
                                 if let Err(e) = ws_sink
                                     .send(tokio_tungstenite::tungstenite::Message::Text(
-                                        hb.to_string(),
+                                        hb.to_string().into(),
                                     ))
                                     .await
                                 {
@@ -1223,7 +1223,7 @@ async fn run_custom_gateway_once(
                                     });
                                     if let Err(e) = ws_sink
                                         .send(tokio_tungstenite::tungstenite::Message::Text(
-                                            resume.to_string(),
+                                            resume.to_string().into(),
                                         ))
                                         .await
                                     {
@@ -1266,7 +1266,7 @@ async fn run_custom_gateway_once(
                     "d": last_seq
                 });
                 if let Err(e) = ws_sink
-                    .send(tokio_tungstenite::tungstenite::Message::Text(hb.to_string()))
+                    .send(tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into()))
                     .await
                 {
                     break Err(anyhow::anyhow!("Failed to send heartbeat: {}", e));

@@ -1,16 +1,38 @@
+use chrono::{Datelike, Local, Timelike};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::IsTerminal;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{RwLock, broadcast};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::{
-    Layer, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
+    Layer, fmt::FormatEvent, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
 };
 
 /// Global atomic counter for generating unique log entry IDs.
 static LOG_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Whether ANSI color codes should be emitted in console output.
+/// Set once during `init_logging()` based on whether stdout is a terminal.
+static COLOR_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Set whether ANSI color codes should be emitted. Called from `init_logging()`
+/// for normal mode, or from `main()` for ACP mode.
+pub fn set_color_enabled(enabled: bool) {
+    COLOR_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+// ANSI escape codes
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_BOLD: &str = "\x1b[1m";
+const ANSI_RED: &str = "\x1b[31m";
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_BLUE: &str = "\x1b[34m";
+const ANSI_DIM: &str = "\x1b[2m";
+const ANSI_CYAN: &str = "\x1b[36m";
 
 /// 日志级别
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,12 +165,6 @@ impl LogManager {
         self.broadcast_tx.subscribe()
     }
 
-    /// Get the timestamp of the latest log entry (for gap detection on reconnect).
-    pub async fn latest_timestamp(&self) -> Option<u64> {
-        let logs = self.logs.read().await;
-        logs.last().map(|entry| entry.timestamp)
-    }
-
     /// Get all log entries with a timestamp strictly greater than `since`.
     pub async fn get_logs_since(&self, since: u64) -> Vec<LogEntry> {
         let logs = self.logs.read().await;
@@ -250,6 +266,225 @@ fn strip_debug_quotes(s: &str) -> String {
     }
 }
 
+/// Format a timestamp (milliseconds since epoch) to match the webui format:
+/// - Today: `HH:MM:SS.mmm`
+/// - Not today: `MM-DD HH:MM:SS.mmm`
+fn format_timestamp(timestamp_ms: u64) -> String {
+    let dt = chrono::DateTime::from_timestamp_millis(timestamp_ms as i64)
+        .unwrap_or_else(|| chrono::DateTime::UNIX_EPOCH);
+    let local_dt = dt.with_timezone(&Local);
+    let now = Local::now();
+
+    let hours = local_dt.hour();
+    let minutes = local_dt.minute();
+    let seconds = local_dt.second();
+    let ms = local_dt.timestamp_subsec_millis();
+
+    if local_dt.date_naive() == now.date_naive() {
+        format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, ms)
+    } else {
+        let month = local_dt.month();
+        let day = local_dt.day();
+        format!(
+            "{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+            month, day, hours, minutes, seconds, ms
+        )
+    }
+}
+
+/// Custom event formatter that matches the webui log format:
+/// `HH:MM:SS.mmm LEVEL target::module_path: message {key=val, ...} @ short_file:line`
+pub struct RuriFormat;
+
+impl<S, N> FormatEvent<S, N> for RuriFormat
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+    N: for<'writer> tracing_subscriber::fmt::FormatFields<'writer> + 'static,
+{
+    fn format_event(
+        &self,
+        _ctx: &tracing_subscriber::fmt::FmtContext<'_, S, N>,
+        mut writer: tracing_subscriber::fmt::format::Writer<'_>,
+        event: &Event<'_>,
+    ) -> std::fmt::Result {
+        let metadata = event.metadata();
+
+        let color = COLOR_ENABLED.load(Ordering::Relaxed);
+
+        // Format timestamp — dim if not today
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let ts = format_timestamp(now_ms);
+        let is_today = {
+            let dt = chrono::DateTime::from_timestamp_millis(now_ms as i64)
+                .unwrap_or_else(|| chrono::DateTime::UNIX_EPOCH);
+            let local_dt = dt.with_timezone(&Local);
+            local_dt.date_naive() == Local::now().date_naive()
+        };
+        if color && !is_today {
+            write!(writer, "{}{}{} ", ANSI_DIM, ts, ANSI_RESET)?;
+        } else {
+            write!(writer, "{} ", ts)?;
+        }
+
+        // Format level (uppercase, 5-char padded, colored)
+        let (level_str, level_prefix, level_suffix): (&str, &str, &str) = match *metadata.level() {
+            tracing::Level::ERROR => ("ERROR", ANSI_BOLD, ANSI_RED),
+            tracing::Level::WARN => (" WARN", ANSI_BOLD, ANSI_YELLOW),
+            tracing::Level::INFO => (" INFO", ANSI_BOLD, ANSI_GREEN),
+            tracing::Level::DEBUG => ("DEBUG", "", ANSI_BLUE),
+            tracing::Level::TRACE => ("TRACE", ANSI_DIM, ""),
+        };
+        if color {
+            write!(
+                writer,
+                "{}{}{}{} ",
+                level_prefix, level_suffix, level_str, ANSI_RESET
+            )?;
+        } else {
+            write!(writer, "{} ", level_str)?;
+        }
+
+        // Format target::module_path (dim)
+        let target = metadata.target();
+        if let Some(module_path) = metadata.module_path() {
+            if color {
+                write!(
+                    writer,
+                    "{}{}::{}:{} ",
+                    ANSI_DIM, target, module_path, ANSI_RESET
+                )?;
+            } else {
+                write!(writer, "{}::{}: ", target, module_path)?;
+            }
+        } else if color {
+            write!(writer, "{}{}:{} ", ANSI_DIM, target, ANSI_RESET)?;
+        } else {
+            write!(writer, "{}: ", target)?;
+        }
+
+        // Visit the event to extract message and fields
+        let mut visitor = ConsoleVisitor::new();
+        event.record(&mut visitor);
+
+        // Write message
+        write!(writer, "{}", visitor.message)?;
+
+        // Write structured fields (dim)
+        if !visitor.fields.is_empty() {
+            let fields_str = visitor
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if color {
+                write!(
+                    writer,
+                    " {}{{{}{}{}}}{}",
+                    ANSI_DIM, ANSI_RESET, fields_str, ANSI_DIM, ANSI_RESET
+                )?;
+            } else {
+                write!(writer, " {{{}}}", fields_str)?;
+            }
+        }
+
+        // Write location @ short_file:line (cyan)
+        if let Some(file) = metadata.file() {
+            let short_file = file.split('/').next_back().unwrap_or(file);
+            if let Some(line) = metadata.line() {
+                if color {
+                    write!(
+                        writer,
+                        " {}@{}:{}:{}{}",
+                        ANSI_CYAN, short_file, line, ANSI_RESET, ANSI_RESET
+                    )?;
+                } else {
+                    write!(writer, " @ {}:{}", short_file, line)?;
+                }
+            } else if color {
+                write!(writer, " {}@{}{}", ANSI_CYAN, short_file, ANSI_RESET)?;
+            } else {
+                write!(writer, " @ {}", short_file)?;
+            }
+        }
+
+        writeln!(writer)
+    }
+}
+
+/// Visitor for the console format layer (extracts message + structured fields)
+struct ConsoleVisitor {
+    message: String,
+    fields: Vec<(String, String)>,
+}
+
+impl ConsoleVisitor {
+    fn new() -> Self {
+        Self {
+            message: String::new(),
+            fields: Vec::new(),
+        }
+    }
+}
+
+impl tracing::field::Visit for ConsoleVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            let formatted = format!("{:?}", value);
+            self.message = strip_debug_quotes(&formatted);
+        } else {
+            self.fields
+                .push((field.name().to_string(), format!("{:?}", value)));
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.message = value.to_string();
+        } else {
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
+        }
+    }
+
+    fn record_error(
+        &mut self,
+        field: &tracing::field::Field,
+        value: &(dyn std::error::Error + 'static),
+    ) {
+        let formatted = format!("{}", value);
+        if field.name() == "message" {
+            self.message = formatted;
+        } else {
+            self.fields
+                .push((field.name().to_string(), format!("{}", value)));
+        }
+    }
+
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
+    }
+
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
+    }
+
+    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
+    }
+}
+
 /// 用于提取日志消息及结构化字段的 Visitor
 struct LogVisitor {
     message: String,
@@ -327,6 +562,10 @@ impl tracing::field::Visit for LogVisitor {
 pub fn init_logging(max_logs: usize) -> Arc<LogManager> {
     let log_manager = Arc::new(LogManager::new(max_logs));
 
+    // Check if stdout is a terminal — cache the result so we don't repeat
+    // the is_terminal syscall on every log line.
+    set_color_enabled(std::io::stdout().is_terminal());
+
     // 创建日志层
     let log_layer = LogLayer::new(log_manager.clone());
 
@@ -336,7 +575,11 @@ pub fn init_logging(max_logs: usize) -> Arc<LogManager> {
 
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stdout)
+                .event_format(RuriFormat),
+        )
         .with(log_layer)
         .init();
 

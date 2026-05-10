@@ -44,15 +44,6 @@ pub enum RerankError {
 
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-
-    #[error("Authentication failed: {0}")]
-    AuthFailed(String),
-
-    #[error("Request timeout")]
-    Timeout,
-
-    #[error("Custom error: {0}")]
-    Custom(String),
 }
 
 /// Reranking provider for re-scoring documents by relevance to a query.
@@ -169,7 +160,9 @@ impl RerankProvider {
                         let document = item.get("document").and_then(|doc| {
                             doc.get("text")
                                 .and_then(|t| t.as_str())
-                                .map(|s| RerankDocument { text: s.to_string() })
+                                .map(|s| RerankDocument {
+                                    text: s.to_string(),
+                                })
                         });
 
                         Some(RerankResult {

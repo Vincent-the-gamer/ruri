@@ -9,7 +9,7 @@
 
 ## 特性
 
-- [x] 模型提供商 - Anthropic, OpenAI, 自定义
+- [x] 模型提供商 - Anthropic, OpenAI, LM Studio, 自定义
 - [x] 工具调用
 - [x] 技能
 - [x] 网页搜索
@@ -25,12 +25,13 @@
 
 ### 未来计划
 
-- [ ] Sub Agent
-- [ ] 聊天平台 - Matrix
-- [ ] 聊天平台 - VoceChat
-- [ ] 聊天平台 - QQ
-- [ ] 聊天平台 - WeCom
-- [ ] 聊天平台 - Custom API(You can write your own program to talk to Ruri)
+- 更多模型提供商
+- Sub Agent
+- 聊天平台 - Matrix
+- 聊天平台 - VoceChat
+- 聊天平台 - QQ
+- 聊天平台 - WeCom
+- 聊天平台 - Custom API(You can write your own program to talk to Ruri)
 
 ...
 
@@ -46,7 +47,7 @@ cargo run
 
 在 `http://localhost:3000` 打开 Web UI。
 
-### ACP (Agent Client Protocol，Agent客户端协议)
+### ACP (Agent Client Protocol，Agent客户端协议) 服务端配置
 
 Zed配置范例:
 
