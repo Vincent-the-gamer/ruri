@@ -1,4 +1,5 @@
 <div align="center">
+    <img src=".github/ruri-avatar.png" style="width: 100px;"/>
     <h1>Ruri 琉璃</h1>
     <p><b>A customizable AI Agent, written in Rust + Vue.</b></p>
     <p><a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a></p>

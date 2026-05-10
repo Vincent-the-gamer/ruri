@@ -1,4 +1,5 @@
 <div align="center">
+    <img src=".github/ruri-avatar.png" style="width: 100px;"/>
     <h1>Ruri 琉璃</h1>
     <p><b>一个可自定义的 AI 智能体，使用 Rust + Vue 编写。</b></p>
     <p><a href="README.md">English</a> | <a href="README.zh-CN.md">中文</a></p>
