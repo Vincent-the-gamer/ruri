@@ -71,8 +71,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: latest
 
       - name: Build frontend
         run: pnpm -C webui run build
