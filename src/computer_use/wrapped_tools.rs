@@ -1,3 +1,4 @@
+use crate::agent::builtin_tools::validate_file_path;
 use crate::agent::tool_executor::{Tool, ToolError};
 use crate::computer_use::tools::ComputerUseContext;
 use crate::types::{ParameterType, ToolDefinition};
@@ -39,6 +40,8 @@ impl Tool for WrappedReadFileTool {
         let path_str = parsed["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
+
+        validate_file_path(path_str)?;
 
         let path = PathBuf::from(path_str);
 
@@ -111,6 +114,8 @@ impl Tool for WrappedWriteFileTool {
         let path_str = parsed["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
+
+        validate_file_path(path_str)?;
 
         let content = parsed["content"]
             .as_str()
@@ -192,6 +197,8 @@ impl Tool for WrappedListDirectoryTool {
 
         let path_str = parsed["path"].as_str().unwrap_or(".");
         let recursive = parsed["recursive"].as_bool().unwrap_or(false);
+
+        validate_file_path(path_str)?;
 
         let path = PathBuf::from(path_str);
 

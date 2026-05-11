@@ -6,128 +6,112 @@ lastUpdated: true
 
 # Knowledge Base
 
-Ruri includes a RAG (Retrieval-Augmented Generation) based knowledge base system that allows the AI agent to reference and search through your documents during conversations.
+The Knowledge Base lets your AI search through your own documents when answering questions. Upload your PDFs, spreadsheets, or text files, and the AI will find relevant information to give you better answers.
 
-## Overview
+## Why Use a Knowledge Base?
 
-The knowledge base system works by:
+By default, the AI only knows what it learned during training. With a knowledge base, it can also reference:
 
-1. **Ingesting** documents in various formats
-2. **Chunking** documents into manageable segments
-3. **Embedding** chunks using an embedding model
-4. **Storing** embeddings in a vector store
-5. **Searching** relevant chunks when a query is made
-6. **Reranking** results for improved relevance
+- **Company documents** — Internal policies, procedures, and guidelines
+- **Technical docs** — API documentation, architecture notes, runbooks
+- **Research papers** — Academic papers and literature reviews
+- **Project files** — Meeting notes, specs, and design documents
 
-This enables the AI agent to answer questions based on your specific documents and data, rather than relying solely on its training data.
+The AI automatically searches your knowledge base when it detects a relevant question — you don't need to do anything special.
+
+## Getting Started with Knowledge Base
+
+### Step 1: Set Up an Embedding Model
+
+You need an embedding model to power the search. Go to the **Knowledge Base** settings and configure:
+
+- **Provider** — Where the embedding model is hosted (e.g., OpenAI)
+- **API URL** — The endpoint URL
+- **API Key** — Your authentication key
+- **Model** — The embedding model name (e.g., `text-embedding-3-small`)
+- **Dimensions** — The vector dimensions for the model
+
+::: tip
+If you're already using OpenAI as your chat provider, you can use their embedding model too. The `text-embedding-3-small` model is affordable and works well for most use cases.
+:::
+
+### Step 2: Create a Knowledge Base
+
+1. Go to the **Knowledge Base** page
+2. Click **Create Knowledge Base**
+3. Give it a name and description (e.g., "Company Policies" or "Project Documentation")
+4. Save it
+
+### Step 3: Upload Documents
+
+1. Open the knowledge base you just created
+2. Click **Upload** and select your files
+3. Wait for the ingestion to complete — you'll see the progress in the UI
+
+### Step 4: Activate the Knowledge Base
+
+Toggle the knowledge base **on** so the AI can search it during conversations.
+
+That's it! Now when you ask a question related to your documents, the AI will search through them and use the information to give you informed answers.
 
 ## Supported Document Formats
 
-| Format   | Extensions        | Description                    |
-| -------- | ----------------- | ------------------------------ |
-| PDF      | `.pdf`            | Adobe PDF documents            |
-| Excel    | `.xls`, `.xlsx`   | Microsoft Excel spreadsheets   |
-| DOCX     | `.docx`           | Microsoft Word documents       |
-| Plain Text | `.txt`, `.md`   | Plain text and Markdown files  |
+| Format     | File Types      | Notes                         |
+| ---------- | --------------- | ----------------------------- |
+| PDF        | `.pdf`          | Text is extracted from pages  |
+| Excel      | `.xls`, `.xlsx` | Cell data is read from sheets |
+| Word       | `.docx`         | Text and formatting extracted |
+| Plain Text | `.txt`, `.md`   | Content read directly         |
 
-## Configuration
+## Improving Search Quality
 
-### Embedding Model
+### Enable Reranking
 
-The embedding model converts text into vector representations for semantic search. You need to configure:
+Reranking improves search results by re-scoring them for relevance. This is optional but highly recommended for better accuracy.
 
-- The embedding model provider and endpoint
-- The model identifier
-- The API key (if required)
-- The embedding dimensions
+To set it up, configure the rerank model in the Knowledge Base settings:
 
-### Rerank Model
+- **Provider** — The rerank service provider
+- **API URL** — The rerank endpoint
+- **API Key** — Authentication key
+- **Model** — The rerank model name
+- **Top-K** — How many results to return (e.g., 5)
 
-The rerank model improves search results by re-scoring and reordering the initially retrieved chunks. This is an optional but recommended step for better accuracy.
+### Tune Chunk Settings
 
-**Configuration fields:**
+When documents are uploaded, they're split into smaller pieces called "chunks." You can adjust:
 
-| Field        | Description                                    |
-| ------------ | ---------------------------------------------- |
-| Provider     | The rerank model provider                      |
-| API URL      | The endpoint for the rerank service            |
-| API Key      | Authentication key                             |
-| Model        | The rerank model identifier                    |
-| Top-K        | Number of top results to return after reranking |
+- **Chunk size** — Smaller chunks = more precise search, but may lose context
+- **Chunk overlap** — Overlapping chunks help preserve information at the boundaries
+- **Separator** — How text is split (default works well for most cases)
 
-### Chunking Configuration
-
-Documents are split into chunks before embedding. You can configure:
-
-| Parameter        | Description                                    |
-| ---------------- | ---------------------------------------------- |
-| Chunk size       | Maximum number of tokens per chunk             |
-| Chunk overlap    | Number of overlapping tokens between chunks    |
-| Separator        | Text separator used for splitting              |
-
-## Pipeline
-
-The knowledge base pipeline processes documents through the following stages:
-
-```
-Document → Parse → Chunk → Embed → Store
-                                        ↓
-Query → Embed Query → Vector Search → Rerank → Context
-```
-
-### 1. Document Parsing
-
-Documents are parsed from their original format into plain text. Each format has a dedicated parser:
-
-- **PDF**: Extracts text content from PDF pages
-- **Excel**: Reads cell data from spreadsheet sheets
-- **DOCX**: Extracts text and formatting from Word documents
-- **Plain Text**: Reads content directly
-
-### 2. Chunking
-
-The parsed text is split into overlapping chunks. Chunking parameters control the size and overlap of these segments, balancing between granularity and context preservation.
-
-### 3. Embedding
-
-Each chunk is processed through the embedding model to produce a vector representation. These vectors capture the semantic meaning of the text, enabling similarity-based search.
-
-### 4. Storage
-
-Embeddings are stored in a vector database alongside the original text chunks and metadata.
-
-### 5. Search
-
-When a query is received:
-
-1. The query is embedded using the same embedding model
-2. Vector similarity search finds the most relevant chunks
-3. Results are optionally reranked using the rerank model
-4. The top-ranked chunks are provided as context to the AI model
+::: tip
+Start with the default settings and adjust only if search results aren't satisfactory. The defaults work well for most document types.
+:::
 
 ## Managing Knowledge Bases
 
 ### Via Web UI
 
-1. Navigate to the **Knowledge Base** page
-2. Create a new knowledge base with a name and description
-3. Upload documents to the knowledge base
-4. Monitor the ingestion progress
-5. Activate or deactivate knowledge bases
+1. Go to **Knowledge Base** in the sidebar
+2. **Create** new knowledge bases for different document collections
+3. **Upload** documents to each knowledge base
+4. **Monitor** ingestion progress
+5. **Activate** or deactivate knowledge bases with the toggle
+6. **Delete** knowledge bases you no longer need
 
-### Activating a Knowledge Base
+### Organizing Knowledge Bases
 
-A knowledge base must be activated to be used in conversations. You can activate knowledge bases through:
+Keep your knowledge bases focused on specific topics for better search results:
 
-- The Web UI
-- [Config Profiles](/config-profiles) — each profile specifies which knowledge bases are active
+- **One knowledge base per domain** — e.g., "HR Policies", "Technical Docs", "Product Specs"
+- **Don't mix unrelated content** — A focused knowledge base gives more relevant results than a general-purpose one
+- **Use [Config Profiles](/config-profiles)** — Control which knowledge bases are active in each profile
 
-When a knowledge base is active, the AI agent will automatically search it when relevant queries are made.
+## Tips
 
-## Performance Tips
-
-- **Use a quality embedding model** — Better embeddings lead to more accurate search results
-- **Enable reranking** — Reranking significantly improves result relevance
-- **Tune chunk size** — Smaller chunks are more precise but may lose context; larger chunks preserve context but may introduce noise
-- **Use overlap** — Overlapping chunks help preserve information at chunk boundaries
-- **Keep knowledge bases focused** — A knowledge base for a specific domain performs better than a general-purpose one
+- **Quality over quantity** — A well-curated knowledge base with relevant documents performs better than one stuffed with everything
+- **Keep documents up to date** — Re-upload documents when they change so the AI has current information
+- **Test your knowledge base** — Ask questions you know the answers to and verify the AI's responses
+- **Use reranking** — It makes a noticeable difference in answer quality
+- **Start small** — Upload a few documents first to verify everything works, then add more

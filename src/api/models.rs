@@ -194,6 +194,20 @@ pub struct ChatRequestDto {
     /// If set, takes priority over the config profile's `custom_error_message`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
+    /// Controls which (if any) tool the model should call.
+    ///
+    /// Supported values: `"auto"` (default), `"none"`, `"required"`,
+    /// or `{"type": "function", "function": {"name": "<tool_name>"}}`.
+    ///
+    /// See: <https://help.aliyun.com/zh/model-studio/qwen-function-calling>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<crate::types::ToolChoice>,
+    /// When `true`, the model may return multiple tool calls in a single
+    /// response so that independent tools can be invoked in parallel.
+    ///
+    /// See: <https://help.aliyun.com/zh/model-studio/qwen-function-calling>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6,117 +6,121 @@ lastUpdated: true
 
 # Config Profiles
 
-Config Profiles allow you to create and switch between different configuration presets. Each profile defines a complete set of settings that determine how the AI agent behaves.
+Config Profiles let you save and switch between different setups with one click. Instead of manually changing settings every time, create a profile for each way you use Ruri and switch instantly.
 
-## Overview
+## Why Use Profiles?
 
-Instead of manually changing individual settings every time you want the agent to behave differently, you can create multiple profiles and switch between them instantly. This is especially useful when you use Ruri for different purposes.
+Imagine you use Ruri for coding at work, casual chatting at home, and research on weekends. Instead of changing 10 settings every time, you can:
 
-**Example scenarios:**
+- Create a **Coding** profile with a technical persona, file tools, and sandbox mode
+- Create a **Casual** profile with a friendly persona and web search
+- Create a **Research** profile with knowledge base access and web search
+- Switch between them with one click!
 
-- A **coding** profile with a technical persona, file tools, and sandbox mode
-- A **writing** profile with a creative persona and web search enabled
-- A **research** profile with knowledge base access and web search
-- A **platform** profile with chat platform integrations active
+## Creating a Profile
 
-## Profile Structure
+### Step 1: Open Profiles
 
-Each config profile contains the following settings:
+Go to **Settings** or **Profiles** in the sidebar.
 
-| Field                  | Type    | Description                                       |
-| ---------------------- | ------- | ------------------------------------------------- |
-| `provider`             | string  | The active model provider                         |
-| `persona`              | string  | The active persona                                |
-| `web_search`           | boolean | Enable or disable web search                      |
-| `computer_use`         | boolean | Enable or disable Computer Use                    |
-| `computer_use_mode`    | string  | Computer Use runtime mode (`none`, `local`, `sandbox`) |
-| `acp`                  | boolean | Enable or disable ACP server                      |
-| `active_skills`        | array   | List of skills to enable in this profile           |
-| `active_platforms`     | array   | List of platforms to enable in this profile        |
-| `active_knowledge_bases` | array | List of knowledge bases to enable in this profile  |
-| `proxy`                | object  | Proxy configuration for network requests           |
-| `command_prefix`       | string  | Prefix for command recognition (default: `/`)      |
+### Step 2: Create a New Profile
+
+Click **Create Profile** and fill in the settings:
+
+- **Name** — Something descriptive like "Coding" or "Research"
+- **Provider** — Which AI model to use
+- **Persona** — The AI's personality
+- **Skills** — Which skills are active
+- **Platforms** — Which chat platforms are connected
+- **Knowledge Bases** — Which knowledge bases are searchable
+- **Web Search** — On or off
+- **Computer Use** — Off, Sandbox, or Local
+- **ACP** — Whether the IDE server is running
+- **Command Prefix** — The character for commands (default: `/`)
+
+### Step 3: Save and Activate
+
+Click **Save**, then switch to the profile by clicking **Activate**. All settings in the profile are applied immediately.
+
+## Profile Examples
+
+### Coding Profile
+
+Perfect for software development:
+
+| Setting        | Value                       |
+| -------------- | --------------------------- |
+| Provider       | Anthropic (Claude Sonnet 4) |
+| Persona        | Code Expert                 |
+| Web Search     | On                          |
+| Computer Use   | Sandbox                     |
+| Skills         | code-review, summarize      |
+| Knowledge Base | Project Documentation       |
+
+### Casual Chat Profile
+
+For relaxed, friendly conversations:
+
+| Setting      | Value           |
+| ------------ | --------------- |
+| Provider     | OpenAI (GPT-4o) |
+| Persona      | Casual Chat     |
+| Web Search   | On              |
+| Computer Use | Off             |
+| Skills       | translate       |
+
+### Research Profile
+
+For deep-dive research with document search:
+
+| Setting         | Value                           |
+| --------------- | ------------------------------- |
+| Provider        | Anthropic (Claude Sonnet 4)     |
+| Persona         | Concise Responder               |
+| Web Search      | On                              |
+| Computer Use    | Off                             |
+| Skills          | summarize                       |
+| Knowledge Bases | Research Papers, Technical Docs |
+
+### Platform Profile
+
+For chat platform integrations:
+
+| Setting      | Value             |
+| ------------ | ----------------- |
+| Provider     | DeepSeek          |
+| Persona      | Helpful Assistant |
+| Web Search   | On                |
+| Computer Use | Off               |
+| Platforms    | Discord, DingTalk |
+
+## Switching Profiles
+
+When you switch profiles, everything changes at once:
+
+- The AI model changes
+- The persona is swapped
+- Skills are activated or deactivated
+- Platform connections update
+- Knowledge base access adjusts
+
+You can switch profiles anytime from the Web UI — it takes effect immediately.
 
 ## Managing Profiles
 
 ### Via Web UI
 
-1. Navigate to the **Settings** or **Profiles** page
-2. View existing profiles
-3. Create a new profile with the desired settings
-4. Switch between profiles instantly
-5. Edit or delete profiles
-
-### Profile Switching
-
-When you switch profiles, all settings in the profile are applied immediately:
-
-- The model provider changes
-- The persona is switched
-- Tools and skills are enabled/disabled accordingly
-- Platform connections are updated
-- Knowledge base access is adjusted
-
-## Profile Configuration Details
-
-### Provider
-
-Select which model provider to use when the profile is active. The provider must already be configured in the [Model Providers](/providers) section.
-
-### Persona
-
-Choose the default [persona](/personas) for the profile. This determines the AI's personality and communication style.
-
-### Web Search
-
-When enabled, the `web_search` tool is available to the AI agent. You also need to configure the search provider settings.
-
-### Computer Use
-
-When enabled, the agent can execute system commands. You can specify the runtime mode:
-
-- `none` — Disabled
-- `local` — Commands run on the host system
-- `sandbox` — Commands run in a sandboxed environment
-
-See [Computer Use](/computer-use) for more details.
-
-### ACP
-
-Enable or disable the [ACP Server](/acp) for this profile. When the ACP server is running, external IDE clients can connect to Ruri as an agent server.
-
-### Active Skills
-
-Specify which [skills](/skills) are available in this profile. Only the listed skills will be active when the profile is in use.
-
-### Active Platforms
-
-Specify which [chat platforms](/platforms) are connected in this profile. This allows you to create profiles that only use specific messaging services.
-
-### Active Knowledge Bases
-
-Specify which [knowledge bases](/knowledge-base) are available for RAG queries in this profile.
-
-### Proxy
-
-Configure network proxy settings for outgoing requests (API calls, web search, etc.):
-
-```yaml
-proxy:
-  enabled: true
-  url: "http://proxy.example.com:8080"
-  no_proxy:
-    - "localhost"
-    - "127.0.0.1"
-```
-
-### Command Prefix
-
-Customize the prefix used to identify [commands](/commands). The default is `/`.
+1. Go to **Settings** or **Profiles**
+2. **View** all your profiles
+3. **Create** new profiles for different use cases
+4. **Edit** existing profiles to tweak settings
+5. **Switch** between profiles instantly
+6. **Delete** profiles you no longer need
 
 ## Tips
 
-- **Start with a default profile** — Create a general-purpose profile first, then create specialized profiles for specific use cases
-- **Use descriptive names** — Name profiles based on their purpose (e.g., "Coding", "Research", "Casual Chat")
-- **Test new settings** — Create a test profile when experimenting with new configurations
-- **Keep profiles focused** — A profile should serve a specific purpose rather than trying to do everything
+- **Start with a general profile** — Create a default profile that works for most things, then add specialized profiles
+- **Use descriptive names** — "Coding" is better than "Profile 1"
+- **Test new settings safely** — Create a test profile when experimenting, so your working setup stays intact
+- **Keep profiles focused** — Each profile should serve a specific purpose
+- **Share configurations** — If multiple people use the same Ruri instance, each person can have their own profile

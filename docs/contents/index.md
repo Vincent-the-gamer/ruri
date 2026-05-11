@@ -14,8 +14,8 @@ hero:
       text: Get Started
       link: /getting-started
     - theme: alt
-      text: API Reference
-      link: /api
+      text: Features
+      link: /tools
 
 features:
   - title: Model Providers
@@ -45,4 +45,4 @@ features:
 ---
 
 > [!WARNING]
-> This docs is for the alpha version ruri build, it's still under development.
+> Ruri is currently in alpha — features and documentation are actively being developed and may change.

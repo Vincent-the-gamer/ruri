@@ -4,80 +4,148 @@ title: "Personas"
 lastUpdated: true
 ---
 
-# Persona System
+# Personas
 
-Personas define the personality and behavior of the AI assistant. Each persona has a name, description, and a system prompt that shapes how the AI responds to messages.
+Personas let you change the AI's personality. Want a formal coding assistant? A friendly chat buddy? A patient tutor? Just create a persona and switch to it.
 
-## Overview
+## What Is a Persona?
 
-With the persona system, you can create multiple AI personas for different use cases:
+A persona is a set of instructions that tells the AI how to communicate. It includes:
 
-- A **coding assistant** persona focused on technical accuracy
-- A **creative writer** persona with a more expressive tone
-- A **tutor** persona that explains concepts step-by-step
-- A **concise responder** persona that gives brief, to-the-point answers
+- **Name** — To identify the persona
+- **Description** — A quick summary of what this persona is like
+- **System Prompt** — The actual instructions that shape the AI's behavior
 
-## Persona Structure
+You can have multiple personas and switch between them anytime — the AI's personality changes instantly.
 
-Each persona consists of:
+## Creating Your First Persona
 
-| Field         | Type   | Description                                      |
-| ------------- | ------ | ------------------------------------------------ |
-| `name`        | string | A unique name for the persona                    |
-| `description` | string | A short description of the persona's style/role  |
-| `prompt`      | string | The system prompt that defines the persona's behavior |
+Let's create a **"Study Buddy"** persona — a patient tutor that explains things step by step.
 
-**Example persona:**
+### Step 1: Open the Personas Page
 
-```yaml
-name: "Code Expert"
-description: "A senior software engineer who provides precise, well-documented code solutions"
-prompt: |
-  You are a senior software engineer with 20 years of experience.
-  When writing code, you always:
-  - Include proper error handling
-  - Add clear comments and documentation
-  - Follow language-specific best practices and conventions
-  - Suggest tests for critical logic
-  Keep explanations concise and focused on code quality.
+Navigate to **Personas** in the sidebar and click **Add Persona**.
+
+### Step 2: Fill in the Details
+
+- **Name:** `Study Buddy`
+- **Description:** `A patient tutor who explains concepts step by step`
+
+### Step 3: Write the System Prompt
+
+The system prompt is where the magic happens. Here's an example:
+
+```
+You are a patient and encouraging tutor. When explaining concepts:
+
+1. Start with a simple, high-level overview
+2. Break complex topics into small, digestible steps
+3. Use analogies and real-world examples
+4. Check understanding before moving on
+5. Never make the user feel silly for asking questions
+
+Keep your explanations clear and jargon-free unless the topic
+requires technical terms. When you use a technical term,
+always define it first.
+```
+
+### Step 4: Save and Activate
+
+Click **Save**, then set this persona as active. Try asking the AI to explain something — you'll notice a much more patient, educational tone!
+
+::: tip
+Experiment with your prompts! Small changes in wording can significantly affect the AI's behavior. Try adding specific instructions like "always use bullet points" or "keep responses under 100 words."
+:::
+
+## Persona Examples
+
+### Code Expert
+
+```
+Name: Code Expert
+Description: A senior software engineer who writes clean, well-documented code
+
+You are a senior software engineer with 20 years of experience.
+When writing code, you always:
+- Include proper error handling
+- Add clear comments and documentation
+- Follow language-specific best practices
+- Suggest tests for critical logic
+Keep explanations concise and focused on code quality.
+```
+
+### Casual Chat
+
+```
+Name: Casual Chat
+Description: A friendly, relaxed conversationalist
+
+You are a friendly and casual chat buddy. Talk like a friend,
+not an assistant. Use informal language, be warm and approachable.
+Feel free to share opinions and be a bit playful. Keep things
+light but still helpful.
+```
+
+### Translator
+
+```
+Name: Translator
+Description: Professional multilingual translator
+
+You are a professional translator. When given text, translate it
+naturally while preserving the original tone and meaning. If the
+target language isn't specified, ask which language to translate to.
+Always provide the translation first, then optionally explain
+any interesting linguistic choices.
+```
+
+### Concise Responder
+
+```
+Name: Concise Responder
+Description: Gives brief, to-the-point answers
+
+Be extremely concise. Give the shortest accurate answer possible.
+No pleasantries, no filler. If a yes/no question, answer yes or no.
+Use bullet points for lists. Skip explanations unless asked.
 ```
 
 ## Managing Personas
 
 ### Via Web UI
 
-1. Navigate to the **Personas** page in the sidebar
-2. View the list of existing personas
-3. Create new personas by filling in the name, description, and prompt
-4. Edit existing personas to refine their behavior
-5. Delete personas you no longer need
-6. Set a persona as active for the current session
+1. Go to **Personas** in the sidebar
+2. **Browse** your personas
+3. **Create** a new one with the Add button
+4. **Edit** any persona by clicking on it
+5. **Delete** personas you no longer need
+6. **Set active** — Click to make a persona the current one
 
-### Active Persona
+### Switching Personas
 
-The active persona is applied to all conversations. You can change the active persona at any time:
+You can switch your active persona at any time:
 
-- Through the Web UI
-- Through [Config Profiles](/config-profiles) — each profile can specify a default persona
-- Through the [command system](/commands) — use `/set` to change the persona for the current session
+- **Web UI** — Click a persona to activate it
+- **Config Profiles** — Each [Config Profile](/config-profiles) can specify a default persona
+- **Chat command** — Use `/set persona "Study Buddy"` in the chat to switch for the current session
 
-## Persona and Skills
+## Personas and Skills
 
-Personas and skills work together to provide a complete AI behavior:
+Personas and skills work together:
 
-- The **persona** defines the general tone and behavior of the AI
-- The **skill** defines a specific task or behavior with tool access control
+- The **persona** sets the AI's general personality and communication style
+- The **skill** defines a specific task with its own instructions and tool access
 
-When a skill specifies a `model` or uses its own prompt, it may override the active persona for that specific skill execution. Otherwise, the active persona is used as the base system prompt.
+When a skill has its own prompt, it may override the persona for that specific task. Otherwise, the active persona is used as the base personality.
 
-## Tips for Writing Effective Personas
+## Tips for Writing Great Personas
 
-1. **Be specific** — Clearly define the persona's role, expertise, and communication style
-2. **Set boundaries** — Specify what the persona should and shouldn't do
-3. **Include examples** — Show the desired response format in the prompt
-4. **Keep it focused** — Avoid conflicting instructions in the same persona
-5. **Test and iterate** — Refine your persona based on the AI's actual responses
+1. **Be specific** — "You are a senior Python developer" works better than "You are a coder"
+2. **Set boundaries** — Tell the AI what it should and shouldn't do
+3. **Show, don't tell** — Include examples of the desired response style
+4. **Keep it focused** — Don't put conflicting instructions in one persona
+5. **Test and refine** — Try your persona, see how it responds, then tweak the prompt
 
 ::: tip
-You can create multiple personas for different contexts and switch between them using [Config Profiles](/config-profiles). This lets you quickly adapt the AI's behavior without rewriting prompts.
+Create multiple personas for different moods and tasks, then use [Config Profiles](/config-profiles) to quickly switch between them!
 :::

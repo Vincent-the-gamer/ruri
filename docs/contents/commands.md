@@ -6,63 +6,72 @@ lastUpdated: true
 
 # Command System
 
-Ruri includes a built-in command system that allows you to interact with the agent and manage sessions directly from the chat input. Commands are prefixed with `/` and provide quick access to common actions.
+Ruri includes handy chat commands that you can type directly in the message input. They start with `/` and give you quick control over your session.
 
-## Available Commands
+## Quick Reference
 
-| Command                | Description                                    |
-| ---------------------- | ---------------------------------------------- |
-| `/help`                | Show available commands and version info       |
-| `/sid`                 | Show current session info                      |
-| `/reset`               | Reset the current conversation's LLM context   |
-| `/new`                 | Create and switch to a new conversation        |
-| `/set <key> <value>`   | Set a session variable                         |
-| `/unset <key>`         | Remove a session variable                      |
-| `/stop`                | Stop the currently running agent task          |
-| `/dashboard_update`    | Update the WebUI (requires admin)              |
+| Command              | What It Does                                       |
+| -------------------- | -------------------------------------------------- |
+| `/help`              | Show available commands and version info           |
+| `/new`               | Start a fresh new conversation                     |
+| `/reset`             | Clear the AI's memory for the current conversation |
+| `/sid`               | Show current session info                          |
+| `/set <key> <value>` | Change a setting for this conversation             |
+| `/unset <key>`       | Remove a previously set setting                    |
+| `/stop`              | Stop the AI if it's taking too long                |
+| `/dashboard_update`  | Update the Web UI (admin only)                     |
 
 ## Command Details
 
-### `/help`
+### `/help` — Get Help
 
-Displays a list of all available commands along with the current Ruri version information.
+Shows all available commands plus the current Ruri version.
 
 ```
 /help
 ```
 
-### `/sid`
+### `/new` — New Conversation
 
-Shows information about the current session, including the session ID and active configuration.
-
-```
-/sid
-```
-
-### `/reset`
-
-Resets the LLM context for the current conversation. This clears the conversation history from the model's memory, effectively starting a fresh context while keeping the conversation container.
-
-Use this when:
-- The conversation context becomes too long and responses degrade
-- You want to start a new topic within the same conversation
-- The model seems confused by earlier messages
-
-```
-/reset
-```
-
-### `/new`
-
-Creates a new conversation and switches to it. This is useful when you want to start a completely fresh conversation with a clean slate.
+Creates a brand new conversation and switches to it. Use this when you want a completely clean slate.
 
 ```
 /new
 ```
 
-### `/set <key> <value>`
+::: tip
+Use `/new` when switching topics to prevent the AI from being confused by earlier conversation context.
+:::
 
-Sets a session variable that persists for the duration of the current conversation. Session variables can be used to dynamically configure agent behavior.
+### `/reset` — Reset Context
+
+Clears the conversation history from the AI's memory, but keeps you in the same conversation. Think of it as "forget what we just talked about" without starting a completely new chat.
+
+Use `/reset` when:
+
+- The conversation is getting long and the AI's responses seem off
+- You want to change topics within the same conversation
+- The AI seems confused by earlier messages
+
+```
+/reset
+```
+
+::: tip
+`/new` starts a completely new conversation, while `/reset` clears context in the current one. Use `/new` when you want a fresh start, `/reset` when you just want to change direction.
+:::
+
+### `/sid` — Session Info
+
+Shows information about your current session.
+
+```
+/sid
+```
+
+### `/set` — Change a Setting
+
+Change a setting for the current conversation. Common uses:
 
 ```
 /set persona "Code Expert"
@@ -70,26 +79,29 @@ Sets a session variable that persists for the duration of the current conversati
 /set effort high
 ```
 
-### `/unset <key>`
+These changes only apply to the current conversation — they reset when you start a new one.
 
-Removes a previously set session variable.
+### `/unset` — Remove a Setting
+
+Remove a setting you previously set with `/set`:
 
 ```
 /unset persona
 ```
 
-### `/stop`
+### `/stop` — Stop the AI
 
-Stops the currently running agent task. This is useful when:
-- The agent is taking too long to respond
-- The agent is executing an undesired action
-- You want to interrupt a long-running tool call chain
+If the AI is taking too long, doing something unexpected, or caught in a loop, use `/stop` to halt it immediately.
 
 ```
 /stop
 ```
 
-### `/dashboard_update`
+::: tip
+The AI's responses sometimes take a while, especially with complex tool calls. Give it a moment before stopping — but don't hesitate to use `/stop` if something seems wrong.
+:::
+
+### `/dashboard_update` — Update Web UI
 
 Triggers an update of the Web UI. This command requires admin privileges.
 
@@ -97,21 +109,43 @@ Triggers an update of the Web UI. This command requires admin privileges.
 /dashboard_update
 ```
 
-## Using Commands
+## Practical Examples
 
-Commands can be entered directly in the chat input field. They are processed before the message is sent to the AI model, so they execute immediately without involving the model.
+### Switching to a Different Persona
 
-::: tip
-Commands are not sent to the AI model. They are handled locally by the Ruri server. If you want the model to know about a configuration change you've made, mention it in a regular message.
-:::
-
-## Programmatic Access
-
-Commands can also be triggered via the chat API by including the command as the message content:
-
-```bash
-curl -X POST http://localhost:3000/api/chat \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session=<your-session-cookie>" \
-  -d '{"message": "/new"}'
 ```
+/set persona "Casual Chat"
+```
+
+The AI immediately switches to a more relaxed, friendly tone for the rest of this conversation.
+
+### Using a More Powerful Model
+
+```
+/set model "claude-sonnet-4-20250514"
+```
+
+Switch to a different model for this conversation. Make sure the model is available in your active provider.
+
+### Getting Better Analysis
+
+```
+/set effort high
+```
+
+Tell the AI to think more carefully and give more detailed responses.
+
+### Quick Context Reset
+
+```
+/reset
+```
+
+The AI forgets the current conversation context, so you can start a new topic without creating a new conversation.
+
+## Things to Know
+
+- Commands are processed **before** the message is sent to the AI — they execute instantly
+- Commands are **not** sent to the AI model, so the AI won't see them in the conversation
+- If you want the AI to know about a setting change, mention it in a regular message (e.g., "By the way, I've switched you to high-effort mode")
+- All `/set` changes are temporary — they reset when you start a new conversation

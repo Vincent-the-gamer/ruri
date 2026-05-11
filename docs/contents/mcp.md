@@ -6,144 +6,107 @@ lastUpdated: true
 
 # MCP Client
 
-The **Model Context Protocol (MCP)** Client allows Ruri to connect to external MCP servers, extending the agent's capabilities with additional tools and data sources provided by those servers.
+**MCP (Model Context Protocol)** lets you supercharge Ruri by connecting it to external tool servers. This means the AI can do things beyond its built-in capabilities — like accessing databases, managing files on remote systems, or using specialized services.
 
-## Overview
+## What Are MCP Servers?
 
-MCP is a protocol that enables AI agents to interact with external tools and services. By connecting to MCP servers, Ruri can:
+MCP servers are external programs that provide extra tools and data to Ruri. When you connect to an MCP server, its tools become available to the AI just like the built-in ones.
 
-- Access external databases and APIs
-- Use specialized tools not included in the built-in set
-- Retrieve contextual information from external sources
-- Interact with third-party services
+For example, by connecting to a **filesystem MCP server**, the AI can safely access files in a specific directory. By connecting to a **web search MCP server**, the AI gets enhanced search capabilities.
 
-## Transport Types
+### Why Would You Use MCP?
 
-Ruri supports four transport types for connecting to MCP servers:
+- **Extend the AI's abilities** — Add tools that aren't built into Ruri
+- **Access external data** — Connect to databases, APIs, and other data sources
+- **Specialized tools** — Use domain-specific tools for tasks like database queries, API testing, etc.
+- **Safe file access** — Use a filesystem server to give the AI controlled access to specific directories
 
-### Stdio
+## How MCP Tools Work
 
-The MCP server runs as a local process, communicating via standard input/output streams.
+When Ruri connects to an MCP server, here's what happens:
 
-**Configuration:**
+1. The server tells Ruri what tools it offers
+2. These tools appear alongside Ruri's built-in tools
+3. The AI decides when to use them based on your conversation
+4. Tool calls are sent to the MCP server for execution
+5. Results come back and the AI continues the conversation
 
-| Field     | Type   | Description                                    |
-| --------- | ------ | ---------------------------------------------- |
-| `command` | string | The command to start the MCP server            |
-| `args`    | array  | Command-line arguments for the server          |
-| `env`     | object | Environment variables to set for the process   |
+You'll see MCP tool calls in the chat just like built-in ones — full transparency into what the AI is doing.
 
-**Example:** Connect to a filesystem MCP server:
+## Adding an MCP Server
 
-```yaml
-transport: stdio
-command: "npx"
-args:
-  - "@modelcontextprotocol/server-filesystem"
-  - "/path/to/allowed/directory"
-env:
-  NODE_ENV: "production"
-```
+### Step 1: Open the MCP Page
 
-### SSE (Server-Sent Events)
+Navigate to **MCP** in the sidebar.
 
-Connect to a remote MCP server using SSE for server-to-client messages and HTTP POST for client-to-server messages.
+### Step 2: Add a Server
 
-**Configuration:**
+Click **Add Server** and fill in the details:
 
-| Field    | Type   | Description                         |
-| -------- | ------ | ----------------------------------- |
-| `url`    | string | The SSE endpoint URL                |
-| `headers`| object | HTTP headers to include in requests |
+- **Name** — A unique name for this server
+- **Transport Type** — How Ruri connects to the server:
+  - **Stdio** — Runs a local program on your machine
+  - **SSE / WebSocket / HTTP** — Connects to a remote server over the network
+- **Configuration** — The details depend on the transport type (see below)
 
-**Example:**
+### Step 3: Enable and Use
 
-```yaml
-transport: sse
-url: "https://mcp-server.example.com/sse"
-headers:
-  Authorization: "Bearer your-api-key"
-```
+Toggle the server on. Once connected, the tools from that server are immediately available to the AI!
 
-### WebSocket
+::: info
+The connection status is shown on the MCP page. If a server fails to connect, check its configuration and make sure the required program is installed.
+:::
 
-Connect to an MCP server using WebSocket for bidirectional communication.
+## Popular MCP Server Examples
 
-**Configuration:**
+### Filesystem Server
 
-| Field    | Type   | Description                         |
-| -------- | ------ | ----------------------------------- |
-| `url`    | string | The WebSocket endpoint URL          |
-| `headers`| object | HTTP headers for the connection     |
+Give the AI controlled access to specific directories on your computer:
 
-**Example:**
+- **Transport:** Stdio
+- **Command:** `npx`
+- **Arguments:** `@modelcontextprotocol/server-filesystem /path/to/your/project`
 
-```yaml
-transport: websocket
-url: "wss://mcp-server.example.com/ws"
-```
+This lets the AI safely read and write files within the specified directory only.
 
-### HTTP
+### Database Server
 
-Connect to an MCP server using HTTP requests.
+Connect the AI to a database for queries and analysis. Various MCP servers exist for PostgreSQL, SQLite, and more.
 
-**Configuration:**
+### Git Server
 
-| Field    | Type   | Description                         |
-| -------- | ------ | ----------------------------------- |
-| `url`    | string | The HTTP endpoint URL               |
-| `headers`| object | HTTP headers to include in requests |
+Let the AI interact with your Git repositories — check status, view diffs, create branches, and more.
 
-**Example:**
+### Web Search Server
 
-```yaml
-transport: http
-url: "https://mcp-server.example.com/mcp"
-headers:
-  Authorization: "Bearer your-api-key"
-```
+Enhanced web search capabilities through dedicated search APIs.
+
+### Slack / Discord Server
+
+Allow the AI to read and send messages in your team channels.
+
+::: tip
+Browse the [MCP Servers repository](https://github.com/modelcontextprotocol/servers) for a growing list of available servers you can connect to.
+:::
 
 ## Managing MCP Servers
 
 ### Via Web UI
 
-1. Navigate to the **MCP** page in the sidebar
-2. Add a new MCP server with the desired transport type and configuration
-3. Enable or disable servers as needed
-4. Monitor the connection status of each server
+1. Go to **MCP** in the sidebar
+2. **Add** a new server with the Add button
+3. **Toggle** servers on/off as needed
+4. **Monitor** connection status for each server
+5. **Edit** server configurations
+6. **Remove** servers you no longer need
 
-### Configuration
+### Connection Types
 
-MCP servers are configured with the following fields:
+When adding a server, you'll choose how Ruri connects:
 
-| Field       | Type   | Description                                     |
-| ----------- | ------ | ----------------------------------------------- |
-| `name`      | string | A unique identifier for the MCP server          |
-| `transport` | string | Transport type: `stdio`, `sse`, `websocket`, `http` |
-| `command`   | string | (Stdio only) Command to start the server        |
-| `args`      | array  | (Stdio only) Command-line arguments             |
-| `env`       | object | (Stdio only) Environment variables              |
-| `url`       | string | (SSE/WebSocket/HTTP) Server endpoint URL        |
-| `headers`   | object | (SSE/WebSocket/HTTP) HTTP headers               |
-
-## How MCP Tools Work
-
-When Ruri connects to an MCP server:
-
-1. The MCP server advertises available tools
-2. Ruri registers these tools alongside its built-in tools
-3. The AI model can invoke these tools during conversations
-4. Tool calls are forwarded to the MCP server for execution
-5. Results are returned to the model for processing
-
-This means MCP tools are available to the AI agent just like built-in tools — the model decides when to use them based on the conversation context.
-
-## Security Considerations
-
-- **Stdio transport** runs a local process with the same permissions as the Ruri server. Only configure MCP servers you trust.
-- **Remote transports** (SSE, WebSocket, HTTP) communicate over the network. Use HTTPS/WSS and include authentication headers where possible.
-- **Tool permissions** — MCP tools are subject to the same skill-level restrictions via `allowed_tools`. Use this to control which MCP tools are available in specific contexts.
+- **Stdio** — For servers that run as local programs. You'll need to provide the command to start them, plus any arguments and environment variables.
+- **SSE / WebSocket / HTTP** — For servers running remotely. You'll need to provide the URL and optionally authentication headers.
 
 ::: warning
-Be cautious when connecting to untrusted MCP servers. The tools they provide can access files, execute commands, or make network requests on behalf of the agent.
+Only connect to MCP servers you trust. The tools they provide can access files, execute commands, or make network requests on behalf of the AI agent. Use [Skills](/skills) with `allowed_tools` to restrict which MCP tools are available in specific contexts.
 :::

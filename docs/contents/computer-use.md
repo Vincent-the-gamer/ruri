@@ -6,114 +6,95 @@ lastUpdated: true
 
 # Computer Use
 
-Computer Use is a powerful feature that allows the AI agent to execute commands and interact with the system. It includes safety controls through runtime modes, admin privileges, and workspace management.
+Computer Use lets the AI take real actions on your computer — running commands, installing packages, executing scripts, and more. It's like giving the AI hands to work with your system.
 
-## Overview
+## What Computer Use Enables
 
-When Computer Use is enabled, the AI agent gains access to additional tools:
+When enabled, the AI can:
 
-- **`bash`** — Execute shell commands on the host system
-- **Python tool** — Run Python scripts
-- **Shell tool** — Enhanced shell execution with workspace awareness
+- **Run shell commands** — Execute any command you could type in a terminal
+- **Build and test projects** — Run `cargo build`, `npm test`, `python manage.py test`, etc.
+- **Install dependencies** — Run `npm install`, `pip install`, and similar commands
+- **Manage files** — Beyond reading and writing, the AI can move, rename, and organize files via commands
+- **Interact with the OS** — Check system info, manage processes, network diagnostics
 
-These tools are designed for scenarios where the agent needs to:
+### When to Use Computer Use
 
-- Run build commands and tests
-- Install dependencies
-- Execute scripts and programs
-- Interact with the operating system
+- **"Run my test suite and tell me if anything fails"**
+- **"Install the dependencies for this project"**
+- **"Start the development server"**
+- **"Check what processes are using port 3000"**
+- **"Build the project and show me any errors"**
 
-## Runtime Modes
+### When You Don't Need It
 
-Computer Use has three runtime modes that control the level of access the agent has:
+For simple chat, file reading, or web search, you don't need Computer Use. Keep it off unless you want the AI to actually execute commands on your system.
 
-| Mode       | Description                                              |
-| ---------- | -------------------------------------------------------- |
-| `None`     | Computer Use is disabled; no shell/Python tools available |
-| `Local`    | Commands execute directly on the host system              |
-| `Sandbox`  | Commands execute in an isolated sandboxed environment     |
+## Safety Modes
 
-### None
+Computer Use offers two modes with different safety levels:
 
-The default mode. The `bash`, Python, and Shell tools are not available to the agent. This is the safest mode and is recommended when you don't need the agent to execute system commands.
+### Sandbox Mode (Recommended)
 
-### Local
+Commands run in an isolated, restricted environment:
 
-Commands execute directly on the host system with the same permissions as the Ruri server process. This provides full flexibility but comes with security considerations.
+- File access is limited to your workspace directory
+- Network access may be restricted
+- System-level commands are blocked
+
+This is the safest mode and works well for most tasks like building projects and running tests.
+
+### Local Mode
+
+Commands run directly on your system with full access:
+
+- The AI can do anything your user account can do
+- Full access to all files, network, and system commands
+- Maximum flexibility, but requires trust
 
 ::: warning
-In Local mode, the AI agent can execute any command that the Ruri process has permission to run. Only use this mode in trusted environments.
+In Local mode, the AI can execute any command your system allows. Only use this mode if you trust the environment and carefully review the AI's actions.
 :::
-
-### Sandbox
-
-Commands execute in an isolated environment that restricts what the agent can do. This is the recommended mode for most use cases, providing a balance between capability and security.
-
-In Sandbox mode:
-
-- File system access is restricted to the workspace directory
-- Network access may be limited
-- System-level commands are restricted
-
-## Admin Privilege System
-
-The admin privilege system controls who can enable or configure Computer Use features:
-
-- **Admin users** can change Computer Use settings, including runtime mode
-- **Regular users** can use Computer Use tools when enabled but cannot change settings
-- Computer Use mode changes require admin authentication
-
-## Workspace Management
-
-Computer Use operates within a workspace context. The workspace defines:
-
-- **Working directory** — Where commands are executed by default
-- **Allowed paths** — Which directories the agent can access
-- **Environment variables** — Variables available to executed commands
-
-### Configuring the Workspace
-
-Workspace settings can be configured through:
-
-- The Web UI settings page
-- [Config Profiles](/config-profiles) — each profile can specify a different workspace
-- Session variables via the `/set` command
 
 ## Enabling Computer Use
 
 ### Via Web UI
 
-1. Navigate to the **Settings** page
-2. Find the Computer Use section
-3. Select the desired runtime mode (Local or Sandbox)
-4. Set the workspace directory
+1. Go to **Settings** in the sidebar
+2. Find the **Computer Use** section
+3. Choose your mode:
+   - **Sandbox** — Safer, restricted access (recommended)
+   - **Local** — Full system access
+4. Set the **workspace directory** — This is where commands will run by default
 5. Save the configuration
 
 ### Via Config Profile
 
-Include Computer Use settings in your [Config Profile](/config-profiles):
+You can include Computer Use settings in your [Config Profile](/config-profiles). This lets you have:
 
-```yaml
-computer_use:
-  enabled: true
-  mode: "sandbox"
-  workspace: "/path/to/workspace"
-```
+- A "Development" profile with Computer Use enabled in Sandbox mode
+- A "Casual Chat" profile with Computer Use disabled
+- Quick switching between them without changing settings manually
 
-## Safety Best Practices
+## What You'll See
 
-1. **Use Sandbox mode** when possible — It provides the best balance of capability and security
-2. **Restrict workspace access** — Only allow access to directories the agent needs
-3. **Monitor agent actions** — Use the [Logging](#logging) feature to track what commands the agent executes
-4. **Set up admin controls** — Ensure only trusted users can enable or modify Computer Use settings
-5. **Review tool calls** — The agent's tool calls are visible in the conversation, allowing you to review what was executed
+When the AI uses Computer Use, you'll see each command it runs right in the conversation:
 
-## Logging
+1. The AI decides it needs to run a command
+2. A tool call appears in the chat showing the exact command
+3. The output is displayed
+4. The AI uses the output to continue helping you
 
-All Computer Use tool invocations are logged through Ruri's LogManager. You can view real-time logs through:
+This gives you full visibility into what the AI is doing on your system.
 
-- **Web UI** — The log viewer shows command executions in real-time
-- **WebSocket** — Connect to `/api/ws/logs` for programmatic log monitoring
-- **Log files** — Commands are recorded in the server log files
+## Safety Tips
 
-This provides full auditability of what the agent has done on your system.
+- **Start with Sandbox mode** — It's the safest option and handles most development tasks
+- **Set a specific workspace** — Only give the AI access to the directory it needs
+- **Review commands** — Check what the AI runs, especially in Local mode
+- **Disable when not needed** — Turn off Computer Use for simple chat sessions
+- **Use profiles** — Keep Computer Use off by default and only enable it in specific [Config Profiles](/config-profiles)
+
+::: warning
+All command executions are logged. You can review logs in the Web UI to see what the AI has done on your system.
+:::

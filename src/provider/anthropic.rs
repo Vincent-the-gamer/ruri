@@ -104,6 +104,46 @@ impl AnthropicProvider {
                 })
                 .collect();
             body["tools"] = json!(anthropic_tools);
+
+            // Convert tool_choice to Anthropic format
+            // See: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
+            if let Some(ref choice) = request.tool_choice {
+                match choice {
+                    ToolChoice::String(ToolChoiceString::Auto) => {
+                        body["tool_choice"] = json!({"type": "auto"});
+                    }
+                    ToolChoice::String(ToolChoiceString::None) => {
+                        // Anthropic doesn't have a direct "none" equivalent,
+                        // but omitting tool_choice defaults to auto.
+                        // To prevent tool use, simply don't send tools.
+                    }
+                    ToolChoice::String(ToolChoiceString::Required) => {
+                        body["tool_choice"] = json!({"type": "any"});
+                    }
+                    ToolChoice::Function(func) => {
+                        body["tool_choice"] = json!({
+                            "type": "tool",
+                            "name": func.function.name,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Parallel tool calls — Anthropic supports this via `tool_choice` with
+        // `"disable_parallel_tool_use": true` inside the tool_choice object.
+        // When `parallel_tool_calls` is `Some(false)`, we add the flag.
+        if let Some(false) = request.parallel_tool_calls {
+            if let Some(tool_choice_val) = body.get_mut("tool_choice") {
+                // Merge disable_parallel_tool_use into existing tool_choice
+                tool_choice_val["disable_parallel_tool_use"] = json!(true);
+            } else {
+                // No tool_choice set yet, create one with auto + disable_parallel
+                body["tool_choice"] = json!({
+                    "type": "auto",
+                    "disable_parallel_tool_use": true,
+                });
+            }
         }
 
         // Extra fields

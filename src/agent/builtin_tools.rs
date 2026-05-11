@@ -14,6 +14,22 @@ fn parse_args(args: &str) -> Result<Value, ToolError> {
     serde_json::from_str(args).map_err(|e| ToolError::InvalidArguments(e.to_string()))
 }
 
+/// Validate that the given path is not a Unix device path (e.g. `/dev/stdin`,
+/// `/dev/null`). On Windows these get resolved to `C:\dev\stdin` etc., which
+/// is almost certainly not what the caller intended.
+pub fn validate_file_path(path: &str) -> Result<(), ToolError> {
+    // Normalise separators so the check also covers `\dev\stdin` on Windows.
+    let normalized = path.replace('\\', "/");
+    if normalized.starts_with("/dev/") {
+        return Err(ToolError::InvalidArguments(format!(
+            "Path '{}' is a Unix device path which does not exist on Windows. \
+             Please provide a valid file path instead.",
+            path
+        )));
+    }
+    Ok(())
+}
+
 // ─── ReadFileTool ──────────────────────────────────────────────────
 
 /// Read the contents of a file at the given path.
@@ -49,6 +65,8 @@ impl Tool for ReadFileTool {
         let path = parsed["path"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
+
+        validate_file_path(path)?;
 
         let content = tokio::fs::read_to_string(path).await.map_err(|e| {
             ToolError::ExecutionError(format!("Failed to read file '{}': {}", path, e))
@@ -115,6 +133,8 @@ impl Tool for WriteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'content' parameter".into()))?;
 
+        validate_file_path(path)?;
+
         // Create parent directories if needed
         if let Some(parent) = Path::new(path).parent() {
             if !parent.as_os_str().is_empty() {
@@ -166,6 +186,8 @@ impl Tool for CreateFileTool {
         let content = parsed["content"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'content' parameter".into()))?;
+
+        validate_file_path(path)?;
 
         // Check if file already exists
         if Path::new(path).exists() {
@@ -228,6 +250,8 @@ impl Tool for EditFileTool {
         let new_text = parsed["new_text"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'new_text' parameter".into()))?;
+
+        validate_file_path(path)?;
 
         // Read the file
         let content = tokio::fs::read_to_string(path).await.map_err(|e| {
@@ -296,6 +320,8 @@ impl Tool for ListDirectoryTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
         let recursive = parsed["recursive"].as_bool().unwrap_or(false);
+
+        validate_file_path(path)?;
 
         let dir_path = Path::new(path);
         if !dir_path.exists() {

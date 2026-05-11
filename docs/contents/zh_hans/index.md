@@ -14,8 +14,8 @@ hero:
       text: 快速开始
       link: /zh_hans/getting-started
     - theme: alt
-      text: API 参考
-      link: /zh_hans/api
+      text: 功能
+      link: /zh_hans/tools
 
 features:
   - title: 模型提供商
@@ -44,5 +44,5 @@ features:
       src: "/imgs/chat-platforms.svg"
 ---
 
-> [!WARNING] 注意
-> 该文档为ruri内测版构建相关内容，并非最终版，现在还没有对用户使用方法进行特化描述。
+> [!WARNING] 文档完善中
+> Ruri 的文档正在持续完善中，部分内容可能尚未更新至最新版本。如果你发现任何问题，欢迎反馈！

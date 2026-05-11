@@ -18,6 +18,13 @@ pub struct AgentConfig {
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
     pub custom_error_message: Option<String>,
+    /// Controls which (if any) tool the model should call.
+    /// When `None`, the API default (`"auto"`) is used.
+    pub tool_choice: Option<crate::types::ToolChoice>,
+    /// When `Some(true)`, the model may return multiple tool calls in a single
+    /// response so that independent tools can be invoked in parallel.
+    /// When `None`, the API default is used.
+    pub parallel_tool_calls: Option<bool>,
 }
 
 impl Default for AgentConfig {
@@ -26,6 +33,8 @@ impl Default for AgentConfig {
             max_tool_rounds: MAX_TOOL_ROUNDS,
             auto_execute_tools: true,
             custom_error_message: None,
+            tool_choice: None,
+            parallel_tool_calls: None,
         }
     }
 }
@@ -48,12 +57,6 @@ impl AgentConfig {
     pub fn with_custom_error_message(mut self, message: Option<String>) -> Self {
         self.custom_error_message = message;
         self
-    }
-
-    /// Get the custom error message, if set.
-    #[allow(dead_code)]
-    pub fn custom_error_message(&self) -> Option<&str> {
-        self.custom_error_message.as_deref()
     }
 }
 
@@ -92,6 +95,16 @@ impl Agent {
         // Call on_attach and add system messages to history
         // Note: on_attach is async, so we'll handle it in run()
         self.skills.push(skill);
+    }
+
+    /// Override the `tool_choice` parameter for every request made by this agent.
+    pub fn set_tool_choice(&mut self, choice: Option<crate::types::ToolChoice>) {
+        self.config.tool_choice = choice;
+    }
+
+    /// Override the `parallel_tool_calls` parameter for every request made by this agent.
+    pub fn set_parallel_tool_calls(&mut self, enabled: Option<bool>) {
+        self.config.parallel_tool_calls = enabled;
     }
 
     /// Register a tool with the agent.
@@ -220,6 +233,21 @@ impl Agent {
         let tool_defs = self.tool_executor.definitions();
         if !tool_defs.is_empty() {
             request = request.with_tools(tool_defs);
+
+            // Apply tool_choice and parallel_tool_calls only when tools are present
+            //
+            // Note: Per Function Calling spec, tool_choice should be removed when
+            // the model is summarizing tool outputs. However, we apply it on every
+            // request so that multi-round tool use cases (where the model needs to
+            // call tools sequentially) work correctly. If you want the model to
+            // produce a final summary instead of continuing to call tools, set
+            // tool_choice to "auto" or "none" after the first tool round.
+            if let Some(ref choice) = self.config.tool_choice {
+                request = request.with_tool_choice(choice.clone());
+            }
+            if let Some(enabled) = self.config.parallel_tool_calls {
+                request = request.with_parallel_tool_calls(enabled);
+            }
         }
 
         request

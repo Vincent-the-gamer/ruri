@@ -6,36 +6,49 @@ lastUpdated: true
 
 # Getting Started
 
-Welcome to **Ruri 琉璃** — a customizable AI Agent built with Rust and Vue. This guide will help you get up and running quickly.
+Welcome to **Ruri 琉璃** — your personal AI assistant that lives in your browser. Powerful, private, and endlessly customizable.
 
-## Overview
+## What Can Ruri Do?
 
-Ruri is a full-stack AI agent application that combines a high-performance Rust backend with a modern Vue 3 frontend. It provides a rich set of features for interacting with AI models, including tool calling, skill management, knowledge base integration, and multi-platform chat support.
+Ruri is more than just a chatbot. Here's what you can do with it:
 
-**Tech Stack:**
+- **Chat with AI models** — Connect to OpenAI, Anthropic, DeepSeek, or run models locally with Ollama
+- **Read and write files** — The AI can browse your project files, edit code, and create new files
+- **Search the web** — Let the AI look things up online to give you better answers
+- **Run commands** — With Computer Use enabled, the AI can execute shell commands, run builds, and more
+- **Build a knowledge base** — Upload your documents and let the AI search through them for answers
+- **Create custom skills** — Teach the AI new tricks with simple Markdown files
+- **Connect to chat platforms** — Use Ruri through DingTalk, Discord, or WeChat
+- **Use it in your IDE** — Connect Ruri to Zed or JetBrains as an AI coding assistant
 
-| Layer    | Technology                 |
-| -------- | -------------------------- |
-| Backend  | Rust (Axum, SQLite, Tokio) |
-| Frontend | Vue 3 + Vite + UnoCSS      |
+Sound exciting? Let's get you set up!
 
 ## Prerequisites
 
-An AI model provider(chat/embedding), you'll need API key (Anthropic, OpenAI, or compatible)
+Before installing Ruri, make sure you have:
+
+- An **API key** from an AI model provider (like OpenAI, Anthropic, or DeepSeek) — or install [Ollama](https://ollama.com) for free local models
 
 ## Installation
 
-Download the latest release from [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
+1. **Download** the latest release from [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
+2. **Extract** the archive to a folder of your choice
+3. **Add Ruri to your PATH** so you can run it from anywhere (or navigate to the folder and run it directly)
+4. **Start the server** by running `ruri` in your terminal
 
-and add it to your PATH.
-
-This starts the backend server along with the Web UI.
+That's it! The server starts along with the Web UI automatically.
 
 ## First Launch
 
-### Default Credentials
+### Step 1: Log In
 
-On first launch, Ruri uses the following default credentials:
+Open your browser and go to:
+
+```
+http://localhost:3000
+```
+
+Log in with the default credentials:
 
 | Field    | Default Value |
 | -------- | ------------- |
@@ -43,39 +56,63 @@ On first launch, Ruri uses the following default credentials:
 | Password | `ruri`        |
 
 ::: warning
-You will be prompted to change your password on first login for security purposes.
+You'll be prompted to change your password on first login. Choose a strong password to keep your instance secure!
 :::
 
-### Access the Web UI
+### Step 2: Add a Model Provider
 
-Once the server is running, open your browser and navigate to:
+Before you can start chatting, you need to configure at least one AI model provider:
 
-```
-http://localhost:3000
-```
+1. Go to the **Providers** page in the sidebar
+2. Click **Add Provider**
+3. Choose a provider type (e.g., OpenAI Compatible)
+4. Enter your API URL, API key, and model name
+5. Click **Save**, then **Activate** the provider
 
-Log in with the default credentials, then configure your model provider to start chatting.
+See the [Model Providers](/providers) page for step-by-step setup guides for popular providers.
 
-## Configure a Model Provider
+### Step 3: Start Chatting!
 
-Before you can start using Ruri, you need to configure at least one model provider. Navigate to the **Providers** section in the Web UI and add your provider details:
-
-1. Choose a provider type (Anthropic Compatible, OpenAI Compatible, or Custom)
-2. Enter your API endpoint URL
-3. Provide your API key
-4. Set the default model name
-5. Activate the provider
-
-See the [Model Providers](/providers) page for detailed configuration instructions.
+Head to the chat page and start a conversation. Try asking Ruri something — it's ready to go!
 
 ## Next Steps
 
-Now that you're up and running, explore the core features:
+Now that you're up and running, explore what Ruri can do:
 
-- [Built-in Tools](/tools) — File operations, shell commands, and web search
-- [Skills](/skills) — Create custom AI behaviors with Markdown
-- [Personas](/personas) — Customize your AI assistant's personality
+- [Built-in Tools](/tools) — See what the AI can do for you
+- [Skills](/skills) — Create custom AI behaviors
+- [Personas](/personas) — Customize your AI's personality
 - [MCP Client](/mcp) — Connect to external tool servers
-- [Knowledge Base](/knowledge-base) — Add RAG-powered document search
+- [Knowledge Base](/knowledge-base) — Add document search to your AI
 - [Chat Platforms](/platforms) — Connect to DingTalk, Discord, or WeChat
-- [ACP Server](/acp) — Use Ruri as an agent server in IDEs
+- [Computer Use](/computer-use) — Let the AI run commands on your system
+- [ACP Server](/acp) — Use Ruri as an AI assistant in your IDE
+- [Config Profiles](/config-profiles) — Set up different configurations for different tasks
+
+## FAQ
+
+### The server won't start. What should I check?
+
+- Make sure port `3000` isn't already in use by another application
+- Check that you have write permissions in the directory where Ruri is installed
+- On macOS/Linux, make sure the binary has execute permissions (`chmod +x ruri`)
+
+### I can't log in to the Web UI
+
+- Double-check that the server is running and you're accessing `http://localhost:3000`
+- Try using the default credentials (`ruri` / `ruri`)
+- Clear your browser cache and cookies, then try again
+
+### The AI isn't responding to my messages
+
+- Check that you've added and activated a model provider
+- Verify your API key is correct and has available credits
+- Make sure the model name is spelled correctly (e.g., `gpt-4o`, not `gpt4o`)
+
+### How do I use Ruri for free?
+
+Install [Ollama](https://ollama.com), download a model (e.g., `ollama pull llama3`), then add an **OpenAI Compatible** provider pointing to `http://localhost:11434/v1` with model `llama3`. No API key needed! See the [Ollama setup guide](/providers) for details.
+
+### Can I change the default port?
+
+Yes — you can change the port through command-line arguments when starting Ruri. Check `ruri --help` for available options.

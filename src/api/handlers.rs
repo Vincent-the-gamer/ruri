@@ -959,6 +959,14 @@ async fn send_chat_message(
         );
     }
 
+    // Apply Function Calling parameters from the request
+    if req.tool_choice.is_some() {
+        agent.set_tool_choice(req.tool_choice.clone());
+    }
+    if req.parallel_tool_calls.is_some() {
+        agent.set_parallel_tool_calls(req.parallel_tool_calls);
+    }
+
     // Register a cancellation token for this session so /stop can cancel it
     let session_key = req
         .session_id

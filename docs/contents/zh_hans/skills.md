@@ -6,160 +6,157 @@ lastUpdated: true
 
 # 技能系统
 
-技能是自定义 Ruri 行为的主要机制。技能是一个带有 YAML frontmatter 的 Markdown 文件，定义了 AI 智能体在特定上下文中的行为方式。
+技能是让 AI 按你的方式工作的秘密武器。每个技能定义了一种专门的行为 — 比如"代码审查"或"翻译助手" — 让 AI 在特定场景下表现得更专业。
 
-## 概述
+## 技能能做什么？
 
-技能允许您：
+- 🎯 **专业化行为** — 让 AI 在不同场景下遵循不同的规则
+- 🔧 **控制工具权限** — 限制技能中 AI 可以使用的工具
+- 🤖 **自动触发** — 根据对话上下文自动激活合适的技能
+- 📦 **打包分享** — 把技能导出为 ZIP 分享给其他人
 
-- 为特定任务定义专业化行为
-- 控制智能体可以使用哪些工具
-- 为每个技能设置自定义模型参数和人格
-- 通过钩子创建触发式行为
-- 将技能打包为 ZIP 压缩包并分享
+## 创建你的第一个技能
+
+让我们创建一个"翻译助手"技能，体验技能系统的工作方式。
+
+### 第 1 步：打开技能页面
+
+在 Web UI 侧边栏点击 **技能**。
+
+### 第 2 步：创建新技能
+
+点击 **添加技能**，填写以下内容：
+
+**名称**：`translator`
+
+**描述**：`专业的中英翻译助手`
+
+**技能内容**（Markdown 格式）：
+
+```markdown
+---
+name: "translator"
+description: "专业的中英翻译助手，自动检测语言并翻译"
+when_to_use: "当用户需要翻译文本时"
+user_invocable: true
+---
+
+你是一位专业的中英翻译专家。你的工作规则：
+
+1. 自动检测输入文本的语言
+2. 如果是中文，翻译成英文；如果是英文，翻译成中文
+3. 翻译时保持原文的语气和风格
+4. 对于专业术语，在翻译后用括号标注原文
+5. 如果原文有歧义，给出多个翻译选项并说明
+
+请直接给出翻译结果，不需要额外解释。
+```
+
+### 第 3 步：保存并启用
+
+点击保存，然后确保技能已启用。
+
+### 第 4 步：使用技能
+
+在聊天中，AI 会根据你的提问自动判断是否需要使用翻译技能。你也可以在对话中明确指出"请用翻译助手帮我翻译这段话"。
+
+恭喜！你已经创建了第一个技能 🎉
 
 ## 技能文件格式
 
-每个技能都是一个 Markdown 文件（`.md`），包含 YAML frontmatter。frontmatter 包含元数据和配置，而正文包含技能提示词或指令。
+每个技能是一个 Markdown 文件，由两部分组成：
+
+- **YAML Frontmatter**（`---` 之间的部分）— 定义技能的配置信息
+- **正文** — 技能的提示词，告诉 AI 在这个技能中应该怎么表现
+
+### Frontmatter 字段参考
+
+| 字段             | 说明                                        | 必填 |
+| ---------------- | ------------------------------------------- | ---- |
+| `name`           | 技能的唯一名称（英文，用作标识符）          | ✅   |
+| `description`    | 技能的功能描述                              | ✅   |
+| `when_to_use`    | 描述什么情况下应该自动使用此技能            | ❌   |
+| `argument_hint`  | 参数提示文本                                | ❌   |
+| `arguments`      | 参数定义列表（name、description、required） | ❌   |
+| `user_invocable` | 用户是否可以手动触发（默认 `true`）         | ❌   |
+| `allowed_tools`  | 此技能允许使用的工具列表（默认全部）        | ❌   |
+| `model`          | 覆盖此技能使用的模型                        | ❌   |
+| `effort`         | 模型推理力度：`low`、`medium`、`high`       | ❌   |
+| `context`        | 技能运行时附加上下文文件                    | ❌   |
+| `hooks`          | 生命周期钩子（执行前/执行后）               | ❌   |
+| `paths`          | 触发此技能的文件路径模式                    | ❌   |
+
+## 管理技能
+
+### 通过 Web UI
+
+1. 在侧边栏点击 **技能**
+2. 浏览已安装的技能列表
+3. 使用开关快速启用或禁用技能
+4. 点击技能可查看详情或编辑
+5. 通过上传功能导入技能包
+
+### 启用和禁用
+
+禁用的技能不会对 AI 可用，但定义会被保留。你可以随时重新启用。
+
+技能也可以通过[配置方案](/zh_hans/config-profiles)管理 — 每个方案可以指定不同的活跃技能组合。
+
+## 技能包
+
+技能包是 ZIP 格式的压缩包，包含一个或多个技能文件，方便分享和分发。
+
+### 创建技能包
+
+1. 将一个或多个技能 Markdown 文件放入同一个目录
+2. 将目录压缩为 ZIP 文件
+3. 在 Web UI 的技能页面上传
+
+### 导入技能包
+
+在技能页面点击 **上传**，选择 ZIP 文件即可批量导入技能。
+
+::: tip
+确保 ZIP 中的每个 Markdown 文件都有有效的 frontmatter，至少包含 `name` 和 `description` 字段。
+:::
+
+## 更多技能示例
+
+### 代码审查员
 
 ```markdown
 ---
 name: "code-review"
-description: "审查代码变更并提供反馈"
-when_to_use: "当用户要求进行代码审查，或检测到代码变更时"
-argument_hint: "要审查的文件或目录路径"
-arguments:
-  - name: "path"
-    description: "要审查的文件或目录路径"
-    required: true
-user_invocable: true
+description: "审查代码并提供改进建议"
+when_to_use: "当用户要求审查代码时"
 allowed_tools:
   - read_file
   - search_files
   - list_directory
-model: "claude-sonnet-4-20250514"
-effort: "high"
 ---
 
-你是一名代码审查员。分析指定路径的代码并提供：
+你是一名资深代码审查员。请分析代码并提供：
+
 1. 代码功能的概述
 2. 潜在的缺陷或问题
 3. 改进建议
 4. 代码风格观察
 ```
 
-## Frontmatter 字段
+### 文档生成器
 
-| 字段                       | 类型    | 默认值   | 描述                                               |
-| -------------------------- | ------- | -------- | -------------------------------------------------- |
-| `name`                     | string  | 必填     | 技能的唯一标识符                                   |
-| `description`              | string  | 必填     | 技能功能的人类可读描述                             |
-| `when_to_use`              | string  | —        | 描述何时应自动调用此技能                           |
-| `argument_hint`            | string  | —        | 描述预期参数的提示文本                             |
-| `arguments`                | array   | `[]`     | 参数定义列表（见下文）                             |
-| `disable_model_invocation` | boolean | `false`  | 如果为 true，模型不会自动调用此技能                |
-| `user_invocable`           | boolean | `true`   | 用户是否可以手动触发此技能                         |
-| `allowed_tools`            | array   | 所有工具 | 此技能允许使用的工具名称列表                       |
-| `model`                    | string  | —        | 覆盖此技能的活跃模型                               |
-| `effort`                   | string  | —        | 模型推理力度（如 `low`、`medium`、`high`）         |
-| `context`                  | array   | —        | 技能运行时要包含的附加上下文文件                   |
-| `agent`                    | string  | —        | 要使用的智能体配置                                  |
-| `hooks`                    | object  | —        | 生命周期钩子（见下文）                              |
-| `paths`                    | array   | —        | 触发此技能的文件路径模式                            |
-| `shell`                    | string  | —        | 在技能执行前或执行期间运行的 Shell 命令             |
+```markdown
+---
+name: "doc-writer"
+description: "根据代码自动生成文档"
+when_to_use: "当用户需要生成文档时"
+allowed_tools:
+  - read_file
+  - write_file
+  - create_file
+  - list_directory
+---
 
-### 参数（Arguments）
-
-`arguments` 数组中的每个参数具有以下结构：
-
-| 字段          | 类型    | 必填 | 描述                 |
-| ------------- | ------- | ---- | -------------------- |
-| `name`        | string  | 是   | 参数名称             |
-| `description` | string  | 是   | 参数描述             |
-| `required`    | boolean | 否   | 此参数是否为必填     |
-
-### 钩子（Hooks）
-
-钩子允许您在技能生命周期的特定点运行自定义逻辑：
-
-- **执行前钩子**：在技能提示词发送给模型之前运行
-- **执行后钩子**：在模型生成响应之后运行
-
-## 管理技能
-
-### 通过 Web UI
-
-1. 在侧边栏中导航到 **技能** 页面
-2. 浏览已安装的技能列表
-3. 使用开关切换技能的启用/禁用状态
-4. 手动添加新技能或上传技能包
-
-### 通过 API
-
-**列出所有技能：**
-
-```bash
-curl http://localhost:3000/api/skills \
-  -H "Cookie: session=<your-session-cookie>"
+你是一位技术文档专家。根据给定的代码或项目，生成清晰、结构化的文档。
+使用 Markdown 格式，包含代码示例和使用说明。
 ```
-
-**添加技能：**
-
-```bash
-curl -X POST http://localhost:3000/api/skills \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session=<your-session-cookie>" \
-  -d '{
-    "name": "my-skill",
-    "content": "---\nname: my-skill\ndescription: 我的自定义技能\n---\n做一些有用的事情。"
-  }'
-```
-
-**上传技能包（ZIP）：**
-
-```bash
-curl -X POST http://localhost:3000/api/skills/upload \
-  -H "Cookie: session=<your-session-cookie>" \
-  -F "file=@my-skills.zip"
-```
-
-**切换技能启用/禁用：**
-
-```bash
-curl -X PATCH http://localhost:3000/api/skills/my-skill \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session=<your-session-cookie>" \
-  -d '{"enabled": true}'
-```
-
-**删除技能：**
-
-```bash
-curl -X DELETE http://localhost:3000/api/skills/my-skill \
-  -H "Cookie: session=<your-session-cookie>"
-```
-
-## 技能包
-
-技能可以打包为 ZIP 压缩包，便于分享和分发。技能包是一个包含一个或多个技能 Markdown 文件的 ZIP 文件。
-
-**创建技能包：**
-
-1. 创建您的技能 Markdown 文件
-2. 将它们放入一个目录中
-3. 将目录压缩为 ZIP 压缩包
-4. 通过 API 或 Web UI 上传
-
-::: tip
-创建技能包时，确保每个 Markdown 文件都有有效的 YAML frontmatter，至少包含 `name` 和 `description` 字段。
-:::
-
-## 技能激活
-
-技能可以通过以下方式激活或停用：
-
-1. **Web UI 开关** — 在技能页面使用开关
-2. **API** — 使用 `PATCH /api/skills/:name` 端点
-3. **配置方案** — 在配置方案的活跃技能列表中包含特定技能
-
-当技能被停用时，它不会对 AI 模型或用户可用，但其定义会被保留。

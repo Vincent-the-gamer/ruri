@@ -1,7 +1,7 @@
 export default [
   {
     text: '指南',
-    collapsed: true,
+    collapsed: false,
     items: [
       { text: '快速开始', link: '/zh_hans/getting-started' },
       { text: '模型提供商', link: '/zh_hans/providers' },
@@ -11,7 +11,7 @@ export default [
     text: '功能',
     collapsed: true,
     items: [
-      { text: '内置工具', link: '/zh_hans/tools' },
+      { text: 'AI 能帮你做什么？', link: '/zh_hans/tools' },
       { text: '技能系统', link: '/zh_hans/skills' },
       { text: '人格系统', link: '/zh_hans/personas' },
       { text: 'MCP 客户端', link: '/zh_hans/mcp' },
@@ -33,6 +33,16 @@ export default [
     collapsed: true,
     items: [
       { text: '配置方案', link: '/zh_hans/config-profiles' },
+    ],
+  },
+  {
+    text: '开发者',
+    collapsed: true,
+    items: [
+      { text: '开发者指南', link: '/zh_hans/dev/' },
+      { text: '开发者快速开始', link: '/zh_hans/dev/getting-started' },
+      { text: 'API 使用指南', link: '/zh_hans/dev/api-usage' },
+      { text: '集成指南', link: '/zh_hans/dev/integration' },
       { text: 'API 参考', link: '/zh_hans/api' },
     ],
   },

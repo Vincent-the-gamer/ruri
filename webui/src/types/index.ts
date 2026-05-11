@@ -144,6 +144,19 @@ export interface AttachedFile {
   content: string  // text content or base64 data URL
 }
 
+/**
+ * Controls which (if any) tool the model should call.
+ *
+ * - `"auto"`     — the model decides (default)
+ * - `"none"`     — the model will not call any tool
+ * - `"required"` — the model must call at least one tool
+ * - `{ type: "function", function: { name: string } }` — force a specific tool
+ */
+export type ToolChoice = 'auto' | 'none' | 'required' | {
+  type: 'function'
+  function: { name: string }
+}
+
 export interface ChatRequest {
   message: string
   images?: string[]  // base64 data URLs or HTTP URLs
@@ -154,6 +167,10 @@ export interface ChatRequest {
   max_tokens?: number
   knowledge_base_ids?: string[]
   custom_error_message?: string
+  /** Controls which (if any) tool the model should call. */
+  tool_choice?: ToolChoice
+  /** Whether the model may return multiple tool calls in parallel. */
+  parallel_tool_calls?: boolean
 }
 
 export interface ToolResult {

@@ -6,148 +6,83 @@ lastUpdated: true
 
 # Built-in Tools
 
-Ruri comes with a set of built-in tools that the AI agent can use to interact with the filesystem, execute commands, and search the web. These tools are automatically available when a model supports tool calling.
+Ruri's AI isn't just a chatbot — it can take action on your behalf. Built-in tools let the AI read files, write code, search the web, and even run commands on your system.
 
-## Overview
+## What Can the AI Do?
 
-| Tool           | Description                                   |
-| -------------- | --------------------------------------------- |
-| `read_file`    | Read file contents, with optional line range  |
-| `write_file`   | Write content to a file                       |
-| `create_file`  | Create a new file                             |
-| `edit_file`    | Make a targeted replacement in a file         |
-| `list_directory` | List files and directories                  |
-| `search_files` | Search by name pattern or content             |
-| `bash`         | Execute shell commands (Computer Use mode)    |
-| `web_search`   | Search the web for information                |
+Here's a quick overview of the tools available to the AI:
 
-## File Operations
+| Tool               | What It Does                                      |
+| ------------------ | ------------------------------------------------- |
+| **Read File**      | Read the contents of any file                     |
+| **Write File**     | Create or overwrite files                         |
+| **Create File**    | Create a brand new file with content              |
+| **Edit File**      | Make precise edits to existing files              |
+| **List Directory** | Browse folders and see what's inside              |
+| **Search Files**   | Find files by name or search within file contents |
+| **Bash**           | Run shell commands (requires Computer Use)        |
+| **Web Search**     | Search the web for up-to-date information         |
 
-### `read_file`
+## Practical Examples
 
-Read the contents of a file, optionally specifying a line range.
+### Working with Code
 
-**Parameters:**
+You can ask the AI to help with your code projects, and it will use tools to get the job done:
 
-| Parameter    | Type   | Required | Description                        |
-| ------------ | ------ | -------- | ---------------------------------- |
-| `path`       | string | Yes      | The file path to read              |
-| `start_line` | number | No       | Starting line number (1-based)     |
-| `end_line`   | number | No       | Ending line number (inclusive)     |
+- **"Read my `main.rs` file and explain what it does"** — The AI uses Read File to inspect your code
+- **"Fix the typo in `config.toml` on line 42"** — The AI uses Edit File to make a precise change
+- **"Create a new Python script that processes CSV files"** — The AI uses Create File to write a brand new file
+- **"Show me what's in my project directory"** — The AI uses List Directory to browse your folders
+- **"Find all files that import `axios`"** — The AI uses Search Files to scan your project
 
-**Example usage by the agent:**
+### Searching the Web
 
-The agent might read a configuration file to understand the project structure:
-
-```
-read_file(path="config.toml")
-read_file(path="src/main.rs", start_line=1, end_line=50)
-```
-
-### `write_file`
-
-Write content to a file, overwriting any existing content.
-
-**Parameters:**
-
-| Parameter | Type   | Required | Description                  |
-| --------- | ------ | -------- | ---------------------------- |
-| `path`    | string | Yes      | The file path to write to    |
-| `content` | string | Yes      | The content to write         |
-
-### `create_file`
-
-Create a new file with the specified content. This tool is used when creating files that do not yet exist.
-
-**Parameters:**
-
-| Parameter | Type   | Required | Description                    |
-| --------- | ------ | -------- | ------------------------------ |
-| `path`    | string | Yes      | The file path to create        |
-| `content` | string | Yes      | The initial file content       |
-
-### `edit_file`
-
-Make a targeted replacement in an existing file. This is useful for making precise edits without rewriting the entire file.
-
-**Parameters:**
-
-| Parameter  | Type   | Required | Description                            |
-| ---------- | ------ | -------- | -------------------------------------- |
-| `path`     | string | Yes      | The file path to edit                  |
-| `old_text` | string | Yes      | The text to find and replace           |
-| `new_text` | string | Yes      | The replacement text                   |
-
-### `list_directory`
-
-List files and directories at the specified path.
-
-**Parameters:**
-
-| Parameter | Type   | Required | Description                      |
-| --------- | ------ | -------- | -------------------------------- |
-| `path`    | string | Yes      | The directory path to list        |
-
-## Search Tools
-
-### `search_files`
-
-Search for files by name pattern (glob) or by content (regex).
-
-**Parameters:**
-
-| Parameter         | Type   | Required | Description                              |
-| ----------------- | ------ | -------- | ---------------------------------------- |
-| `pattern`         | string | Yes      | Glob pattern for filename matching       |
-| `content_pattern` | string | No       | Regex pattern for content matching       |
-| `path`            | string | No       | Base directory to search in              |
-
-**Example usage:**
-
-- Search for all Rust source files: `search_files(pattern="**/*.rs")`
-- Search for files containing a specific function: `search_files(pattern="**/*.rs", content_pattern="fn main")`
-
-## Shell Execution
-
-### `bash`
-
-Execute shell commands on the host system. This tool is only available when **Computer Use** mode is enabled.
-
-**Parameters:**
-
-| Parameter | Type   | Required | Description              |
-| --------- | ------ | -------- | ------------------------ |
-| `command` | string | Yes      | The shell command to run |
-
-::: warning
-The `bash` tool is powerful and can execute arbitrary commands. Only enable Computer Use mode when you trust the environment and the agent's instructions. Consider using Sandbox mode for additional safety.
-:::
-
-See the [Computer Use](/computer-use) page for more details on runtime modes and safety features.
-
-## Web Search
-
-### `web_search`
-
-Search the web for information using a configurable search backend. Results are parsed from HTML using the `scraper` crate.
-
-**Parameters:**
-
-| Parameter | Type   | Required | Description                   |
-| --------- | ------ | -------- | ----------------------------- |
-| `query`   | string | Yes      | The search query              |
+- **"What's the latest version of React?"** — The AI uses Web Search to find current information
+- **"Look up how to configure nginx as a reverse proxy"** — The AI searches the web and gives you a summary
 
 ::: info
-Web search must be enabled in your [Config Profile](/config-profiles) and requires a configured search provider.
+Web Search must be enabled in your [Config Profile](/config-profiles) and requires a search provider to be configured.
 :::
 
-## Tool Availability
+### Running Commands
 
-Tools are made available to the AI model based on the current configuration:
+- **"Run my test suite"** — The AI uses Bash to execute your tests
+- **"Install the dependencies for this project"** — The AI runs `npm install` or `cargo build`
+- **"Check my disk usage"** — The AI runs `df -h` and explains the output
 
-- **File tools** (`read_file`, `write_file`, `create_file`, `edit_file`, `list_directory`, `search_files`) are always available
-- **`bash`** is available only when Computer Use is enabled
-- **`web_search`** is available only when web search is enabled in the active config profile
-- **Skills** can restrict available tools through the `allowed_tools` field
+::: warning
+Command execution requires Computer Use to be enabled, and the AI can run any command your system allows. See [Computer Use](/computer-use) for safety details.
+:::
 
-See [Skills](/skills) for information on how to control which tools are available to specific skills.
+## When the AI Uses Tools
+
+You don't need to tell the AI which tool to use — it decides automatically based on your request. Here's what the experience looks like:
+
+1. **You send a message** — For example, "What does my `package.json` look like?"
+2. **The AI reads the file** — You'll see a tool call appear in the chat, showing that the AI is reading `package.json`
+3. **The AI responds** — It shares the file contents and may add context or suggestions
+
+The AI might use multiple tools in sequence to answer your question. For example, if you ask "Are there any bugs in my code?", it might:
+
+1. List your directory to find source files
+2. Read each file to understand the code
+3. Search for common bug patterns
+4. Respond with its findings
+
+::: tip
+You can see every tool call the AI makes right in the conversation. This gives you full visibility into what the AI is doing on your behalf.
+:::
+
+## Controlling Tool Access
+
+By default, the AI has access to all file tools. You can control what's available:
+
+- **Web Search** — Enable or disable in your [Config Profile](/config-profiles)
+- **Bash / Command Execution** — Enable through [Computer Use](/computer-use) settings
+- **Per-skill restrictions** — When creating [Skills](/skills), you can limit which tools the AI can use for that specific skill
+
+## Tips
+
+- **Be specific** — Instead of "help with my code", say "read my `src/main.rs` and find potential bugs". The AI will know exactly which tools to use.
+- **Review tool calls** — Always check what the AI is doing, especially when it writes files or runs commands
+- **Use Computer Use wisely** — Only enable command execution when you need it. Keep it off for simple chat sessions.

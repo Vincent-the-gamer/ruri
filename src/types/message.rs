@@ -113,6 +113,58 @@ pub struct ToolResult {
 
 // ─── Chat Request / Response ────────────────────────────────────────
 
+/// Controls which tool the model should call.
+///
+/// Follows the OpenAI / Qwen Function Calling specification:
+/// - `"auto"` – the model decides whether to call a tool (default)
+/// - `"none"`  – the model will **not** call any tool
+/// - `"required"` – the model **must** call at least one tool
+/// - `{"type": "function", "function": {"name": "..."}}` – force a specific tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    /// Simple string variants: "auto", "none", "required"
+    String(ToolChoiceString),
+    /// Force the model to call a specific function by name.
+    Function(ToolChoiceFunction),
+}
+
+/// String variants for `tool_choice`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoiceString {
+    Auto,
+    None,
+    Required,
+}
+
+/// A specific function to force-call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolChoiceFunction {
+    #[serde(rename = "type")]
+    pub choice_type: ToolChoiceType,
+    pub function: ToolChoiceFunctionName,
+}
+
+/// The type field in a tool_choice function object (always "function").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoiceType {
+    Function,
+}
+
+/// The function name within a tool_choice object.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolChoiceFunctionName {
+    pub name: String,
+}
+
+impl Default for ToolChoice {
+    fn default() -> Self {
+        Self::String(ToolChoiceString::Auto)
+    }
+}
+
 /// A chat completion request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatRequest {
@@ -125,6 +177,22 @@ pub struct ChatRequest {
     pub max_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
+    /// Controls which (if any) tool the model should call.
+    ///
+    /// Supported values: `"auto"` (default), `"none"`, `"required"`,
+    /// or `{"type": "function", "function": {"name": "<tool_name>"}}`.
+    ///
+    /// See: <https://help.aliyun.com/zh/model-studio/qwen-function-calling>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    /// When `true`, the model may return multiple tool calls in a single response
+    /// so that independent tools can be invoked in parallel.
+    ///
+    /// Defaults to `true` for models that support it.
+    ///
+    /// See: <https://help.aliyun.com/zh/model-studio/qwen-function-calling>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,6 +291,8 @@ impl ChatRequest {
             temperature: None,
             max_tokens: None,
             tools: None,
+            tool_choice: None,
+            parallel_tool_calls: None,
             stream: Some(false),
             stop: None,
             extra: serde_json::Map::new(),
@@ -236,6 +306,21 @@ impl ChatRequest {
 
     pub fn with_tools(mut self, tools: Vec<ToolDefinition>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set the `tool_choice` parameter.
+    ///
+    /// Controls which (if any) tool the model should call.
+    /// Defaults to `"auto"` when tools are provided.
+    pub fn with_tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.tool_choice = Some(choice);
+        self
+    }
+
+    /// Set whether the model may return multiple tool calls in a single response.
+    pub fn with_parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.parallel_tool_calls = Some(enabled);
         self
     }
 }

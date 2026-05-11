@@ -6,112 +6,119 @@ lastUpdated: true
 
 # 模型提供商
 
-Ruri 支持多种模型提供商类型，允许您连接到各种 AI 后端。您可以通过 Web UI 或 REST API 管理提供商。
+模型提供商是 Ruri 连接 AI 大脑的方式。你需要至少配置一个提供商，AI 才能和你对话。
 
-## 提供商类型
+## 提供商类型简介
 
-### Anthropic 兼容
+Ruri 支持三种提供商类型，覆盖了几乎所有主流 AI 模型服务：
 
-连接到 Anthropic API 或任何兼容 Anthropic 的端点。此提供商类型使用 Anthropic Messages API 格式。
+| 类型               | 适用场景                               | 常见服务                         |
+| ------------------ | -------------------------------------- | -------------------------------- |
+| **OpenAI 兼容**    | 最通用的类型，大多数服务商都兼容此格式 | OpenAI、DeepSeek、Ollama、智谱等 |
+| **Anthropic 兼容** | 专为 Anthropic 的 Claude 系列设计      | Anthropic、Claude 代理服务       |
+| **自定义**         | 不走标准 API 的情况                    | 自建服务、特殊接口               |
 
-**配置字段：**
-
-| 字段     | 描述                                           |
-| -------- | ---------------------------------------------- |
-| 名称     | 此提供商的友好名称                             |
-| API URL  | Anthropic 兼容端点的基础 URL                   |
-| API Key  | 用于身份验证的 API 密钥                        |
-| 模型     | 模型标识符（如 `claude-sonnet-4-20250514`）    |
-
-**示例：** 直接连接到 Anthropic 的 API：
-
-- **API URL：** `https://api.anthropic.com`
-- **模型：** `claude-sonnet-4-20250514`
-
-**示例：** 连接到自定义的 Anthropic 兼容代理：
-
-- **API URL：** `https://your-proxy.example.com`
-- **模型：** `claude-sonnet-4-20250514`
-
-### OpenAI 兼容
-
-连接到 OpenAI API 或任何兼容 OpenAI 的端点。此提供商类型使用 OpenAI Chat Completions API 格式，这是许多模型提供商的事实标准。
-
-**配置字段：**
-
-| 字段     | 描述                                           |
-| -------- | ---------------------------------------------- |
-| 名称     | 此提供商的友好名称                             |
-| API URL  | OpenAI 兼容端点的基础 URL                      |
-| API Key  | 用于身份验证的 API 密钥                        |
-| 模型     | 模型标识符（如 `gpt-4o`、`deepseek-chat`）     |
-
-**示例：** 连接到 OpenAI 的 API：
-
-- **API URL：** `https://api.openai.com/v1`
-- **模型：** `gpt-4o`
-
-**示例：** 连接到兼容提供商如 DeepSeek：
-
-- **API URL：** `https://api.deepseek.com/v1`
-- **模型：** `deepseek-chat`
-
-**示例：** 通过 Ollama 连接本地模型：
-
-- **API URL：** `http://localhost:11434/v1`
-- **模型：** `llama3`
-
-### 自定义提供商
-
-对于不遵循 Anthropic 或 OpenAI API 格式的提供商，Ruri 支持自定义提供商配置。这允许您定义自定义的请求和响应映射。
+::: tip
+不确定选哪个？选 **OpenAI 兼容** 就对了！它是最通用的格式，绝大多数服务商都支持。
+:::
 
 ## 管理提供商
 
-### 通过 Web UI
+### 添加提供商
 
-1. 在侧边栏中导航到 **提供商** 页面
-2. 点击 **添加提供商** 创建新提供商
-3. 填写所需字段并保存
-4. 在要使用的提供商上点击 **激活**
+1. 在侧边栏点击 **提供商**
+2. 点击 **添加提供商**
+3. 选择提供商类型（OpenAI 兼容 / Anthropic 兼容 / 自定义）
+4. 填写名称、API URL、API Key 和模型名称
+5. 点击 **保存**
 
-同一时间只能有一个提供商处于激活状态。激活的提供商用于所有聊天交互。
+### 激活提供商
 
-### 通过 API
+同一时间只能有一个提供商处于激活状态。在提供商列表中，点击想要使用的提供商的 **激活** 按钮即可切换。
 
-您也可以通过编程方式管理提供商：
+### 编辑和删除
 
-**创建提供商：**
+在提供商列表中，你可以随时编辑已有提供商的配置或删除不再需要的提供商。
 
-```bash
-curl -X POST http://localhost:3000/api/providers \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session=<your-session-cookie>" \
-  -d '{
-    "name": "My Provider",
-    "provider_type": "openai_compatible",
-    "api_url": "https://api.openai.com/v1",
-    "api_key": "sk-...",
-    "model": "gpt-4o"
-  }'
-```
+## 热门提供商快速配置
 
-**激活提供商：**
+### OpenAI（GPT-4o）
 
-```bash
-curl -X POST http://localhost:3000/api/providers/<id>/activate \
-  -H "Cookie: session=<your-session-cookie>"
-```
+1. 添加提供商，选择 **OpenAI 兼容**
+2. 填写以下信息：
 
-完整的提供商端点列表请参阅 [API 参考](/zh_hans/api)。
+| 字段    | 值                                   |
+| ------- | ------------------------------------ |
+| 名称    | `OpenAI`                             |
+| API URL | `https://api.openai.com/v1`          |
+| API Key | 你的 OpenAI API Key（以 `sk-` 开头） |
+| 模型    | `gpt-4o`                             |
 
-## 切换提供商
+3. 保存并激活
 
-您可以随时通过激活不同的提供商来切换。这在以下场景中非常有用：
+::: info
+API Key 可以在 [OpenAI 平台](https://platform.openai.com/api-keys) 获取。
+:::
 
-- 在不同模型之间切换以处理不同任务
-- 跨多个提供商测试提示词
-- 当某个提供商出现问题时进行故障转移
+### Anthropic（Claude Sonnet 4）
+
+1. 添加提供商，选择 **Anthropic 兼容**
+2. 填写以下信息：
+
+| 字段    | 值                          |
+| ------- | --------------------------- |
+| 名称    | `Anthropic`                 |
+| API URL | `https://api.anthropic.com` |
+| API Key | 你的 Anthropic API Key      |
+| 模型    | `claude-sonnet-4-20250514`  |
+
+3. 保存并激活
+
+::: info
+API Key 可以在 [Anthropic 控制台](https://console.anthropic.com/) 获取。
+:::
+
+### DeepSeek
+
+1. 添加提供商，选择 **OpenAI 兼容**
+2. 填写以下信息：
+
+| 字段    | 值                            |
+| ------- | ----------------------------- |
+| 名称    | `DeepSeek`                    |
+| API URL | `https://api.deepseek.com/v1` |
+| API Key | 你的 DeepSeek API Key         |
+| 模型    | `deepseek-chat`               |
+
+3. 保存并激活
+
+::: info
+DeepSeek 兼容 OpenAI API 格式，所以选择 **OpenAI 兼容** 类型。API Key 在 [DeepSeek 平台](https://platform.deepseek.com/) 获取。
+:::
+
+### Ollama（本地模型，免费！）
+
+1. 先安装并启动 [Ollama](https://ollama.com)，然后拉取一个模型（如 `ollama pull llama3`）
+2. 在 Ruri 中添加提供商，选择 **OpenAI 兼容**
+3. 填写以下信息：
+
+| 字段    | 值                                     |
+| ------- | -------------------------------------- |
+| 名称    | `Ollama`                               |
+| API URL | `http://localhost:11434/v1`            |
+| API Key | 随意填写（如 `ollama`，Ollama 不校验） |
+| 模型    | 你拉取的模型名（如 `llama3`）          |
+
+4. 保存并激活
 
 ::: tip
-如果您配置了多个提供商，可以创建不同的[配置方案](/zh_hans/config-profiles)来快速切换提供商配置。
+Ollama 完全本地运行，**不需要付费**，也不需要网络连接。如果你还没准备好购买 API 服务，不妨先用 Ollama 体验 Ruri 的全部功能！
 :::
+
+## 小贴士
+
+- 💡 **试试 Ollama** — 免费的本地模型，适合体验和测试，无需 API Key
+- 🔄 **配置多个提供商** — 可以添加多个提供商随时切换，应对不同场景
+- 📋 **方案联动** — 在[配置方案](/zh_hans/config-profiles)中绑定不同提供商，一键切换整个配置
+- 🔗 **代理服务** — 如果你使用 API 代理（如中转站），只需将 API URL 改为代理地址即可
+- ✅ **注意 URL 路径** — OpenAI 兼容的 URL 通常以 `/v1` 结尾，Anthropic 兼容则不需要

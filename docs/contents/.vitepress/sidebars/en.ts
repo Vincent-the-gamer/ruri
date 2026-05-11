@@ -1,7 +1,7 @@
 export default [
   {
     text: 'Guide',
-    collapsed: true,
+    collapsed: false,
     items: [
       { text: 'Getting Started', link: '/getting-started' },
       { text: 'Model Providers', link: '/providers' },
@@ -11,7 +11,7 @@ export default [
     text: 'Features',
     collapsed: true,
     items: [
-      { text: 'Built-in Tools', link: '/tools' },
+      { text: 'What Can the AI Do?', link: '/tools' },
       { text: 'Skills', link: '/skills' },
       { text: 'Personas', link: '/personas' },
       { text: 'MCP Client', link: '/mcp' },
@@ -33,6 +33,16 @@ export default [
     collapsed: true,
     items: [
       { text: 'Config Profiles', link: '/config-profiles' },
+    ],
+  },
+  {
+    text: 'Developer',
+    collapsed: true,
+    items: [
+      { text: 'Developer Guide', link: '/dev/' },
+      { text: 'Developer Getting Started', link: '/dev/getting-started' },
+      { text: 'API Usage Guide', link: '/dev/api-usage' },
+      { text: 'Integration Guide', link: '/dev/integration' },
       { text: 'API Reference', link: '/api' },
     ],
   },
