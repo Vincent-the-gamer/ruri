@@ -16,6 +16,7 @@ Ruri includes handy chat commands that you can type directly in the message inpu
 | `/new`               | Start a fresh new conversation                     |
 | `/reset`             | Clear the AI's memory for the current conversation |
 | `/sid`               | Show current session info                          |
+| `/whoami`            | Show your user ID, identity, and admin status      |
 | `/set <key> <value>` | Change a setting for this conversation             |
 | `/unset <key>`       | Remove a previously set setting                    |
 | `/stop`              | Stop the AI if it's taking too long                |
@@ -68,6 +69,18 @@ Shows information about your current session.
 ```
 /sid
 ```
+
+### `/whoami` — Who Am I
+
+Shows your user ID, current platform, message type, and whether you have admin privileges. This is useful for troubleshooting permission issues.
+
+```
+/whoami
+```
+
+::: tip
+WebUI users are always considered admins (they are authenticated). If you're using a chat platform (DingTalk, Discord, etc.), your admin status depends on whether your user ID is in the admin list configured in Computer Use settings.
+:::
 
 ### `/set` — Change a Setting
 

@@ -155,6 +155,14 @@ function scrollToBottom() {
     });
 }
 
+// Auto-scroll when streaming content changes
+watch(
+    () => chatStore.streamingContent,
+    () => {
+        scrollToBottom();
+    },
+);
+
 async function handleSend(
     message: string,
     images: string[] = [],
@@ -542,7 +550,10 @@ function toggleSettings() {
 
                 <!-- Thinking Indicator Message -->
                 <Transition name="thinking-fade">
-                    <div v-if="chatStore.isThinking" class="thinking-message">
+                    <div
+                        v-if="chatStore.isThinking && !chatStore.isStreaming"
+                        class="thinking-message"
+                    >
                         <div class="thinking-avatar">
                             <div class="thinking-ring"></div>
                             <img

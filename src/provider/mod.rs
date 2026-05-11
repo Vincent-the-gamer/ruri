@@ -2,8 +2,11 @@ pub mod anthropic;
 pub mod custom;
 pub mod openai;
 
-use crate::types::{ChatRequest, ChatResponse};
+use crate::types::{ChatRequest, ChatResponse, StreamEvent};
+use async_stream;
 use async_trait::async_trait;
+use futures_util::StreamExt;
+use futures_util::stream::BoxStream;
 
 /// Error type for provider operations.
 #[derive(Debug, thiserror::Error)]
@@ -50,5 +53,44 @@ pub trait Provider: Send + Sync {
     /// stripped from requests before they are sent.
     fn supports_multimodal(&self) -> bool {
         true
+    }
+
+    /// Send a chat completion request and return a stream of events.
+    ///
+    /// The default implementation falls back to the non-streaming [`chat`] method
+    /// and emits a single `ContentDelta` followed by `Done`.
+    /// Providers that support streaming should override this to send
+    /// incremental `ContentDelta` events as tokens arrive.
+    fn chat_stream<'a>(
+        &'a self,
+        request: ChatRequest,
+    ) -> BoxStream<'a, Result<StreamEvent, ProviderError>> {
+        // Default: use non-streaming chat and emit the full response as a single delta
+        let stream = async_stream::stream! {
+            match self.chat(request).await {
+                Ok(response) => {
+                    // Extract content from the first choice
+                    if let Some(choice) = response.choices.first() {
+                        if let Some(content) = &choice.message.content {
+                            let text = content.as_text().unwrap_or("").to_string();
+                            if !text.is_empty() {
+                                yield Ok(StreamEvent::ContentDelta { delta: text });
+                            }
+                        }
+                    }
+
+                    yield Ok(StreamEvent::Done {
+                        usage: response.usage.map(|u| crate::types::StreamUsage {
+                            prompt_tokens: u.prompt_tokens.unwrap_or(0),
+                            completion_tokens: u.completion_tokens.unwrap_or(0),
+                        }),
+                    });
+                }
+                Err(e) => {
+                    yield Err(e);
+                }
+            }
+        };
+        stream.boxed()
     }
 }

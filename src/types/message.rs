@@ -325,6 +325,63 @@ impl ChatRequest {
     }
 }
 
+/// A streaming event emitted during a chat completion stream.
+///
+/// These events are sent over SSE (Server-Sent Events) to the WebUI client
+/// so that the assistant's response is displayed incrementally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum StreamEvent {
+    /// A content delta (partial text) from the assistant.
+    #[serde(rename = "content_delta")]
+    ContentDelta {
+        /// The text fragment appended to the assistant's message.
+        delta: String,
+    },
+    /// A tool call is being started by the assistant.
+    #[serde(rename = "tool_call_start")]
+    ToolCallStart {
+        tool_call_id: String,
+        function_name: String,
+    },
+    /// Arguments delta for a tool call.
+    #[serde(rename = "tool_call_delta")]
+    ToolCallDelta {
+        tool_call_id: String,
+        arguments_delta: String,
+    },
+    /// A tool call has completed.
+    #[serde(rename = "tool_call_end")]
+    ToolCallEnd {
+        tool_call_id: String,
+        function_name: String,
+        arguments: String,
+    },
+    /// A tool has been executed and the result is available.
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_call_id: String,
+        tool_name: String,
+        content: String,
+    },
+    /// The stream has completed.
+    #[serde(rename = "done")]
+    Done {
+        /// Token usage statistics, if available.
+        usage: Option<StreamUsage>,
+    },
+    /// An error occurred during streaming.
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+/// Token usage statistics for a streaming response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
 impl MessageContent {
     pub fn as_text(&self) -> Option<&str> {
         match self {

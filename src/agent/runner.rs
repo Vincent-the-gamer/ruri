@@ -1,8 +1,10 @@
 use crate::agent::skill::Skill;
 use crate::agent::tool_executor::ToolExecutor;
-use crate::provider::Provider;
+use crate::provider::{Provider, ProviderError};
 use crate::transport::HttpTransport;
 use crate::types::*;
+use futures_util::StreamExt;
+use futures_util::stream::BoxStream;
 use std::sync::Arc;
 
 /// Maximum number of tool-call round-trips before forcing a stop.
@@ -383,4 +385,232 @@ impl Agent {
             }
         }
     }
+}
+
+/// Streaming version of the Agent that yields [`StreamEvent`]s as they arrive.
+///
+/// This is a standalone struct rather than a method on [`Agent`] because
+/// streaming requires long-lived mutable access to the agent's state
+/// (history, tool execution, etc.), which conflicts with Rust's borrow
+/// checker when using `async_stream`.
+///
+/// Usage:
+/// ```ignore
+/// let streamer = AgentStreamer::new(agent, user_message);
+/// let event_stream = streamer.into_stream();
+/// // event_stream implements Stream<Item = Result<StreamEvent, ProviderError>>
+/// ```
+pub struct AgentStreamer {
+    agent: Agent,
+    user_message: ChatMessage,
+}
+
+impl AgentStreamer {
+    /// Create a new streamer from an agent and a user message.
+    pub fn new(agent: Agent, user_message: ChatMessage) -> Self {
+        Self {
+            agent,
+            user_message,
+        }
+    }
+
+    /// Consume the streamer and return a stream of [`StreamEvent`]s.
+    ///
+    /// The stream handles the full agent lifecycle:
+    /// 1. Pre-process the user message through skills
+    /// 2. Stream the model's response (content + tool calls)
+    /// 3. If tool calls are present, execute them and emit results
+    /// 4. Loop back for more model responses (up to `max_tool_rounds`)
+    /// 5. Post-process through skills
+    /// 6. Emit `Done`
+    pub fn into_stream(self) -> BoxStream<'static, Result<StreamEvent, ProviderError>> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<StreamEvent, ProviderError>>(256);
+
+        tokio::spawn(async move {
+            let mut agent = self.agent;
+            let user_message = self.user_message;
+
+            // Add user message to history
+            agent.history.push(user_message);
+
+            // Run skill pre-processing
+            agent.run_skills_on_user_message().await;
+
+            // Tool loop
+            let mut round = 0u32;
+            let max_rounds = agent.config.max_tool_rounds;
+
+            loop {
+                let request = agent.build_request();
+
+                tracing::info!(
+                    round = round,
+                    provider = %agent.transport.provider_name(),
+                    model = %agent.transport.default_model(),
+                    messages = request.messages.len(),
+                    "Sending streaming chat request"
+                );
+
+                // Stream from the provider
+                let mut stream = agent.transport.send_stream(request);
+
+                let mut has_tool_calls = false;
+                let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
+                let mut content_text = String::new();
+
+                use futures_util::StreamExt;
+                while let Some(event_result) = stream.next().await {
+                    match event_result {
+                        Ok(event) => {
+                            match &event {
+                                StreamEvent::ToolCallStart {
+                                    tool_call_id,
+                                    function_name,
+                                } => {
+                                    has_tool_calls = true;
+                                    tool_calls_accum.push(AccumulatedToolCall {
+                                        id: tool_call_id.clone(),
+                                        function_name: function_name.clone(),
+                                        arguments: String::new(),
+                                    });
+                                }
+                                StreamEvent::ToolCallDelta {
+                                    tool_call_id,
+                                    arguments_delta,
+                                } => {
+                                    if let Some(tc) = tool_calls_accum
+                                        .iter_mut()
+                                        .find(|tc| &tc.id == tool_call_id)
+                                    {
+                                        tc.arguments.push_str(arguments_delta);
+                                    }
+                                }
+                                StreamEvent::ToolCallEnd { .. } => {
+                                    // Tool call completed, don't forward this to the client
+                                    // We'll execute the tool and emit ToolResult instead
+                                }
+                                StreamEvent::ContentDelta { delta } => {
+                                    content_text.push_str(delta);
+                                }
+                                StreamEvent::Done { .. } => {
+                                    // End of this streaming round, don't forward
+                                }
+                                StreamEvent::ToolResult { .. } => {
+                                    // Shouldn't happen from provider, but forward anyway
+                                }
+                                StreamEvent::Error { .. } => {
+                                    // Forward errors
+                                }
+                            }
+                            // Forward all events to the client except ToolCallEnd and Done
+                            // (we manage those ourselves after tool execution)
+                            if !matches!(
+                                event,
+                                StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                            ) {
+                                if tx.send(Ok(event)).await.is_err() {
+                                    return; // receiver dropped
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e)).await;
+                            return;
+                        }
+                    }
+                }
+
+                // Now handle what happened in this round
+                if has_tool_calls && agent.config.auto_execute_tools {
+                    // Build assistant message with tool calls for history
+                    let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
+                        .iter()
+                        .map(|tc| ToolCall {
+                            id: tc.id.clone(),
+                            call_type: crate::types::ToolCallType::Function,
+                            function: FunctionCall {
+                                name: tc.function_name.clone(),
+                                arguments: tc.arguments.clone(),
+                            },
+                        })
+                        .collect();
+
+                    let assistant_msg = ChatMessage::assistant_with_tool_calls(
+                        if content_text.is_empty() {
+                            None
+                        } else {
+                            Some(content_text)
+                        },
+                        tool_calls_for_history.clone(),
+                    );
+                    agent.history.push(assistant_msg);
+
+                    // Execute each tool call
+                    for call in &tool_calls_for_history {
+                        tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                        let result = agent
+                            .tool_executor
+                            .execute_with_id(&call.id, &call.function)
+                            .await;
+
+                        // Notify skills
+                        for skill in &agent.skills {
+                            if skill.is_active() {
+                                skill
+                                    .on_tool_result(&call.function.name, &result.content)
+                                    .await;
+                            }
+                        }
+
+                        // Add tool result to history
+                        agent.history.push(ChatMessage::tool_result(
+                            &result.tool_call_id,
+                            &result.content,
+                        ));
+
+                        // Emit tool result event to client
+                        if tx
+                            .send(Ok(StreamEvent::ToolResult {
+                                tool_call_id: result.tool_call_id,
+                                tool_name: call.function.name.clone(),
+                                content: result.content,
+                            }))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+
+                    round += 1;
+                    if round >= max_rounds {
+                        tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                        break;
+                    }
+                    // Loop back for next round
+                } else {
+                    // No tool calls — add the assistant message to history
+                    agent.history.push(ChatMessage::assistant(&content_text));
+                    break;
+                }
+            }
+
+            // Run skill post-processing
+            agent.run_skills_on_response().await;
+
+            // Emit final Done event
+            let _ = tx.send(Ok(StreamEvent::Done { usage: None })).await;
+        });
+
+        // Convert the receiver into a stream
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed()
+    }
+}
+
+/// Helper struct to accumulate tool call data across streaming chunks.
+struct AccumulatedToolCall {
+    id: String,
+    function_name: String,
+    arguments: String,
 }

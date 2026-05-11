@@ -109,22 +109,45 @@ impl AcpSession {
                 // AIO Sandbox mode - use sandbox tools via HTTP API
                 match &computer_use_config.aio_sandbox_config {
                     Some(config) => {
-                        let client = Arc::new(crate::computer_use::AioSandboxClient::new(config.endpoint.clone()));
-                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxShellTool::new(client.clone())));
-                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxReadFileTool::new(client.clone())));
-                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxWriteFileTool::new(client.clone())));
-                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxListDirectoryTool::new(client)));
-                        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
-                        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
-                        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+                        let client = Arc::new(crate::computer_use::AioSandboxClient::new(
+                            config.endpoint.clone(),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxShellTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxReadFileTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxWriteFileTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxListDirectoryTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxCreateFileTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxEditFileTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxFindFilesTool::new(client.clone()),
+                        ));
+                        agent.register_tool(Arc::new(
+                            crate::computer_use::AioSandboxSearchInFileTool::new(client),
+                        ));
                     }
                     None => {
-                        tracing::error!("AIO Sandbox runtime selected but no sandbox config provided, falling back to basic tools");
+                        tracing::error!(
+                            "AIO Sandbox runtime selected but no sandbox config provided, falling back to basic tools"
+                        );
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
-                        agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
+                        agent.register_tool(Arc::new(
+                            crate::agent::builtin_tools::ListDirectoryTool,
+                        ));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
                     }
                 }

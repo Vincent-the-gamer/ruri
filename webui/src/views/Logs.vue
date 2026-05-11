@@ -775,7 +775,7 @@ onUnmounted(() => {
 .terminal-output {
     flex: 1;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto;
     padding: 8px 12px;
     background: #0c0c0c;
     font-size: 13px;

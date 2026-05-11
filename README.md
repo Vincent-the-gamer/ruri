@@ -21,14 +21,13 @@
 - [x] RAG-Based Knowledge Base (Embedding Model + Rerank Model) support
 - [x] Chat - DingTalk
 - [x] Chat - Discord
-- [ ] Chat - OneBot V11（A standardized bot application interface）
 - [x] Chat - Personal WeChat(Wechat ClawBot)
 - [x] SandBox - AIO Sandbox (https://github.com/agent-infra/sandbox)
 
 ### Planned in the future
 
-- More Providers
 - Sub Agent
+- Chat - OneBot V11（A standardized bot application interface）
 - Chat - Matrix
 - Chat - VoceChat
 - Chat - QQ

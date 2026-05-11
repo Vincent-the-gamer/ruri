@@ -29,6 +29,7 @@ import type {
   SearchResult,
   SearchRequest,
   Skill,
+  StreamEvent,
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
@@ -148,6 +149,89 @@ export async function getTools(): Promise<Tool[]> {
 export async function sendMessage(data: ChatRequest): Promise<ChatResponse> {
   const res = await client.post('/api/chat', data)
   return res.data
+}
+
+/**
+ * Send a chat message and receive streaming SSE events.
+ * Returns an async generator that yields StreamEvent objects.
+ */
+export async function* sendMessageStream(
+  data: ChatRequest,
+): AsyncGenerator<StreamEvent> {
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+  const host = window.location.host
+  const url = `${protocol}//${host}/api/chat/stream`
+
+  // Get the auth cookie (axios sends it automatically with withCredentials)
+  // We use fetch for SSE streaming support
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    let errorMsg = `Stream request failed: ${response.status}`
+    try {
+      const errorJson = JSON.parse(errorText)
+      if (errorJson.error) errorMsg = errorJson.error
+    } catch {
+      // Use default error message
+    }
+    throw new Error(errorMsg)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No response body')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // Process complete SSE events (separated by double newlines)
+    const lines = buffer.split('\n')
+    // Keep the last incomplete line in the buffer
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('data:')) {
+        const data = trimmed.slice(5).trim()
+        if (!data) continue
+
+        try {
+          const event: StreamEvent = JSON.parse(data)
+          yield event
+        } catch {
+          // Skip malformed events
+        }
+      }
+    }
+  }
+
+  // Process any remaining data in buffer
+  if (buffer.trim().startsWith('data:')) {
+    const data = buffer.trim().slice(5).trim()
+    if (data) {
+      try {
+        const event: StreamEvent = JSON.parse(data)
+        yield event
+      } catch {
+        // Skip malformed events
+      }
+    }
+  }
 }
 
 export async function getChatHistory(): Promise<ChatMessage[]> {

@@ -190,6 +190,22 @@ export interface ChatResponse {
   }
 }
 
+// ─── Streaming Types ─────────────────────────────────────────────
+
+export interface StreamUsage {
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export type StreamEvent =
+  | { type: 'content_delta'; delta: string }
+  | { type: 'tool_call_start'; tool_call_id: string; function_name: string }
+  | { type: 'tool_call_delta'; tool_call_id: string; arguments_delta: string }
+  | { type: 'tool_call_end'; tool_call_id: string; function_name: string; arguments: string }
+  | { type: 'tool_result'; tool_call_id: string; tool_name: string; content: string }
+  | { type: 'done'; usage: StreamUsage | null }
+  | { type: 'error'; error: string }
+
 // ─── Agent Status ────────────────────────────────────────────────
 
 export interface AgentStatus {

@@ -6,7 +6,7 @@ use axum::{
         ws::{WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
-    response::Response,
+    response::{IntoResponse, Response, sse::Event},
     routing::{delete, get, post, put},
 };
 use chrono::Utc;
@@ -130,6 +130,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // Chat
         .route("/api/chat", post(send_chat_message))
+        .route("/api/chat/stream", post(stream_chat_message))
         .route(
             "/api/chat/history",
             get(get_chat_history).delete(clear_chat_history),
@@ -1106,11 +1107,15 @@ async fn send_chat_message(
     .map_err(|e| {
         // Use custom_error_message: request override > config profile > raw error
         let custom_msg = req.custom_error_message.clone().or_else(|| {
-            let profiles = state.config_profiles.blocking_read();
-            profiles
-                .values()
-                .find(|p| p.is_active && p.enable)
-                .and_then(|p| p.custom_error_message.clone())
+            // SAFETY: We are in a synchronous closure (or_else), but this runs inside
+            // a Tokio runtime. Use try_read to avoid blocking the runtime.
+            // If the lock is contended, we simply fall through to the default error message.
+            state.config_profiles.try_read().ok().and_then(|profiles| {
+                profiles
+                    .values()
+                    .find(|p| p.is_active && p.enable)
+                    .and_then(|p| p.custom_error_message.clone())
+            })
         });
         let error_msg = custom_msg.unwrap_or_else(|| e.to_string());
         (
@@ -1195,6 +1200,335 @@ async fn send_chat_message(
         tool_results: tool_results_dto,
         usage: usage_dto,
     }))
+}
+
+/// Stream a chat message response using Server-Sent Events (SSE).
+///
+/// This endpoint sends incremental `ContentDelta` events as the model
+/// generates tokens, giving the WebUI a real-time typing effect.
+/// The platform-facing `/api/chat` endpoint continues to use
+/// non-streaming responses.
+async fn stream_chat_message(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ChatRequestDto>,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    use crate::agent::runner::AgentStreamer;
+
+    // Store user message text for early use
+    let user_message_text = req.message.clone();
+
+    // ── Command dispatch (same as non-streaming) ──────────────────
+    let is_command = {
+        let dispatcher = state.command_dispatcher.read().await;
+        dispatcher.is_command(&req.message)
+    };
+
+    if is_command {
+        let dispatcher = state.command_dispatcher.read().await;
+        let user_id = req.user_id.clone().unwrap_or_default();
+        let session_id = req.session_id.clone().unwrap_or_default();
+        tracing::info!(
+            prefix = %dispatcher.prefix(),
+            user_id = %user_id,
+            session_id = %session_id,
+            source = "webui-stream",
+            "Detected command message, dispatching"
+        );
+        let cmd_ctx = crate::command::CommandContext {
+            raw_message: req.message.clone(),
+            command_name: String::new(),
+            args: String::new(),
+            session_id: session_id.clone(),
+            user_id: user_id.clone(),
+            platform_id: "webui".to_string(),
+            self_id: "ruri".to_string(),
+            message_type: crate::platform::types::MessageType::FriendMessage,
+            group_id: String::new(),
+            state: state.clone(),
+        };
+
+        if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
+            // Return command result as an SSE stream
+            let reply = result.reply;
+            let stream = async_stream::stream! {
+                let event = crate::types::StreamEvent::ContentDelta { delta: reply };
+                yield Ok::<Event, std::convert::Infallible>(Event::default().data(serde_json::to_string(&event).unwrap()));
+                let done_event = crate::types::StreamEvent::Done { usage: None };
+                yield Ok(Event::default().data(serde_json::to_string(&done_event).unwrap()));
+            };
+            return Ok(axum::response::Sse::new(stream)
+                .keep_alive(axum::response::sse::KeepAlive::default())
+                .into_response());
+        }
+    }
+
+    // ── Agent processing ─────────────────────────────────────────
+    let agent_result = state
+        .build_agent_with_context(
+            req.user_id.as_deref(),
+            req.session_id.as_deref(),
+            req.persona_id.as_deref(),
+        )
+        .await;
+    let mut agent =
+        agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
+
+    // Add Knowledge Base skill if knowledge_base_ids are specified
+    if !req.knowledge_base_ids.is_empty() {
+        let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
+            state.knowledge_base_service.clone(),
+            req.knowledge_base_ids.clone(),
+            5,
+        );
+        agent.add_skill(std::sync::Arc::new(kb_skill));
+    }
+
+    // Apply Function Calling parameters
+    if req.tool_choice.is_some() {
+        agent.set_tool_choice(req.tool_choice.clone());
+    }
+    if req.parallel_tool_calls.is_some() {
+        agent.set_parallel_tool_calls(req.parallel_tool_calls);
+    }
+
+    // Register cancellation token
+    let session_key = req
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "webui".to_string());
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    {
+        let mut tasks = state.running_agent_tasks.write().await;
+        tasks.insert(session_key.clone(), cancel_token.clone());
+    }
+
+    // Build user message
+    let user_msg = if req.images.is_empty() && req.files.is_empty() {
+        crate::types::ChatMessage::user(&req.message)
+    } else {
+        // Reuse the same message building logic as send_chat_message
+        let mut parts: Vec<crate::types::ContentPart> = Vec::new();
+        for url in &req.images {
+            if url.starts_with("data:") {
+                if let Some((media_type, data)) = parse_data_url(url) {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Image,
+                        text: None,
+                        image_url: None,
+                        image_data: Some(crate::types::ImageData { data, media_type }),
+                    });
+                } else {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::ImageUrl,
+                        text: None,
+                        image_url: Some(crate::types::ImageUrl {
+                            url: url.clone(),
+                            detail: None,
+                        }),
+                        image_data: None,
+                    });
+                }
+            } else {
+                parts.push(crate::types::ContentPart {
+                    part_type: crate::types::ContentPartType::ImageUrl,
+                    text: None,
+                    image_url: Some(crate::types::ImageUrl {
+                        url: url.clone(),
+                        detail: None,
+                    }),
+                    image_data: None,
+                });
+            }
+        }
+        for file in &req.files {
+            if file.mime_type.starts_with("image/") && file.content.starts_with("data:") {
+                if let Some((media_type, data)) = parse_data_url(&file.content) {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Image,
+                        text: None,
+                        image_url: None,
+                        image_data: Some(crate::types::ImageData { data, media_type }),
+                    });
+                } else {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::ImageUrl,
+                        text: None,
+                        image_url: Some(crate::types::ImageUrl {
+                            url: file.content.clone(),
+                            detail: None,
+                        }),
+                        image_data: None,
+                    });
+                }
+            } else {
+                let file_text =
+                    extract_attached_file_text(&file.name, &file.mime_type, &file.content);
+                if let Some(text) = file_text {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Text,
+                        text: Some(format!("--- File: {} ---\n{}", file.name, text)),
+                        image_url: None,
+                        image_data: None,
+                    });
+                }
+            }
+        }
+        parts.push(crate::types::ContentPart {
+            part_type: crate::types::ContentPartType::Text,
+            text: Some(req.message.clone()),
+            image_url: None,
+            image_data: None,
+        });
+        crate::types::ChatMessage {
+            role: crate::types::MessageRole::User,
+            content: Some(crate::types::MessageContent::Parts(parts)),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    };
+
+    // For DB persistence, user_message_text is already set above
+    let state_clone = state.clone();
+    let cancel_clone = cancel_token.clone();
+
+    // Create the streaming agent
+    let streamer = AgentStreamer::new(agent, user_msg);
+    let event_stream = streamer.into_stream();
+
+    // Convert StreamEvents to SSE Events, and persist messages to DB on completion
+    let sse_stream = async_stream::stream! {
+        let mut full_content = String::new();
+        let mut stream = event_stream;
+
+        // Closure to persist user and assistant messages to the conversation database.
+        // Should be called in every termination path (Done, Error, Cancelled, None).
+        let persist_to_db = |full_content: &str| {
+            let state = state_clone.clone();
+            let user_text = user_message_text.clone();
+            let content = full_content.to_string();
+            async move {
+                let conv_db = state.conversation_db.read().await;
+                if let Some(db) = conv_db.as_ref() {
+                    let conversation_id = state.ensure_chat_conversation().await.ok();
+                    if let Some(conv_id) = conversation_id {
+                        if let Err(e) = db
+                            .add_message(crate::conversation::models::AddMessageRequest {
+                                conversation_id: conv_id.clone(),
+                                role: "user".to_string(),
+                                content: user_text,
+                            })
+                            .await
+                        {
+                            tracing::error!("Failed to add user message to database: {}", e);
+                        }
+                        if !content.is_empty() {
+                            if let Err(e) = db
+                                .add_message(crate::conversation::models::AddMessageRequest {
+                                    conversation_id: conv_id,
+                                    role: "assistant".to_string(),
+                                    content,
+                                })
+                                .await
+                            {
+                                tracing::error!("Failed to add assistant message to database: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Handle cancellation
+        loop {
+            tokio::select! {
+                event_result = stream.next() => {
+                    match event_result {
+                        Some(Ok(event)) => {
+                            // Track content for DB persistence
+                            if let crate::types::StreamEvent::ContentDelta { delta } = &event {
+                                full_content.push_str(delta);
+                            }
+
+                            // Convert to SSE event
+                            let data = serde_json::to_string(&event).unwrap_or_default();
+                            yield Ok::<Event, std::convert::Infallible>(Event::default().data(data));
+
+                            // On Done, persist messages to DB
+                            if let crate::types::StreamEvent::Done { .. } = &event {
+                                persist_to_db(&full_content).await;
+                                // Remove the cancellation token
+                                {
+                                    let mut tasks = state_clone.running_agent_tasks.write().await;
+                                    tasks.remove(&session_key);
+                                }
+                                break;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            // Provider error
+                            let custom_msg = req.custom_error_message.clone().or_else(|| {
+                                // SAFETY: We are in a synchronous closure (or_else) inside a Tokio runtime.
+                                // Use try_read to avoid blocking the runtime.
+                                // If the lock is contended, we simply fall through to the default error message.
+                                state_clone.config_profiles.try_read().ok().and_then(|profiles| {
+                                    profiles
+                                        .values()
+                                        .find(|p| p.is_active && p.enable)
+                                        .and_then(|p| p.custom_error_message.clone())
+                                })
+                            });
+                            let error_msg = custom_msg.unwrap_or_else(|| e.to_string());
+                            let error_event = crate::types::StreamEvent::Error { error: error_msg };
+                            let data = serde_json::to_string(&error_event).unwrap_or_default();
+                            yield Ok(Event::default().data(data));
+                            // Persist partial content to DB before breaking
+                            persist_to_db(&full_content).await;
+                            // Remove cancellation token
+                            {
+                                let mut tasks = state_clone.running_agent_tasks.write().await;
+                                tasks.remove(&session_key);
+                            }
+                            break;
+                        }
+                        None => {
+                            // Stream ended without Done – persist any partial content
+                            persist_to_db(&full_content).await;
+                            // Remove cancellation token
+                            {
+                                let mut tasks = state_clone.running_agent_tasks.write().await;
+                                tasks.remove(&session_key);
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ = cancel_clone.cancelled() => {
+                    tracing::info!(
+                        session_id = %session_key,
+                        "WebUI streaming agent task was cancelled via /stop"
+                    );
+                    let stopped_event = crate::types::StreamEvent::Error {
+                        error: "任务已停止".to_string(),
+                    };
+                    let data = serde_json::to_string(&stopped_event).unwrap_or_default();
+                    yield Ok(Event::default().data(data));
+                    // Persist partial content to DB before breaking
+                    persist_to_db(&full_content).await;
+                    // Remove cancellation token
+                    {
+                        let mut tasks = state_clone.running_agent_tasks.write().await;
+                        tasks.remove(&session_key);
+                    }
+                    break;
+                }
+            }
+        }
+    };
+
+    Ok(axum::response::Sse::new(sse_stream)
+        .keep_alive(axum::response::sse::KeepAlive::default())
+        .into_response())
 }
 
 async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMessageDto>> {
@@ -2825,7 +3159,6 @@ async fn toggle_mcp_server(
 
 use crate::api::models::{CreatePlatformRequest, PlatformInstanceDto, UpdatePlatformRequest};
 use crate::platform::manager::PlatformInstanceConfig;
-use axum::response::IntoResponse;
 
 async fn list_platforms(State(state): State<Arc<AppState>>) -> Json<Vec<PlatformInstanceDto>> {
     let configs = state.platform_configs.read().await;

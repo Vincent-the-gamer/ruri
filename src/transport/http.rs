@@ -1,5 +1,6 @@
 use crate::provider::{Provider, ProviderError};
-use crate::types::{ChatRequest, ChatResponse};
+use crate::types::{ChatRequest, ChatResponse, StreamEvent};
+use futures_util::stream::BoxStream;
 use std::time::Duration;
 
 /// Configuration for the HTTP transport layer.
@@ -142,5 +143,16 @@ impl HttpTransport {
     /// Whether the underlying provider supports multimodal (image) content.
     pub fn supports_multimodal(&self) -> bool {
         self.provider.supports_multimodal()
+    }
+
+    /// Send a chat request and return a stream of events.
+    ///
+    /// Unlike [`send`], this does not use retry logic because the response
+    /// is a long-lived SSE stream that must not be duplicated.
+    pub fn send_stream(
+        &self,
+        request: ChatRequest,
+    ) -> BoxStream<'_, Result<StreamEvent, ProviderError>> {
+        self.provider.chat_stream(request)
     }
 }

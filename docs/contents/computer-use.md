@@ -30,19 +30,26 @@ When enabled, the AI can:
 
 For simple chat, file reading, or web search, you don't need Computer Use. Keep it off unless you want the AI to actually execute commands on your system.
 
-## Safety Modes
+## Runtime Modes
 
-Computer Use offers two modes with different safety levels:
+Computer Use offers three runtime modes with different safety levels:
 
-### Sandbox Mode (Recommended)
+| Mode               | Description                                                  | Best For                          |
+| ------------------ | ------------------------------------------------------------ | --------------------------------- |
+| **None**           | Computer Use is disabled                                     | Simple chat sessions              |
+| **AIO Sandbox** ⭐ | Commands run in an isolated Docker container via AIO Sandbox | Daily use (recommended)           |
+| **Local**          | Commands run directly on your system                         | When full system access is needed |
 
-Commands run in an isolated, restricted environment:
+### AIO Sandbox Mode (Recommended)
 
-- File access is limited to your workspace directory
-- Network access may be restricted
-- System-level commands are blocked
+AIO Sandbox runs commands inside an isolated Docker container, communicating with Ruri via HTTP API. This provides the strongest security boundary:
 
-This is the safest mode and works well for most tasks like building projects and running tests.
+- 🔒 Commands execute in an isolated container, isolated from the host system
+- 📦 The AI can use sandbox-specific tools: Shell, Read File, Write File, List Directory
+- 🌐 Sandbox endpoint is configurable, supporting remote sandbox instances
+- 🛡️ Host filesystem and system commands are not directly accessible
+
+To use AIO Sandbox, you need to deploy the [AIO Sandbox](https://github.com/agent-infra/sandbox) service first, then configure the sandbox endpoint in Ruri.
 
 ### Local Mode
 
@@ -62,11 +69,27 @@ In Local mode, the AI can execute any command your system allows. Only use this 
 
 1. Go to **Settings** in the sidebar
 2. Find the **Computer Use** section
-3. Choose your mode:
-   - **Sandbox** — Safer, restricted access (recommended)
+3. Choose your runtime mode:
+   - **None** — Disable Computer Use
+   - **AIO Sandbox** — Isolated Docker container (recommended)
    - **Local** — Full system access
-4. Set the **workspace directory** — This is where commands will run by default
-5. Save the configuration
+4. If AIO Sandbox is selected, configure the **Sandbox Endpoint** (e.g. `http://localhost:8080`)
+5. Set the **workspace directory** — This is where commands will run by default
+6. Save the configuration
+
+### AIO Sandbox Configuration
+
+AIO Sandbox connects to a remote sandbox service via HTTP API. The configuration is straightforward:
+
+| Setting      | Description             | Default                 |
+| ------------ | ----------------------- | ----------------------- |
+| **Endpoint** | AIO Sandbox service URL | `http://localhost:8080` |
+
+When AIO Sandbox mode is selected but no endpoint is configured, Ruri will fall back to basic local file tools and log a warning.
+
+::: tip
+You can deploy the AIO Sandbox service on the same machine or a remote server. For team environments, a shared sandbox instance allows multiple users to safely run commands without affecting the host system.
+:::
 
 ### Via Config Profile
 

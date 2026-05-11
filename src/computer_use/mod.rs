@@ -6,8 +6,9 @@ pub mod workspace;
 pub mod wrapped_tools;
 
 pub use aio_sandbox::{
-    AioSandboxClient, AioSandboxListDirectoryTool, AioSandboxReadFileTool, AioSandboxShellTool,
-    AioSandboxWriteFileTool,
+    AioSandboxClient, AioSandboxCreateFileTool, AioSandboxEditFileTool, AioSandboxFindFilesTool,
+    AioSandboxListDirectoryTool, AioSandboxReadFileTool, AioSandboxSearchInFileTool,
+    AioSandboxShellTool, AioSandboxWriteFileTool,
 };
 pub use config::{AioSandboxConfig, ComputerUseConfig, ComputerUseRuntime};
 pub use permissions::PermissionChecker;

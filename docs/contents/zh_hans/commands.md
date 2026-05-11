@@ -19,6 +19,7 @@ lastUpdated: true
 | `/set <key> <value>` | 设置会话变量       | 临时切换人格或模型时            |
 | `/unset <key>`       | 移除会话变量       | 取消之前的设置                  |
 | `/sid`               | 显示当前会话信息   | 查看会话 ID 等信息              |
+| `/whoami`            | 查看当前用户身份   | 确认自己是否有管理员权限时      |
 | `/dashboard_update`  | 更新 Web UI        | 需要 Web UI 更新时（管理员）    |
 
 ## 指令详解
@@ -90,6 +91,20 @@ lastUpdated: true
 ### `/sid` — 查看会话信息
 
 显示当前会话的 ID 和活跃配置信息。
+
+### `/whoami` — 查看用户身份
+
+显示你的用户 ID、当前平台、消息类型以及是否拥有管理员权限。在排查权限问题时很有用。
+
+**示例：**
+
+```
+/whoami
+```
+
+::: tip
+WebUI 用户默认被视为管理员（已通过登录认证）。如果你使用的是聊天平台（钉钉、Discord 等），管理员状态取决于你的用户 ID 是否在 Computer Use 设置的管理员列表中。
+:::
 
 ### `/dashboard_update` — 更新 Web UI
 

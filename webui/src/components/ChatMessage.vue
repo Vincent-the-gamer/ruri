@@ -2,12 +2,14 @@
 import { ref, computed } from "vue";
 import { marked } from "marked";
 import type { ChatMessage as ChatMessageType, ContentPart } from "../types";
+import { useChatStore } from "../stores/chat";
 import ruriAvatar from "../../assets/ruri-avatar.png";
 
 const props = defineProps<{
     message: ChatMessageType;
 }>();
 
+const chatStore = useChatStore();
 const showToolCalls = ref(false);
 
 const isUser = computed(() => props.message.role === "user");
@@ -17,6 +19,15 @@ const isSystem = computed(() => props.message.role === "system");
 
 const hasToolCalls =
     props.message.tool_calls && props.message.tool_calls.length > 0;
+
+/** Whether this assistant message is currently being streamed */
+const isCurrentlyStreaming = computed(
+    () =>
+        isAssistant.value &&
+        chatStore.isStreaming &&
+        chatStore.streamingContent !== "" &&
+        chatStore.messages[chatStore.messages.length - 1] === props.message,
+);
 
 function formatArgs(args: string): string {
     try {
@@ -204,6 +215,10 @@ function renderMarkdown(
                         </template>
                     </template>
                     <div v-else v-html="renderMarkdown(message.content)"></div>
+                    <span
+                        v-if="isCurrentlyStreaming"
+                        class="streaming-cursor"
+                    ></span>
                 </div>
                 <!-- Tool calls -->
                 <div v-if="hasToolCalls" class="tool-calls">
@@ -789,5 +804,26 @@ function renderMarkdown(
     background: hsl(var(--background));
     border-radius: 0.25rem;
     border: 1px solid hsl(var(--border));
+}
+
+/* Streaming cursor */
+.streaming-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: hsl(var(--primary));
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink-cursor 1s step-end infinite;
+}
+
+@keyframes blink-cursor {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
 }
 </style>

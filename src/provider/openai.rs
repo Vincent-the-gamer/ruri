@@ -1,8 +1,18 @@
 use crate::provider::{Provider, ProviderError};
 use crate::types::{
-    ChatMessage, ChatRequest, ChatResponse, Choice, MessageContent, MessageRole, Usage,
+    ChatMessage, ChatRequest, ChatResponse, Choice, MessageContent, MessageRole, StreamEvent,
+    StreamUsage, Usage,
 };
 use async_trait::async_trait;
+use futures_util::StreamExt;
+use futures_util::stream::BoxStream;
+
+/// Helper struct to accumulate tool call data across streaming chunks.
+struct StreamingToolCall {
+    id: String,
+    function_name: String,
+    arguments: String,
+}
 
 /// OpenAI-compatible API provider.
 ///
@@ -188,6 +198,216 @@ impl Provider for OpenAIProvider {
 
     fn supports_multimodal(&self) -> bool {
         self.supports_multimodal
+    }
+
+    fn chat_stream<'a>(
+        &'a self,
+        request: ChatRequest,
+    ) -> BoxStream<'a, Result<StreamEvent, ProviderError>> {
+        let url = self.chat_url();
+        let mut body = self.build_request_body(request);
+        // Enable streaming
+        body["stream"] = serde_json::Value::Bool(true);
+        // streaming_options for usage
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "stream_options".to_string(),
+                serde_json::json!({"include_usage": true}),
+            );
+        }
+
+        let client = self.client.clone();
+        let api_key = self.api_key.clone();
+        let extra_headers = self.extra_headers.clone();
+
+        let stream = async_stream::stream! {
+            let mut req_builder = client
+                .post(&url)
+                .header("Content-Type", "application/json");
+
+            if let Some(ref api_key) = api_key {
+                req_builder = req_builder.bearer_auth(api_key);
+            }
+            for (key, value) in &extra_headers {
+                req_builder = req_builder.header(key.as_str(), value.as_str());
+            }
+
+            let response = match req_builder.json(&body).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    yield Err(ProviderError::HttpError(e));
+                    return;
+                }
+            };
+
+            let status = response.status();
+            if status.is_client_error() || status.is_server_error() {
+                let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".into());
+                yield Err(ProviderError::ApiError {
+                    status: status.as_u16(),
+                    message: error_text,
+                });
+                return;
+            }
+
+            // Parse SSE stream
+            let mut stream = response.bytes_stream();
+            let mut buffer = String::new();
+            // Accumulated tool calls across chunks
+            let mut tool_calls: Vec<StreamingToolCall> = Vec::new();
+
+            while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+                let chunk = match chunk_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        yield Err(ProviderError::HttpError(e));
+                        return;
+                    }
+                };
+
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                // Process complete SSE lines
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim().to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            // Emit tool call end events for any completed tool calls
+                            for tc in &tool_calls {
+                                yield Ok(StreamEvent::ToolCallEnd {
+                                    tool_call_id: tc.id.clone(),
+                                    function_name: tc.function_name.clone(),
+                                    arguments: tc.arguments.clone(),
+                                });
+                            }
+                            yield Ok(StreamEvent::Done { usage: None });
+                            return;
+                        }
+
+                        // Parse the SSE data as JSON
+                        let event: serde_json::Value = match serde_json::from_str(data) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+
+                        // Extract usage if present
+                        if let Some(usage) = event.get("usage") {
+                            // We'll include usage in the Done event
+                            let prompt = usage.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let completion = usage.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                            // Emit done with usage
+                            for tc in &tool_calls {
+                                yield Ok(StreamEvent::ToolCallEnd {
+                                    tool_call_id: tc.id.clone(),
+                                    function_name: tc.function_name.clone(),
+                                    arguments: tc.arguments.clone(),
+                                });
+                            }
+                            yield Ok(StreamEvent::Done {
+                                usage: Some(StreamUsage {
+                                    prompt_tokens: prompt,
+                                    completion_tokens: completion,
+                                }),
+                            });
+                            return;
+                        }
+
+                        // Extract content delta from choices
+                        if let Some(choices) = event.get("choices").and_then(|c| c.as_array()) {
+                            for choice in choices {
+                                let delta = choice.get("delta");
+
+                                // Content delta
+                                if let Some(content) = delta
+                                    .and_then(|d| d.get("content"))
+                                    .and_then(|c| c.as_str())
+                                {
+                                    if !content.is_empty() {
+                                        yield Ok(StreamEvent::ContentDelta {
+                                            delta: content.to_string(),
+                                        });
+                                    }
+                                }
+
+                                // Tool call deltas
+                                if let Some(tc_deltas) = delta
+                                    .and_then(|d| d.get("tool_calls"))
+                                    .and_then(|t| t.as_array())
+                                {
+                                    for tc_delta in tc_deltas {
+                                        let idx = tc_delta
+                                            .get("index")
+                                            .and_then(|i| i.as_u64())
+                                            .unwrap_or(0) as usize;
+
+                                        // Ensure we have enough slots
+                                        while tool_calls.len() <= idx {
+                                            tool_calls.push(StreamingToolCall {
+                                                id: String::new(),
+                                                function_name: String::new(),
+                                                arguments: String::new(),
+                                            });
+                                        }
+
+                                        let tc = &mut tool_calls[idx];
+
+                                        // First chunk: get id and function name
+                                        if let Some(id) = tc_delta.get("id").and_then(|i| i.as_str()) {
+                                            let is_new = tc.id.is_empty();
+                                            tc.id = id.to_string();
+                                            if is_new {
+                                                if let Some(fname) = tc_delta
+                                                    .get("function")
+                                                    .and_then(|f| f.get("name"))
+                                                    .and_then(|n| n.as_str())
+                                                {
+                                                    tc.function_name = fname.to_string();
+                                                    yield Ok(StreamEvent::ToolCallStart {
+                                                        tool_call_id: tc.id.clone(),
+                                                        function_name: fname.to_string(),
+                                                    });
+                                                }
+                                            }
+                                        }
+
+                                        // Arguments delta
+                                        if let Some(args_delta) = tc_delta
+                                            .get("function")
+                                            .and_then(|f| f.get("arguments"))
+                                            .and_then(|a| a.as_str())
+                                        {
+                                            tc.arguments.push_str(args_delta);
+                                            yield Ok(StreamEvent::ToolCallDelta {
+                                                tool_call_id: tc.id.clone(),
+                                                arguments_delta: args_delta.to_string(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If we get here without [DONE], still emit events for any tool calls
+            for tc in &tool_calls {
+                yield Ok(StreamEvent::ToolCallEnd {
+                    tool_call_id: tc.id.clone(),
+                    function_name: tc.function_name.clone(),
+                    arguments: tc.arguments.clone(),
+                });
+            }
+            yield Ok(StreamEvent::Done { usage: None });
+        };
+
+        stream.boxed()
     }
 }
 

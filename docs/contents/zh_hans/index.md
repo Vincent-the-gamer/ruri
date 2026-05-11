@@ -42,6 +42,14 @@ features:
     details: 钉钉、Discord、微信集成，支持热重载配置。
     icon:
       src: "/imgs/chat-platforms.svg"
+  - title: AIO 沙盒
+    details: 通过 AIO Sandbox 在隔离的 Docker 容器中安全执行命令。
+    icon:
+      src: "/imgs/sandbox.svg"
+  - title: 指令系统
+    details: 便捷的聊天指令，用于会话控制、设置和身份管理。
+    icon:
+      src: "/imgs/command-system.svg"
 ---
 
 > [!WARNING] 文档完善中

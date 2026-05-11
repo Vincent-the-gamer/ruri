@@ -42,6 +42,14 @@ features:
     details: DingTalk, Discord, WeChat integration with hot-reload config.
     icon:
       src: "/imgs/chat-platforms.svg"
+  - title: AIO Sandbox
+    details: Isolated Docker container environment for safe command execution via AIO Sandbox.
+    icon:
+      src: "/imgs/sandbox.svg"
+  - title: Command System
+    details: Handy chat commands for session control, settings, and identity management.
+    icon:
+      src: "/imgs/command-system.svg"
 ---
 
 > [!WARNING]
