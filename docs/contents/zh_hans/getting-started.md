@@ -14,36 +14,20 @@ Ruri 是一个全栈 AI 智能体应用，结合了高性能的 Rust 后端和�
 
 **技术栈：**
 
-| 层级   | 技术                          |
-| ------ | ----------------------------- |
-| 后端   | Rust (Axum, SQLite, Tokio)    |
-| 前端   | Vue 3 + Vite + UnoCSS         |
+| 层级 | 技术                       |
+| ---- | -------------------------- |
+| 后端 | Rust (Axum, SQLite, Tokio) |
+| 前端 | Vue 3 + Vite + UnoCSS      |
 
 ## 前置条件
 
-- [Rust](https://www.rust-lang.org/tools/install)（最新稳定版）
-- [Node.js](https://nodejs.org/)（用于前端构建，如从源码构建）
-- AI 模型提供商 API 密钥（Anthropic、OpenAI 或兼容接口）
+一个AI大模型提供商(chat/embedding), 你需要一个 API 密钥（Anthropic, OpenAI, 或兼容接口）
 
 ## 安装
 
-### 从源码构建
+下载最新版本： [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
 
-克隆仓库并构建项目：
-
-```bash
-git clone https://github.com/Vincent-the-gamer/ruri.git
-cd ruri
-cargo build --release
-```
-
-编译后的二进制文件位于 `target/release/ruri`。
-
-### 开发模式运行
-
-```bash
-cargo run
-```
+将其添加到您的 环境变量 PATH 中。
 
 这将启动后端服务器以及 Web UI。
 
@@ -53,10 +37,10 @@ cargo run
 
 首次启动时，Ruri 使用以下默认凭据：
 
-| 字段   | 默认值   |
-| ------ | -------- |
-| 用户名 | `ruri`   |
-| 密码   | `ruri`   |
+| 字段   | 默认值 |
+| ------ | ------ |
+| 用户名 | `ruri` |
+| 密码   | `ruri` |
 
 ::: warning
 首次登录时，系统会提示您修改密码以提高安全性。

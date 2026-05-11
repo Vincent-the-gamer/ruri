@@ -7,7 +7,7 @@ hero:
   text: "可自定义的 AI 智能体"
   tagline: "一个可自定义的 AI 智能体，使用 Rust + Vue 编写。"
   image:
-    src: "/logo/logo.png"
+    src: "/logo/ruri-avatar.png"
     alt: logo
   actions:
     - theme: brand
@@ -43,3 +43,6 @@ features:
     icon:
       src: "/imgs/chat-platforms.svg"
 ---
+
+> [!WARNING] 注意
+> 该文档为ruri内测版构建相关内容，并非最终版，现在还没有对用户使用方法进行特化描述。

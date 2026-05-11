@@ -11,6 +11,10 @@ import { ImagePlugin } from './plugins/markdown/image'
 const teekConfig = defineTeekConfig({
   // 启用 Teek 主题
   teekTheme: true,
+  // 禁用自动生成侧边栏插件，使用手动配置的侧边栏
+  vitePlugins: {
+    sidebar: false,
+  },
   // 禁用 Teek 博客风格首页，使用 VitePress 默认首页
   teekHome: false,
   // 启用 VitePress 默认首页风格

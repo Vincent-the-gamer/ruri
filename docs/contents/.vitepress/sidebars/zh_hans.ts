@@ -1,7 +1,7 @@
 export default [
   {
     text: '指南',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: '快速开始', link: '/zh_hans/getting-started' },
       { text: '模型提供商', link: '/zh_hans/providers' },
@@ -9,7 +9,7 @@ export default [
   },
   {
     text: '功能',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: '内置工具', link: '/zh_hans/tools' },
       { text: '技能系统', link: '/zh_hans/skills' },
@@ -21,7 +21,7 @@ export default [
   },
   {
     text: '平台与集成',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: '聊天平台', link: '/zh_hans/platforms' },
       { text: 'Computer Use', link: '/zh_hans/computer-use' },
@@ -30,7 +30,7 @@ export default [
   },
   {
     text: '配置',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: '配置方案', link: '/zh_hans/config-profiles' },
       { text: 'API 参考', link: '/zh_hans/api' },

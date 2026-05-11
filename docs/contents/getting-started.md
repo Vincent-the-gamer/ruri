@@ -14,36 +14,20 @@ Ruri is a full-stack AI agent application that combines a high-performance Rust 
 
 **Tech Stack:**
 
-| Layer    | Technology                        |
-| -------- | --------------------------------- |
-| Backend  | Rust (Axum, SQLite, Tokio)        |
-| Frontend | Vue 3 + Vite + UnoCSS             |
+| Layer    | Technology                 |
+| -------- | -------------------------- |
+| Backend  | Rust (Axum, SQLite, Tokio) |
+| Frontend | Vue 3 + Vite + UnoCSS      |
 
 ## Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Node.js](https://nodejs.org/) (for frontend builds, if building from source)
-- An AI model provider API key (Anthropic, OpenAI, or compatible)
+An AI model provider(chat/embedding), you'll need API key (Anthropic, OpenAI, or compatible)
 
 ## Installation
 
-### Build from Source
+Download the latest release from [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
 
-Clone the repository and build the project:
-
-```bash
-git clone https://github.com/Vincent-the-gamer/ruri.git
-cd ruri
-cargo build --release
-```
-
-The compiled binary will be available at `target/release/ruri`.
-
-### Run in Development Mode
-
-```bash
-cargo run
-```
+and add it to your PATH.
 
 This starts the backend server along with the Web UI.
 

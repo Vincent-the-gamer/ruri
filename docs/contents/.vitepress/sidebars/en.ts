@@ -1,7 +1,7 @@
 export default [
   {
     text: 'Guide',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: 'Getting Started', link: '/getting-started' },
       { text: 'Model Providers', link: '/providers' },
@@ -9,7 +9,7 @@ export default [
   },
   {
     text: 'Features',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: 'Built-in Tools', link: '/tools' },
       { text: 'Skills', link: '/skills' },
@@ -21,7 +21,7 @@ export default [
   },
   {
     text: 'Platforms & Integrations',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: 'Chat Platforms', link: '/platforms' },
       { text: 'Computer Use', link: '/computer-use' },
@@ -30,7 +30,7 @@ export default [
   },
   {
     text: 'Configuration',
-    collapsed: false,
+    collapsed: true,
     items: [
       { text: 'Config Profiles', link: '/config-profiles' },
       { text: 'API Reference', link: '/api' },
