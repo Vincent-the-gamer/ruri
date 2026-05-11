@@ -126,8 +126,10 @@ const isConfigEnabled = computed(
 );
 
 onMounted(async () => {
+    // fetchHistory is cache-first, so it restores from localStorage instantly
+    // then syncs with DB in the background — no need to await it
+    chatStore.fetchHistory();
     await Promise.all([
-        chatStore.fetchHistory(),
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
@@ -136,9 +138,10 @@ onMounted(async () => {
     scrollToBottom();
 });
 
-// When activated from keep-alive cache, refetch chat history from database
-onActivated(async () => {
-    await chatStore.fetchHistory();
+// When activated from keep-alive cache, gently sync with database
+// (does NOT show loading state, does NOT replace if streaming)
+onActivated(() => {
+    chatStore.syncWithDatabase();
     scrollToBottom();
 });
 

@@ -14,12 +14,60 @@ import { marked } from "marked";
 
 const { t } = useI18n();
 
+// ── localStorage cache helpers for conversation messages ──
+const CONV_MESSAGES_CACHE_KEY = "ruri_conv_messages_cache";
+const CONV_MESSAGES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface CachedMessages {
+    messages: Message[];
+    timestamp: number;
+}
+
+function saveConvMessagesToCache(conversationId: string, messages: Message[]) {
+    try {
+        const cache = loadAllConvMessagesCache();
+        cache[conversationId] = { messages, timestamp: Date.now() };
+        // Prune expired entries
+        const now = Date.now();
+        for (const [key, val] of Object.entries(cache)) {
+            if (now - val.timestamp > CONV_MESSAGES_CACHE_TTL) {
+                delete cache[key];
+            }
+        }
+        localStorage.setItem(CONV_MESSAGES_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+        // localStorage might be full
+    }
+}
+
+function loadAllConvMessagesCache(): Record<string, CachedMessages> {
+    try {
+        const raw = localStorage.getItem(CONV_MESSAGES_CACHE_KEY);
+        if (raw) return JSON.parse(raw);
+    } catch {
+        // ignore
+    }
+    return {};
+}
+
+function loadConvMessagesFromCache(conversationId: string): Message[] | null {
+    const cache = loadAllConvMessagesCache();
+    const entry = cache[conversationId];
+    if (entry && Date.now() - entry.timestamp < CONV_MESSAGES_CACHE_TTL) {
+        return entry.messages;
+    }
+    return null;
+}
+
 // 对话列表
 const conversations = ref<Conversation[]>([]);
 // 加载状态
 const loading = ref(false);
 // 错误信息
 const error = ref<string | null>(null);
+
+// 对话预览消息 (keyed by conversation id)
+const previewMessages = ref<Record<string, Message[]>>({});
 
 // 筛选条件
 const filter = ref<ConversationFilter>({
@@ -50,6 +98,8 @@ async function loadConversations() {
 
     try {
         conversations.value = await listConversations(filter.value);
+        // Load preview messages for all conversations (cache-first)
+        await loadPreviewMessages();
     } catch (err: any) {
         console.error("Failed to load conversations:", err);
         error.value =
@@ -57,6 +107,59 @@ async function loadConversations() {
     } finally {
         loading.value = false;
     }
+}
+
+// Load preview messages for all conversations (cache-first strategy)
+async function loadPreviewMessages() {
+    const BATCH_SIZE = 5; // Fetch max 5 conversations' messages concurrently
+    const ids = conversations.value.map((c) => c.id);
+
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        const promises = batch.map(async (convId) => {
+            // 1. Try cache first
+            const cached = loadConvMessagesFromCache(convId);
+            if (cached) {
+                previewMessages.value[convId] = cached;
+                return;
+            }
+            // 2. Fetch from server
+            try {
+                const msgs = await getConversationMessages(convId);
+                previewMessages.value[convId] = msgs;
+                saveConvMessagesToCache(convId, msgs);
+            } catch {
+                previewMessages.value[convId] = [];
+            }
+        });
+        await Promise.all(promises);
+    }
+}
+
+// Get preview text for a conversation (first few messages)
+function getConversationPreview(conversationId: string): string {
+    const msgs = previewMessages.value[conversationId];
+    if (!msgs || msgs.length === 0) return "";
+
+    // Show first 3 non-system messages as a preview
+    const displayMsgs = msgs.filter((m) => m.role !== "system").slice(0, 3);
+
+    return displayMsgs
+        .map((m) => {
+            const prefix =
+                m.role === "user" ? "👤" : m.role === "assistant" ? "🤖" : "🔧";
+            const text = typeof m.content === "string" ? m.content : "";
+            // Truncate long content
+            const truncated =
+                text.length > 100 ? text.slice(0, 100) + "..." : text;
+            return `${prefix} ${truncated}`;
+        })
+        .join("\n");
+}
+
+// Get message count for a conversation
+function getMessageCount(conversationId: string): number {
+    return previewMessages.value[conversationId]?.length ?? 0;
 }
 
 // 应用筛选
@@ -102,9 +205,23 @@ async function openConversationDetail(conversation: Conversation) {
     detailOpen.value = true;
     detailLoading.value = true;
 
+    // 1. Try to show from preview cache first for instant display
+    const cached = previewMessages.value[conversation.id];
+    if (cached && cached.length > 0) {
+        detailMessages.value = cached;
+        detailLoading.value = false;
+        await nextTick();
+        scrollToBottom();
+        return;
+    }
+
+    // 2. Fallback: fetch from server
     try {
         const messages = await getConversationMessages(conversation.id);
         detailMessages.value = messages;
+        // Update cache
+        previewMessages.value[conversation.id] = messages;
+        saveConvMessagesToCache(conversation.id, messages);
         // 等待 DOM 更新后滚动到底部
         await nextTick();
         scrollToBottom();
@@ -293,46 +410,24 @@ onMounted(() => {
             <span>{{ t("common.loading") }}</span>
         </div>
 
-        <!-- 对话列表表格 -->
-        <div v-else-if="conversations.length > 0" class="table-container">
-            <table class="conversations-table">
-                <thead>
-                    <tr>
-                        <th>{{ t("conversationHistory.table.title") }}</th>
-                        <th>{{ t("conversationHistory.table.botName") }}</th>
-                        <th>{{ t("conversationHistory.table.chatType") }}</th>
-                        <th>{{ t("conversationHistory.table.chatId") }}</th>
-                        <th>{{ t("conversationHistory.table.createdAt") }}</th>
-                        <th>{{ t("conversationHistory.table.updatedAt") }}</th>
-                        <th>{{ t("conversationHistory.table.actions") }}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr
-                        v-for="conversation in conversations"
-                        :key="conversation.id"
-                        class="conversation-row"
-                        @click="openConversationDetail(conversation)"
-                    >
-                        <td class="title-cell">
+        <!-- 对话卡片列表 -->
+        <div v-else-if="conversations.length > 0" class="conversation-cards">
+            <div
+                v-for="conversation in conversations"
+                :key="conversation.id"
+                class="conversation-card"
+                @click="openConversationDetail(conversation)"
+            >
+                <!-- 卡片头部：标题 + 元信息 -->
+                <div class="card-header">
+                    <div class="card-title-row">
+                        <h3 class="card-title">
                             {{
                                 conversation.title ||
                                 t("conversationHistory.noTitle")
                             }}
-                        </td>
-                        <td>{{ conversation.bot_name }}</td>
-                        <td>
-                            <span
-                                class="chat-type-badge"
-                                :class="`type-${conversation.chat_type}`"
-                            >
-                                {{ chatTypeLabel(conversation.chat_type) }}
-                            </span>
-                        </td>
-                        <td class="chat-id-cell">{{ conversation.chat_id }}</td>
-                        <td>{{ formatDateTime(conversation.created_at) }}</td>
-                        <td>{{ formatDateTime(conversation.updated_at) }}</td>
-                        <td class="actions-cell" @click.stop>
+                        </h3>
+                        <div class="card-actions" @click.stop>
                             <button
                                 class="btn-icon btn-view"
                                 :title="t('conversationHistory.view')"
@@ -349,10 +444,62 @@ onMounted(() => {
                             >
                                 <Icon icon="lucide:trash-2" />
                             </button>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+                        </div>
+                    </div>
+                    <div class="card-meta">
+                        <span class="meta-tag">
+                            <Icon icon="lucide:bot" class="meta-icon" />
+                            {{ conversation.bot_name }}
+                        </span>
+                        <span
+                            class="chat-type-badge"
+                            :class="`type-${conversation.chat_type}`"
+                        >
+                            {{ chatTypeLabel(conversation.chat_type) }}
+                        </span>
+                        <span class="meta-tag">
+                            <Icon icon="lucide:mail" class="meta-icon" />
+                            {{ getMessageCount(conversation.id) }}
+                            {{ t("conversationHistory.messages") }}
+                        </span>
+                        <span class="meta-tag">
+                            <Icon icon="lucide:clock" class="meta-icon" />
+                            {{ formatDateTime(conversation.updated_at) }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 卡片内容：消息预览 -->
+                <div class="card-preview">
+                    <template v-if="getConversationPreview(conversation.id)">
+                        <div
+                            v-for="(line, idx) in getConversationPreview(
+                                conversation.id,
+                            ).split('\n')"
+                            :key="idx"
+                            class="preview-line"
+                            :class="{
+                                'preview-user': line.startsWith('👤'),
+                                'preview-assistant': line.startsWith('🤖'),
+                                'preview-tool': line.startsWith('🔧'),
+                            }"
+                        >
+                            {{ line }}
+                        </div>
+                    </template>
+                    <div v-else class="preview-empty">
+                        {{ t("conversationHistory.noMessages") }}
+                    </div>
+                </div>
+
+                <!-- 卡片底部：查看全部 -->
+                <div class="card-footer">
+                    <span class="view-all-link">
+                        <Icon icon="lucide:arrow-right" class="meta-icon" />
+                        {{ t("conversationHistory.view") }}
+                    </span>
+                </div>
+            </div>
         </div>
 
         <!-- 空状态 -->
@@ -793,70 +940,156 @@ onMounted(() => {
     }
 }
 
-/* 表格容器 */
-.table-container {
-    overflow-x: auto;
+/* 对话卡片列表 */
+.conversation-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+}
+
+.conversation-card {
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
     border-radius: 12px;
-    background: hsl(var(--card));
-}
-
-.conversations-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 800px;
-}
-
-.conversations-table thead {
-    background: hsl(var(--muted) / 0.3);
-}
-
-.conversations-table th {
-    padding: 12px 16px;
-    text-align: left;
-    font-size: 12px;
-    font-weight: 600;
-    color: hsl(var(--muted-foreground));
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid hsl(var(--border));
-}
-
-.conversations-table td {
-    padding: 12px 16px;
-    border-bottom: 1px solid hsl(var(--border));
-    color: hsl(var(--foreground));
-    font-size: 14px;
-}
-
-.conversations-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-/* 可点击的对话行 */
-.conversation-row {
+    overflow: hidden;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: all 0.2s ease;
 }
 
-.conversations-table tbody tr.conversation-row:hover {
-    background: hsl(var(--muted) / 0.2);
+.conversation-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.08);
+    transform: translateY(-1px);
 }
 
-.conversations-table tbody tr.conversation-row:active {
-    background: hsl(var(--muted) / 0.3);
+.conversation-card:active {
+    transform: translateY(0);
 }
 
-/* 特殊单元格 */
-.title-cell {
-    font-weight: 600;
+/* 卡片头部 */
+.card-header {
+    padding: 16px 16px 8px;
+}
+
+.card-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 700;
     color: hsl(var(--foreground));
+    margin: 0;
+    line-height: 1.3;
+    word-break: break-word;
+    flex: 1;
+    min-width: 0;
 }
 
-.chat-id-cell {
-    font-family: "Monaco", "Courier New", monospace;
-    font-size: 12px;
+.card-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.meta-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
     color: hsl(var(--muted-foreground));
+}
+
+.meta-tag .meta-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+}
+
+/* 卡片内容预览 */
+.card-preview {
+    padding: 8px 16px;
+    border-top: 1px solid hsl(var(--border) / 0.5);
+    background: hsl(var(--muted) / 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-height: 80px;
+    max-height: 140px;
+    overflow: hidden;
+}
+
+.preview-line {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: hsl(var(--muted-foreground));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preview-user {
+    color: hsl(var(--primary));
+    font-weight: 500;
+}
+
+.preview-assistant {
+    color: hsl(var(--foreground) / 0.8);
+}
+
+.preview-tool {
+    color: hsl(38 92% 50%);
+    font-size: 0.75rem;
+}
+
+.preview-empty {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground) / 0.6);
+    font-style: italic;
+    padding: 8px 0;
+}
+
+/* 卡片底部 */
+.card-footer {
+    padding: 8px 16px;
+    border-top: 1px solid hsl(var(--border) / 0.3);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.view-all-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--primary));
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    transition: gap 0.2s ease;
+}
+
+.conversation-card:hover .view-all-link {
+    gap: 8px;
+}
+
+.view-all-link .meta-icon {
+    width: 14px;
+    height: 14px;
 }
 
 /* 聊天类型徽章 */
@@ -881,15 +1114,7 @@ onMounted(() => {
     border: 1px solid hsl(var(--primary) / 0.2);
 }
 
-/* 操作单元格 */
-.actions-cell {
-    text-align: right;
-    white-space: nowrap;
-    display: flex;
-    gap: 4px;
-    justify-content: flex-end;
-}
-
+/* 按钮图标 */
 .btn-icon {
     display: inline-flex;
     align-items: center;
@@ -1475,6 +1700,10 @@ onMounted(() => {
 
     .filter-actions .btn {
         flex: 1;
+    }
+
+    .conversation-cards {
+        grid-template-columns: 1fr;
     }
 
     .detail-panel {

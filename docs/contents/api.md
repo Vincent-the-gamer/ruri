@@ -66,11 +66,21 @@ DELETE /api/chat/history
 
 ## Conversations
 
+See the [Chat History](/chat-history) page for a detailed overview of the conversation system.
+
 ### List Conversations
 
 ```
 GET /api/conversations
 ```
+
+**Query parameters (optional):**
+
+| Parameter   | Description                                 |
+| ----------- | ------------------------------------------- |
+| `bot_name`  | Filter by bot name                          |
+| `chat_type` | Filter by `group` or `private`              |
+| `keyword`   | Search in title and chat ID (partial match) |
 
 ### Create Conversation
 
@@ -82,6 +92,9 @@ POST /api/conversations
 
 ```json
 {
+  "bot_name": "my-bot",
+  "chat_type": "private",
+  "chat_id": "user-123",
   "title": "My Conversation"
 }
 ```
@@ -98,6 +111,8 @@ GET /api/conversations/:id
 DELETE /api/conversations/:id
 ```
 
+Deletes a conversation and **all its messages** (cascade delete). Returns `204 No Content` on success.
+
 ### Add Message to Conversation
 
 ```
@@ -113,11 +128,15 @@ POST /api/conversations/:id/messages
 }
 ```
 
+The conversation's `updated_at` timestamp is automatically refreshed when a message is added.
+
 ### Get Conversation Messages
 
 ```
 GET /api/conversations/:id/messages
 ```
+
+Returns all messages in a conversation, ordered by `created_at` ascending.
 
 ## Providers
 
@@ -317,15 +336,15 @@ All endpoints return errors in the following format:
 
 Common HTTP status codes:
 
-| Status | Description                           |
-| ------ | ------------------------------------- |
-| 200    | Success                               |
-| 201    | Created                               |
-| 400    | Bad request — Invalid input           |
+| Status | Description                            |
+| ------ | -------------------------------------- |
+| 200    | Success                                |
+| 201    | Created                                |
+| 400    | Bad request — Invalid input            |
 | 401    | Unauthorized — Authentication required |
-| 403    | Forbidden — Insufficient permissions  |
-| 404    | Not found                             |
-| 500    | Internal server error                 |
+| 403    | Forbidden — Insufficient permissions   |
+| 404    | Not found                              |
+| 500    | Internal server error                  |
 
 ## Authentication Details
 

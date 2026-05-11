@@ -45,9 +45,54 @@ Computer Use offers three runtime modes with different safety levels:
 AIO Sandbox runs commands inside an isolated Docker container, communicating with Ruri via HTTP API. This provides the strongest security boundary:
 
 - 🔒 Commands execute in an isolated container, isolated from the host system
-- 📦 The AI can use sandbox-specific tools: Shell, Read File, Write File, List Directory
+- 📦 The AI can use 8 sandbox-specific tools (see below)
 - 🌐 Sandbox endpoint is configurable, supporting remote sandbox instances
 - 🛡️ Host filesystem and system commands are not directly accessible
+- 🔄 Automatic retry with exponential backoff for transient server errors
+- 🔗 Shell commands maintain a session ID for continuity across invocations
+
+### AIO Sandbox Tools
+
+When AIO Sandbox mode is active, the AI has access to the following tools for interacting with the sandbox container:
+
+| Tool               | ID               | Description                                                                               |
+| ------------------ | ---------------- | ----------------------------------------------------------------------------------------- |
+| **Shell**          | `shell`          | Execute shell commands in the sandbox container, with an optional timeout                 |
+| **Read File**      | `read_file`      | Read file contents from the sandbox                                                       |
+| **Write File**     | `write_file`     | Write content to a file in the sandbox                                                    |
+| **Create File**    | `create_file`    | Create a new file (fails if the file already exists; auto-creates parent directories)     |
+| **Edit File**      | `edit_file`      | Find and replace exact text in a file — surgical edits using `old_text`/`new_text` pairs  |
+| **List Directory** | `list_directory` | List directory contents with file info (size, type, permissions), defaults to `/home/gem` |
+| **Find Files**     | `find_files`     | Find files by name pattern using glob syntax (e.g., `**/*.py`, `src/**/*.rs`)             |
+| **Search in File** | `search_in_file` | Search within a file using a regex pattern, returns matches with line numbers             |
+
+#### Tool Details
+
+- **Shell** — Runs commands in a persistent shell session. The sandbox maintains a `session_id` so environment variables, `cd` changes, and other side effects persist across multiple shell calls within the same conversation. You can optionally specify a timeout (in seconds) for long-running commands.
+
+- **Read File** — Reads the full content of a file at a given path inside the sandbox.
+
+- **Write File** — Writes content to a file, overwriting any existing content. The parent directory must already exist.
+
+- **Create File** — Creates a new file only if it does not already exist. Unlike Write File, it automatically creates any missing parent directories, making it safe for building out new project structures.
+
+- **Edit File** — Performs precise, surgical edits by replacing an exact `old_text` snippet with `new_text`. This avoids the risk of overwriting unrelated content. Returns the number of replacements made.
+
+- **List Directory** — Lists the contents of a directory with rich metadata: file name, whether it's a file or directory, size, modification time, and permissions. Results include a summary of total, directory, and file counts.
+
+- **Find Files** — Searches for files matching a glob pattern. Supports standard glob syntax like `**/*.py` (all Python files recursively) or `src/**/*.rs` (Rust files under `src/`). Returns a list of matching file paths.
+
+- **Search in File** — Searches within a specific file using a regular expression pattern. Returns the matched text along with the corresponding line numbers, making it easy to locate specific code or content.
+
+### Retry & Error Handling
+
+The AIO Sandbox client includes built-in resilience to handle transient server issues:
+
+- **Automatic retry** — When the sandbox API returns a transient server error (HTTP 502 Bad Gateway, 503 Service Unavailable, or 504 Gateway Timeout), the client automatically retries the request.
+- **Exponential backoff** — Retries use exponential backoff delays: 1s, 2s, 4s between attempts.
+- **Up to 3 retries** — The client will retry up to 3 times (4 total attempts) before giving up.
+- **Descriptive error messages** — Transient errors include helpful context, such as reminding you to check whether the sandbox container is running and whether the configured endpoint is reachable.
+- **No retry on client errors** — HTTP 4xx errors and parse errors are returned immediately without retry, since they indicate a problem with the request itself rather than a transient server issue.
 
 To use AIO Sandbox, you need to deploy the [AIO Sandbox](https://github.com/agent-infra/sandbox) service first, then configure the sandbox endpoint in Ruri.
 

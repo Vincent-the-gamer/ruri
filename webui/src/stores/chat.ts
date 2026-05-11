@@ -3,20 +3,20 @@ import { ref, computed, watch } from 'vue'
 import type { ChatMessage, ChatRequest, ContentPart, StreamEvent } from '../types'
 import * as api from '../api'
 
-// ── sessionStorage cache helpers (cleared when browser closes) ──────────
+// ── localStorage cache helpers (persists across page navigations & tab refreshes) ──────
 const CHAT_CACHE_KEY = 'ruri_chat_messages_cache'
 
 function saveMessagesToCache(messages: ChatMessage[]) {
   try {
-    sessionStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(messages))
+    localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(messages))
   } catch {
-    // sessionStorage might be full or unavailable, ignore
+    // localStorage might be full or unavailable, ignore
   }
 }
 
 function loadMessagesFromCache(): ChatMessage[] | null {
   try {
-    const cached = sessionStorage.getItem(CHAT_CACHE_KEY)
+    const cached = localStorage.getItem(CHAT_CACHE_KEY)
     if (cached) {
       return JSON.parse(cached)
     }
@@ -28,7 +28,7 @@ function loadMessagesFromCache(): ChatMessage[] | null {
 
 function clearMessagesCache() {
   try {
-    sessionStorage.removeItem(CHAT_CACHE_KEY)
+    localStorage.removeItem(CHAT_CACHE_KEY)
   } catch {
     // ignore
   }
@@ -43,29 +43,41 @@ export const useChatStore = defineStore('chat', () => {
   const streamingContent = ref<string>('')
   /** Whether we are currently in a streaming response */
   const isStreaming = ref(false)
+  /** Whether we have done at least one successful database fetch (initial sync) */
+  const _syncedWithDb = ref(false)
 
   // Computed: true when the agent is actively processing a message
   const isThinking = computed(() => sending.value)
 
-  // Cache-first strategy: read from sessionStorage for instant display,
-  // then sync with database for consistency
+  /**
+   * Initial load: cache-first strategy.
+   * 1. Restore from localStorage for instant display (no loading spinner)
+   * 2. Fetch from database in background to ensure consistency
+   * 3. Silently update messages when database data arrives
+   */
   async function fetchHistory() {
-    loading.value = true
     error.value = null
 
-    // 1. Try to load from cache first for instant display
+    // 1. Try to restore from persistent cache first for instant display
     const cached = loadMessagesFromCache()
     if (cached && cached.length > 0) {
       messages.value = cached
     }
 
+    // 2. Always fetch from database for consistency (background, non-blocking)
     try {
-      // 2. Always fetch from database for consistency
       const serverHistory = await api.getChatHistory()
-      messages.value = serverHistory || []
+      const serverMessages = serverHistory || []
+
+      // Only replace if server actually returned data OR if we had no cache
+      // This prevents wiping out optimistic messages that haven't been persisted yet
+      if (serverMessages.length > 0 || messages.value.length === 0) {
+        messages.value = serverMessages
+      }
 
       // 3. Update cache with latest data from database
       saveMessagesToCache(messages.value)
+      _syncedWithDb.value = true
     } catch (e: unknown) {
       // If database fetch fails but we have cache, keep the cached data
       if (!cached || cached.length === 0) {
@@ -73,8 +85,38 @@ export const useChatStore = defineStore('chat', () => {
         messages.value = []
       }
       // Otherwise keep the cached data – better stale than nothing
-    } finally {
-      loading.value = false
+    }
+  }
+
+  /**
+   * Gentle re-sync: called when the component is re-activated (keep-alive).
+   * Unlike fetchHistory, this does NOT show a loading state and does NOT
+   * replace messages if the store already has data. It only silently syncs
+   * in the background if the data might be stale.
+   */
+  async function syncWithDatabase() {
+    // Don't sync while streaming — the optimistic UI state is authoritative
+    if (isStreaming.value || sending.value) return
+
+    try {
+      const serverHistory = await api.getChatHistory()
+      const serverMessages = serverHistory || []
+
+      // Replace only if server data differs or we have no current data
+      if (serverMessages.length > 0) {
+        messages.value = serverMessages
+        saveMessagesToCache(messages.value)
+      } else if (messages.value.length > 0) {
+        // Server returned empty but we have local data —
+        // this means the conversation was cleared externally
+        // Only clear if we were previously synced (not optimistic)
+        if (_syncedWithDb.value) {
+          messages.value = []
+          saveMessagesToCache(messages.value)
+        }
+      }
+    } catch {
+      // Silent sync failure — keep whatever we have
     }
   }
 
@@ -260,7 +302,7 @@ export const useChatStore = defineStore('chat', () => {
     return content.slice(0, maxLength) + '\n... (truncated)'
   }
 
-  // Auto-sync messages to sessionStorage cache on every change
+  // Auto-sync messages to localStorage cache on every change
   watch(messages, (newMessages) => {
     saveMessagesToCache(newMessages)
   }, { deep: true })
@@ -289,6 +331,7 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent,
     error,
     fetchHistory,
+    syncWithDatabase,
     sendMessage,
     clearHistory,
   }

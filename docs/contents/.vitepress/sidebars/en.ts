@@ -17,6 +17,7 @@ export default [
       { text: 'MCP Client', link: '/mcp' },
       { text: 'Command System', link: '/commands' },
       { text: 'Knowledge Base', link: '/knowledge-base' },
+      { text: 'Chat History', link: '/chat-history' },
     ],
   },
   {

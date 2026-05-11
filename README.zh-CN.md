@@ -23,6 +23,7 @@
 - [x] 聊天平台 - Discord
 - [x] 聊天平台 - 个人微信(微信ClawBot插件)
 - [x] 沙盒 - AIO Sandbox (https://github.com/agent-infra/sandbox)
+- [x] 聊天记录 - 对话管理与筛选搜索
 
 ### 未来计划
 

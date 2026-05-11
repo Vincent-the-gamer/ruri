@@ -809,6 +809,7 @@ export default {
     roleTool: 'Tool',
     emptyTitle: 'No Conversation Records',
     emptyDescription: 'There are no conversation records yet. Start chatting and history will appear here',
+    loadingPreviews: 'Loading conversation content...',
     table: {
       title: 'Title',
       botName: 'Bot Name',

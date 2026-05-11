@@ -22,7 +22,8 @@
 - [x] Chat - DingTalk
 - [x] Chat - Discord
 - [x] Chat - Personal WeChat(Wechat ClawBot)
-- [x] SandBox - AIO Sandbox (https://github.com/agent-infra/sandbox)
+- [x] Sandbox - AIO Sandbox (https://github.com/agent-infra/sandbox)
+- [x] Chat History - Conversation management with filtering and search
 
 ### Planned in the future
 

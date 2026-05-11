@@ -810,6 +810,7 @@ export default {
     roleTool: '工具',
     emptyTitle: '暂无对话记录',
     emptyDescription: '还没有任何对话记录，开始对话后这里会显示历史记录',
+    loadingPreviews: '正在加载对话内容...',
     table: {
       title: '标题',
       botName: '机器人名称',

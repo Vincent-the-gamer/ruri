@@ -17,6 +17,7 @@ export default [
       { text: 'MCP 客户端', link: '/zh_hans/mcp' },
       { text: '指令系统', link: '/zh_hans/commands' },
       { text: '知识库', link: '/zh_hans/knowledge-base' },
+      { text: '聊天记录', link: '/zh_hans/chat-history' },
     ],
   },
   {
