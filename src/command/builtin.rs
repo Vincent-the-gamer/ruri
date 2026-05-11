@@ -2,6 +2,7 @@
 //!
 //! - `/help` — Show available commands and version info
 //! - `/sid`  — Show current session info (UMO, UID, Bot ID, etc.)
+//! - `/whoami` — Show current user's ID, identity and admin status
 //! - `/reset` — Reset the current conversation's LLM context
 //! - `/stop` — Stop the currently running agent task in the current session
 //! - `/new` — Create and switch to a new conversation
@@ -35,8 +36,12 @@ impl Command for HelpCommand {
         "/help"
     }
 
+    fn require_admin(&self) -> bool {
+        false
+    }
+
     fn hidden(&self) -> bool {
-        true
+        false
     }
 
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
@@ -67,7 +72,7 @@ impl Command for HelpCommand {
         }
 
         lines.push(String::new());
-        lines.push("提示：/help、/set、/unset 默认不在列表中显示，但仍可使用。".to_string());
+        lines.push("提示：/set、/unset 默认不在列表中显示，但仍可使用。".to_string());
 
         tracing::info!(
             command = %ctx.command_name,
@@ -99,6 +104,10 @@ impl Command for SidCommand {
 
     fn usage(&self) -> &str {
         "/sid"
+    }
+
+    fn require_admin(&self) -> bool {
+        true
     }
 
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
@@ -161,6 +170,10 @@ impl Command for ResetCommand {
 
     fn usage(&self) -> &str {
         "/reset"
+    }
+
+    fn require_admin(&self) -> bool {
+        true
     }
 
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
@@ -280,6 +293,10 @@ impl Command for StopCommand {
         "/stop"
     }
 
+    fn require_admin(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
         let session_id = &ctx.session_id;
 
@@ -322,6 +339,10 @@ impl Command for NewCommand {
 
     fn usage(&self) -> &str {
         "/new"
+    }
+
+    fn require_admin(&self) -> bool {
+        true
     }
 
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
@@ -428,6 +449,10 @@ impl Command for SetCommand {
         "/set <key> <value>"
     }
 
+    fn require_admin(&self) -> bool {
+        true
+    }
+
     fn hidden(&self) -> bool {
         true
     }
@@ -503,6 +528,10 @@ impl Command for UnsetCommand {
 
     fn usage(&self) -> &str {
         "/unset <key>"
+    }
+
+    fn require_admin(&self) -> bool {
+        true
     }
 
     fn hidden(&self) -> bool {
@@ -589,6 +618,92 @@ impl Command for UnsetCommand {
             );
             CommandResult::text(format!("ℹ️ 变量 '{}' 不存在。", key))
         }
+    }
+}
+
+// ─── /whoami ──────────────────────────────────────────────────
+
+/// `/whoami` — Show current user's identity and admin status.
+pub struct WhoamiCommand;
+
+#[async_trait]
+impl Command for WhoamiCommand {
+    fn name(&self) -> &str {
+        "whoami"
+    }
+
+    fn description(&self) -> &str {
+        "查看当前用户 ID、身份及是否为管理员"
+    }
+
+    fn usage(&self) -> &str {
+        "/whoami"
+    }
+
+    fn require_admin(&self) -> bool {
+        false
+    }
+
+    async fn execute(&self, ctx: &CommandContext) -> CommandResult {
+        let user_id = &ctx.user_id;
+        let session_id = &ctx.session_id;
+        let platform_id = &ctx.platform_id;
+        let message_type_label = ctx.message_type_label();
+
+        // Check if the user is an admin
+        // WebUI users are always considered admins (they are authenticated)
+        let is_webui = ctx.platform_id == "webui";
+        let is_admin = if is_webui {
+            true
+        } else {
+            let config = ctx.state.computer_use_config.read().await;
+            config.is_admin(user_id)
+        };
+
+        let admin_ids: Vec<String> = {
+            let config = ctx.state.computer_use_config.read().await;
+            config.admin_ids.clone()
+        };
+
+        let mut lines = Vec::new();
+        lines.push("👤 当前用户信息：".to_string());
+        lines.push(format!("  用户 ID: {}", user_id));
+        lines.push(format!("  平台: {}", platform_id));
+        lines.push(format!("  消息类型: {}", message_type_label));
+        lines.push(format!("  会话 ID: {}", session_id));
+        lines.push(String::new());
+
+        if is_admin {
+            if is_webui {
+                lines.push("✅ 身份: 管理员（WebUI 认证用户）".to_string());
+            } else {
+                lines.push("✅ 身份: 管理员".to_string());
+            }
+        } else {
+            lines.push("⛔ 身份: 普通用户".to_string());
+        }
+
+        if !admin_ids.is_empty() {
+            lines.push(format!("  管理员列表: {}", admin_ids.join(", ")));
+        } else {
+            lines.push("  管理员列表: 空（未配置）".to_string());
+        }
+
+        lines.push(String::new());
+        lines.push("💡 提示：".to_string());
+        lines.push("  - 管理员可在 WebUI 的计算机使用配置中添加".to_string());
+        lines.push("  - WebUI 登录用户默认为管理员".to_string());
+
+        tracing::info!(
+            command = %ctx.command_name,
+            user_id = %user_id,
+            session_id = %session_id,
+            platform = %platform_id,
+            is_admin = is_admin,
+            "User queried their identity"
+        );
+
+        CommandResult::text(lines.join("\n"))
     }
 }
 

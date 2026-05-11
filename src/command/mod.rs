@@ -11,6 +11,7 @@
 //!
 //! - `/help` — Show available commands and version info
 //! - `/sid`  — Show current session info (UMO, UID, Bot ID, etc.)
+//! - `/whoami` — Show current user's ID, identity and admin status
 //! - `/reset` — Reset the current conversation's LLM context
 //! - `/stop` — Stop the currently running agent task in the current session
 //! - `/new` — Create and switch to a new conversation
@@ -188,13 +189,24 @@ impl CommandDispatcher {
             }
         };
 
-        // Check admin permission if required
-        if command.require_admin() {
-            let admin_ids = {
+        // Check admin permission: use per-command override from config,
+        // falling back to the command's default `require_admin()`.
+        let require_admin = {
+            let config = ctx.state.computer_use_config.read().await;
+            config.is_command_admin_required(cmd_name, command.require_admin())
+        };
+
+        if require_admin {
+            // WebUI users are always considered admins (they are authenticated)
+            let is_webui = ctx.platform_id == "webui";
+            let is_admin = if is_webui {
+                true
+            } else {
                 let config = ctx.state.computer_use_config.read().await;
-                config.admin_ids.clone()
+                config.admin_ids.is_empty() || config.is_admin(&ctx.user_id)
             };
-            if !admin_ids.is_empty() && !admin_ids.contains(&ctx.user_id) {
+
+            if !is_admin {
                 tracing::warn!(
                     command = %cmd_name,
                     user_id = %ctx.user_id,
@@ -249,17 +261,37 @@ impl CommandDispatcher {
         cmds
     }
 
+    /// Check whether a command with the given name is registered.
+    pub fn has_command(&self, name: &str) -> bool {
+        self.commands.contains_key(name)
+    }
+
     /// List all registered commands as serializable info structs.
-    pub fn list_commands_info(&self, prefix: &str) -> Vec<BuiltinCommandInfo> {
+    ///
+    /// `command_admin_required` comes from `ComputerUseConfig` and provides
+    /// runtime overrides for the per-command admin requirement.
+    pub fn list_commands_info(
+        &self,
+        prefix: &str,
+        command_admin_required: &std::collections::HashMap<String, bool>,
+    ) -> Vec<BuiltinCommandInfo> {
         let mut cmds: Vec<_> = self
             .commands
             .values()
-            .map(|c| BuiltinCommandInfo {
-                name: c.name().to_string(),
-                description: c.description().to_string(),
-                usage: c.usage().replace('/', prefix).to_string(),
-                require_admin: c.require_admin(),
-                hidden: c.hidden(),
+            .map(|c| {
+                let default = c.require_admin();
+                let effective = command_admin_required
+                    .get(c.name())
+                    .copied()
+                    .unwrap_or(default);
+                BuiltinCommandInfo {
+                    name: c.name().to_string(),
+                    description: c.description().to_string(),
+                    usage: c.usage().replace('/', prefix).to_string(),
+                    require_admin: effective,
+                    default_require_admin: default,
+                    hidden: c.hidden(),
+                }
             })
             .collect();
         cmds.sort_by_key(|c| c.name.clone());
@@ -276,8 +308,11 @@ pub struct BuiltinCommandInfo {
     pub description: String,
     /// Usage hint, e.g. "/set <key> <value>".
     pub usage: String,
-    /// Whether this command requires admin privileges.
+    /// Whether this command currently requires admin privileges
+    /// (reflecting any runtime override from config).
     pub require_admin: bool,
+    /// The built-in default for whether this command requires admin privileges.
+    pub default_require_admin: bool,
     /// Whether this command should be hidden from listings.
     pub hidden: bool,
 }
@@ -293,6 +328,7 @@ pub fn create_builtin_dispatcher() -> CommandDispatcher {
     dispatcher.register(Arc::new(builtin::NewCommand));
     dispatcher.register(Arc::new(builtin::SetCommand));
     dispatcher.register(Arc::new(builtin::UnsetCommand));
+    dispatcher.register(Arc::new(builtin::WhoamiCommand));
     dispatcher.register(Arc::new(builtin::DashboardUpdateCommand));
 
     tracing::info!(

@@ -348,6 +348,9 @@ pub struct ComputerUseConfigDto {
     pub require_admin: bool,
     pub admin_ids: Vec<String>,
     pub allowed_paths: Vec<String>,
+    /// Per-command admin requirement overrides.
+    /// Key: command name, Value: true = admin required, false = open to all.
+    pub command_admin_required: HashMap<String, bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfigDto>,
 }
@@ -367,6 +370,8 @@ pub struct UpdateComputerUseConfigRequest {
     pub admin_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_admin_required: Option<HashMap<String, bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfigDto>,
 }
@@ -487,9 +492,13 @@ impl From<&crate::computer_use::ComputerUseConfig> for ComputerUseConfigDto {
             require_admin: config.require_admin,
             admin_ids: config.admin_ids.clone(),
             allowed_paths: config.allowed_paths.clone(),
-            aio_sandbox_config: config.aio_sandbox_config.as_ref().map(|s| AioSandboxConfigDto {
-                endpoint: s.endpoint.clone(),
-            }),
+            command_admin_required: config.command_admin_required.clone(),
+            aio_sandbox_config: config
+                .aio_sandbox_config
+                .as_ref()
+                .map(|s| AioSandboxConfigDto {
+                    endpoint: s.endpoint.clone(),
+                }),
         }
     }
 }

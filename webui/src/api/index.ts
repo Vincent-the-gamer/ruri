@@ -451,6 +451,15 @@ export async function getBuiltinCommands(): Promise<BuiltinCommand[]> {
   return res.data
 }
 
+export async function updateCommandAdminRequired(
+  adminRequired: Record<string, boolean>,
+): Promise<{ command_admin_required: Record<string, boolean> }> {
+  const res = await client.put('/api/commands/admin-required', {
+    admin_required: adminRequired,
+  })
+  return res.data
+}
+
 // ─── Auth ──────────────────────────────────────────────────────
 
 export async function login(data: LoginRequest): Promise<LoginResponse> {

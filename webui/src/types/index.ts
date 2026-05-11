@@ -167,6 +167,8 @@ export interface ChatRequest {
   max_tokens?: number
   knowledge_base_ids?: string[]
   custom_error_message?: string
+  /** The authenticated user's ID from the auth store. */
+  user_id?: string
   /** Controls which (if any) tool the model should call. */
   tool_choice?: ToolChoice
   /** Whether the model may return multiple tool calls in parallel. */
@@ -268,6 +270,7 @@ export interface ComputerUseConfig {
   require_admin: boolean
   admin_ids: string[]
   allowed_paths: string[]
+  command_admin_required: Record<string, boolean>
   aio_sandbox_config?: AioSandboxConfig
 }
 
@@ -276,6 +279,7 @@ export interface UpdateComputerUseConfigRequest {
   require_admin?: boolean
   admin_ids?: string[]
   allowed_paths?: string[]
+  command_admin_required?: Record<string, boolean>
   aio_sandbox_config?: AioSandboxConfig
 }
 
@@ -634,7 +638,10 @@ export interface BuiltinCommand {
   name: string
   description: string
   usage: string
+  /** Current effective admin requirement (may be overridden via config). */
   require_admin: boolean
+  /** Built-in default admin requirement for this command. */
+  default_require_admin: boolean
   hidden: boolean
 }
 

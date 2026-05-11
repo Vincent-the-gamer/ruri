@@ -15,6 +15,7 @@ import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
+import { useAuthStore } from "../stores/auth";
 import type { AttachedFile, ProxyConfig, ProxyMode } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
@@ -26,6 +27,7 @@ const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const configStore = useConfigStore();
 const knowledgeBaseStore = useKnowledgeBaseStore();
+const authStore = useAuthStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
 const temperature = ref(0.7);
@@ -168,6 +170,7 @@ async function handleSend(
         knowledge_base_ids:
             selectedKbIds.value.length > 0 ? selectedKbIds.value : undefined,
         custom_error_message: customErrorMessage.value || undefined,
+        user_id: authStore.user?.id || undefined,
     });
     scrollToBottom();
 }

@@ -725,12 +725,12 @@ function maskApiKey(key: string): string {
 .provider-card {
     background: linear-gradient(
         135deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(250, 245, 255, 0.9) 100%
+        hsl(var(--card) / 0.95) 0%,
+        hsl(var(--card) / 0.9) 100%
     );
     backdrop-filter: blur(12px) saturate(150%);
     -webkit-backdrop-filter: blur(12px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid hsl(var(--border) / 0.5);
     border-radius: var(--radius-xl);
     padding: 1.25rem;
     transition: all var(--transition-fast);

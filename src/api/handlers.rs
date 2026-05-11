@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::Response,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
@@ -124,6 +124,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/tools", get(list_tools))
         // Built-in commands
         .route("/api/commands", get(list_builtin_commands))
+        .route(
+            "/api/commands/admin-required",
+            put(update_command_admin_required),
+        )
         // Chat
         .route("/api/chat", post(send_chat_message))
         .route(
@@ -1501,6 +1505,11 @@ async fn update_computer_use_config(
         computer_use_config.allowed_paths = allowed_paths;
     }
 
+    // Update command_admin_required if provided
+    if let Some(command_admin_required) = req.command_admin_required {
+        computer_use_config.command_admin_required = command_admin_required;
+    }
+
     // Update aio_sandbox_config if provided
     if let Some(aio_sandbox_config_dto) = req.aio_sandbox_config {
         computer_use_config.aio_sandbox_config = Some(crate::computer_use::AioSandboxConfig {
@@ -2109,12 +2118,56 @@ async fn list_builtin_commands(
 ) -> Json<Vec<crate::command::BuiltinCommandInfo>> {
     let dispatcher = state.command_dispatcher.read().await;
     let profiles = state.config_profiles.read().await;
+    let computer_use_config = state.computer_use_config.read().await;
     let prefix = profiles
         .values()
         .find(|p| p.is_active && p.enable)
         .map(|p| p.command_prefix.as_str())
         .unwrap_or("/");
-    Json(dispatcher.list_commands_info(prefix))
+    Json(dispatcher.list_commands_info(prefix, &computer_use_config.command_admin_required))
+}
+
+/// Update per-command admin requirement overrides
+async fn update_command_admin_required(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateCommandAdminRequiredRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut computer_use_config = state.computer_use_config.write().await;
+
+    // Validate that all command names exist
+    {
+        let dispatcher = state.command_dispatcher.read().await;
+        for cmd_name in req.admin_required.keys() {
+            if !dispatcher.has_command(cmd_name) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!("Unknown command: {}", cmd_name)
+                    })),
+                ));
+            }
+        }
+    }
+
+    // Update the overrides
+    computer_use_config.command_admin_required = req.admin_required;
+
+    let dto = ComputerUseConfigDto::from(&*computer_use_config);
+    drop(computer_use_config);
+
+    state.auto_save().await;
+
+    Ok(Json(json!({
+        "command_admin_required": dto.command_admin_required,
+    })))
+}
+
+/// Request body for updating per-command admin requirement overrides.
+#[derive(Debug, Deserialize)]
+struct UpdateCommandAdminRequiredRequest {
+    /// Map of command name -> whether admin is required.
+    /// This replaces the entire override map.
+    admin_required: std::collections::HashMap<String, bool>,
 }
 
 /// Get the provider associated with a config profile

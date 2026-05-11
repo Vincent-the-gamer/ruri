@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Computer Use runtime mode
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -38,6 +39,12 @@ pub struct ComputerUseConfig {
     #[serde(default)]
     pub allowed_paths: Vec<String>,
 
+    /// Per-command admin requirement overrides.
+    /// Key: command name (e.g. "reset"), Value: true = admin required, false = open to all.
+    /// Commands not present in this map use their default `require_admin()` value.
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
+
     /// AIO Sandbox configuration (used when runtime is AioSandbox)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfig>,
@@ -50,6 +57,7 @@ impl Default for ComputerUseConfig {
             require_admin: true,
             admin_ids: Vec::new(),
             allowed_paths: Vec::new(),
+            command_admin_required: HashMap::new(),
             aio_sandbox_config: None,
         }
     }
@@ -108,6 +116,22 @@ impl ComputerUseConfig {
         }
         self.is_admin(user_id)
     }
+
+    /// Check whether a specific command requires admin privileges.
+    ///
+    /// Priority:
+    /// 1. If the command has an override in `command_admin_required`, use that.
+    /// 2. Otherwise, fall back to the command's default `require_admin` value.
+    pub fn is_command_admin_required(
+        &self,
+        command_name: &str,
+        default_require_admin: bool,
+    ) -> bool {
+        self.command_admin_required
+            .get(command_name)
+            .copied()
+            .unwrap_or(default_require_admin)
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +166,30 @@ mod tests {
         // Test with require_admin = false
         config.require_admin = false;
         assert!(config.can_use_power_tools("user1"));
+    }
+
+    #[test]
+    fn test_command_admin_required() {
+        let mut config = ComputerUseConfig::default();
+
+        // Default: no overrides, fall back to command default
+        assert!(config.is_command_admin_required("reset", true));
+        assert!(!config.is_command_admin_required("help", false));
+
+        // Add overrides
+        config
+            .command_admin_required
+            .insert("reset".to_string(), false);
+        config
+            .command_admin_required
+            .insert("help".to_string(), true);
+
+        // Override takes priority
+        assert!(!config.is_command_admin_required("reset", true)); // default true, overridden to false
+        assert!(config.is_command_admin_required("help", false)); // default false, overridden to true
+
+        // Commands without override still use default
+        assert!(config.is_command_admin_required("stop", true));
+        assert!(!config.is_command_admin_required("whoami", false));
     }
 }

@@ -21,8 +21,9 @@
 - [x] 基于RAG的知识库 (嵌入模型 + 重排序模型) 支持
 - [x] 聊天平台 - 钉钉
 - [x] 聊天平台 - Discord
-- [ ] 聊天平台 - OneBot V11
+- [ ] 聊天平台 - OneBot V11（一个自定义聊天机器人标准）
 - [x] 聊天平台 - 个人微信(微信ClawBot插件)
+- [x] 沙盒 - AIO Sandbox (https://github.com/agent-infra/sandbox)
 
 ### 未来计划
 
