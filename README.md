@@ -54,7 +54,7 @@ ruri run --remote
 
 ## Usage
 
-Documentation will be added soon...
+Documentation: https://ruri.vince-g.xyz/
 
 ## Dev
 

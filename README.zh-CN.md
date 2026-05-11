@@ -54,7 +54,7 @@ ruri run --remote
 
 ## 使用
 
-文档即将添加...
+文档：https://ruri.vince-g.xyz/
 
 ## 开发
 
