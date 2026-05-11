@@ -47,9 +47,9 @@
 ruri -h
 
 # run
-ruri run
-ruri run --port 8080
-ruri run --remote
+ruri
+ruri --port 8080
+ruri --remote
 ```
 
 ## Usage
