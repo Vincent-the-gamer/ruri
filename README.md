@@ -6,7 +6,7 @@
 </div>
 
 > [!IMPORTANT]
-> This project is in the alpha test stage, there will be a pre-release soon.
+> This project is in the alpha test stage.
 
 ## Features
 

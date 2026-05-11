@@ -114,7 +114,7 @@ export default defineConfig({
     // favicon.ico
     ['link', { rel: 'icon', href: `${baseUrl}/favicon.ico` }],
     // others
-    ['link', { rel: 'icon', href: '/logo/logo.png' }],
+    ['link', { rel: 'icon', href: '/logo/ruri-avatar.png' }],
   ],
   locales: {
     root: {

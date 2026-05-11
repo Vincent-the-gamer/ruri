@@ -45,4 +45,4 @@ features:
 ---
 
 > [!WARNING]
-> This docs is for the alpha version ruri build, it's not final, it's still under development.
+> This docs is for the alpha version ruri build, it's still under development.

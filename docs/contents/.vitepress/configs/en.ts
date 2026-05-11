@@ -4,7 +4,7 @@ import sidebar from '../sidebars/en'
 
 export const enConfig: LocaleSpecificConfig<DefaultTheme.Config> = {
   themeConfig: {
-    logo: '/logo/logo.png',
+    logo: '/logo/ruri-avatar.png',
     outlineTitle: 'Contents',
     outline: 'deep',
     sidebar,
@@ -24,8 +24,8 @@ export const enConfig: LocaleSpecificConfig<DefaultTheme.Config> = {
       next: 'Next →',
     },
     footer: {
-      message: `Document by Vincent-the-gamer | MIT Licensed`,
-      copyright: 'Copyright © 2024-PRESENT Vincent-the-gamer',
+      message: `Document by Vincent-the-gamer`,
+      copyright: 'Copyright © 2026-PRESENT Vincent-the-gamer',
     },
     lightModeSwitchTitle: 'Switch to light mode.',
     darkModeSwitchTitle: 'Switch to dark mode.',
