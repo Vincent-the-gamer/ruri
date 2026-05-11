@@ -56,6 +56,8 @@ onBeforeUnmount(() => {
 
 // Get initial letter of username for avatar fallback
 const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
+
+const avatarUrl = computed(() => authStore.user?.avatar_url);
 </script>
 
 <template>
@@ -68,7 +70,13 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
         >
             <!-- Avatar with initial -->
             <div class="user-avatar">
-                {{ initialLetter }}
+                <img
+                    v-if="avatarUrl"
+                    :src="avatarUrl"
+                    alt="Avatar"
+                    class="avatar-img"
+                />
+                <span v-else>{{ initialLetter }}</span>
             </div>
 
             <!-- Username and status indicator -->
@@ -95,7 +103,15 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
             <div v-if="showMenu" class="user-menu-dropdown">
                 <!-- User info header -->
                 <div class="dropdown-header">
-                    <div class="dropdown-avatar">{{ initialLetter }}</div>
+                    <div class="dropdown-avatar">
+                        <img
+                            v-if="avatarUrl"
+                            :src="avatarUrl"
+                            alt="Avatar"
+                            class="avatar-img"
+                        />
+                        <span v-else>{{ initialLetter }}</span>
+                    </div>
                     <div class="dropdown-user-info">
                         <div class="dropdown-username">{{ username }}</div>
                         <div v-if="mustChangePassword" class="dropdown-warning">
@@ -285,6 +301,12 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
 .warning-icon-small {
     font-size: 12px;
     flex-shrink: 0;
+}
+
+.avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 /* Divider */

@@ -33,6 +33,7 @@ const maxTokens = ref(4096);
 const showSettings = ref(false);
 const selectedKbIds = ref<string[]>([]);
 const selectedPersonaId = ref<string | null>(null);
+const customErrorMessage = ref("");
 
 // Available personas for selection
 const personas = computed(() => personaStore.personas);
@@ -100,6 +101,8 @@ watch(
             proxyConfig.bypass_localhost = true;
             proxyConfig.rules = [];
         }
+        // Sync custom_error_message from config profile as default
+        customErrorMessage.value = profile?.custom_error_message || "";
     },
     { immediate: true },
 );
@@ -164,6 +167,7 @@ async function handleSend(
         max_tokens: maxTokens.value,
         knowledge_base_ids:
             selectedKbIds.value.length > 0 ? selectedKbIds.value : undefined,
+        custom_error_message: customErrorMessage.value || undefined,
     });
     scrollToBottom();
 }
@@ -303,6 +307,26 @@ function toggleSettings() {
                                 step="1"
                                 class="number-input"
                             />
+                        </div>
+                    </div>
+                    <!-- Custom Error Message -->
+                    <div class="setting-item error-message-setting">
+                        <label class="setting-label font-cute">
+                            <span>💬</span>
+                            <span>{{ t("chat.customErrorMessage") }}</span>
+                        </label>
+                        <div class="setting-control error-message-control">
+                            <input
+                                v-model="customErrorMessage"
+                                type="text"
+                                class="error-message-input"
+                                :placeholder="
+                                    t('chat.customErrorMessagePlaceholder')
+                                "
+                            />
+                            <p class="error-message-hint">
+                                {{ t("chat.customErrorMessageHint") }}
+                            </p>
                         </div>
                     </div>
                     <!-- Persona Selector -->
@@ -874,6 +898,45 @@ function toggleSettings() {
 .number-input:focus {
     border-color: hsl(var(--primary));
     box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+/* Custom error message setting */
+.error-message-setting {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.error-message-control {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+}
+
+.error-message-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    color: hsl(var(--foreground));
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-md);
+    outline: none;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
+}
+
+.error-message-input:focus {
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+.error-message-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+    opacity: 0.8;
 }
 
 /* ── Persona Selector ─────────────────────────── */
@@ -1553,10 +1616,23 @@ function toggleSettings() {
     }
 }
 
-/* Disable all animations when config is disabled */
-.chat-view.no-animation *,
-.chat-view.no-animation *::before,
-.chat-view.no-animation *::after {
+/* Disable all animations when config is disabled, but exclude thinking-related elements */
+.chat-view.no-animation
+    *:not(.thinking-message):not(.thinking-message *):not(
+        .thinking-indicator
+    ):not(.thinking-indicator *):not(.spinner-icon):not(.thinking-icon):not(
+        .thinking-ring
+    ):not(.thinking-animation):not(.thinking-status):not(.thinking-content):not(
+        .wave-dot
+    ),
+.chat-view.no-animation
+    *:not(.thinking-message):not(.thinking-message *):not(
+        .thinking-indicator
+    ):not(.thinking-indicator *)::before,
+.chat-view.no-animation
+    *:not(.thinking-message):not(.thinking-message *):not(
+        .thinking-indicator
+    ):not(.thinking-indicator *)::after {
     animation-duration: 0s !important;
     animation-delay: 0s !important;
     transition-duration: 0s !important;
@@ -1572,5 +1648,81 @@ function toggleSettings() {
 
 .chat-view.no-animation .pulse-dot {
     animation: none !important;
+}
+</style>
+
+<style>
+/* Global (non-scoped) keyframes to avoid Vue 3 scoped style issues with animation-name references */
+@keyframes ruriSpin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes ringSpin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes waveBounce {
+    0%,
+    80%,
+    100% {
+        transform: scale(0.6);
+        opacity: 0.4;
+    }
+    40% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+}
+
+@keyframes statusPulse {
+    0%,
+    100% {
+        opacity: 0.7;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes borderGlow {
+    0%,
+    100% {
+        border-color: hsl(var(--primary) / 0.2);
+        box-shadow: 0 2px 8px hsl(var(--primary) / 0.1);
+    }
+    50% {
+        border-color: hsl(var(--primary) / 0.5);
+        box-shadow: 0 2px 16px hsl(var(--primary) / 0.25);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 </style>

@@ -494,6 +494,24 @@ async fn main() -> anyhow::Result<()> {
                                         }
                                         Err(e) => {
                                             tracing::error!(error = %e, "Agent failed to process platform message");
+                                            // Send error reply to user
+                                            let error_reply = {
+                                                let profiles = state_for_platform.config_profiles.read().await;
+                                                profiles
+                                                    .values()
+                                                    .find(|p| p.is_active && p.enable)
+                                                    .and_then(|p| p.custom_error_message.clone())
+                                                    .unwrap_or_else(|| e.to_string())
+                                            };
+                                            let pm = platform_manager_ref.read().await;
+                                            let _ = pm
+                                                .send_text_to_platform(
+                                                    &msg.platform_id,
+                                                    msg.message_type,
+                                                    &msg.session_id,
+                                                    &error_reply,
+                                                )
+                                                .await;
                                         }
                                     }
                                 }
@@ -517,6 +535,24 @@ async fn main() -> anyhow::Result<()> {
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "Failed to build agent for platform message");
+                            // Send error reply to user
+                            let error_reply = {
+                                let profiles = state_for_platform.config_profiles.read().await;
+                                profiles
+                                    .values()
+                                    .find(|p| p.is_active && p.enable)
+                                    .and_then(|p| p.custom_error_message.clone())
+                                    .unwrap_or_else(|| e.to_string())
+                            };
+                            let pm = platform_manager_ref.read().await;
+                            let _ = pm
+                                .send_text_to_platform(
+                                    &msg.platform_id,
+                                    msg.message_type,
+                                    &msg.session_id,
+                                    &error_reply,
+                                )
+                                .await;
                         }
                     }
                 }

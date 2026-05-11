@@ -1092,9 +1092,18 @@ async fn send_chat_message(
         }
     }
     .map_err(|e| {
+        // Use custom_error_message: request override > config profile > raw error
+        let custom_msg = req.custom_error_message.clone().or_else(|| {
+            let profiles = state.config_profiles.blocking_read();
+            profiles
+                .values()
+                .find(|p| p.is_active && p.enable)
+                .and_then(|p| p.custom_error_message.clone())
+        });
+        let error_msg = custom_msg.unwrap_or_else(|| e.to_string());
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": error_msg })),
         )
     })?;
 
@@ -1742,6 +1751,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
+            custom_error_message: p.custom_error_message.clone(),
         })
         .collect();
     Json(dtos)
@@ -1772,6 +1782,7 @@ async fn get_config_profile(
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
+            custom_error_message: p.custom_error_message.clone(),
         };
         Ok(Json(dto))
     } else {
@@ -1815,6 +1826,7 @@ async fn create_config_profile(
         active_knowledge_base_ids: req.active_knowledge_base_ids.clone(),
         proxy_config: req.proxy_config.clone(),
         command_prefix: req.command_prefix.clone(),
+        custom_error_message: req.custom_error_message.clone(),
     };
 
     // Insert the profile
@@ -1841,6 +1853,7 @@ async fn create_config_profile(
         active_knowledge_base_ids: req.active_knowledge_base_ids,
         proxy_config: req.proxy_config,
         command_prefix: req.command_prefix,
+        custom_error_message: req.custom_error_message,
     };
 
     state.auto_save().await;
@@ -1907,6 +1920,9 @@ async fn update_config_profile(
         if let Some(command_prefix) = req.command_prefix {
             profile.command_prefix = command_prefix;
         }
+        if let Some(custom_error_message) = req.custom_error_message {
+            profile.custom_error_message = custom_error_message;
+        }
         profile.updated_at = Utc::now();
 
         let dto = ConfigProfileDto {
@@ -1927,6 +1943,7 @@ async fn update_config_profile(
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
+            custom_error_message: profile.custom_error_message.clone(),
         };
 
         let is_active = dto.is_active;
@@ -2045,6 +2062,7 @@ async fn activate_config_profile(
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
+            custom_error_message: profile.custom_error_message.clone(),
         };
 
         drop(profiles);

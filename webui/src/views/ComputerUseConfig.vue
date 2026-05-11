@@ -748,7 +748,11 @@ const hasChanges = computed(() => {
             </h3>
             <p class="learn-more-desc">
                 {{ t("computerUseConfig.learnMoreDesc") }}
-                <a href="" target="_blank" class="learn-more-link">
+                <a
+                    href="https://ruri.vince-g.xyz/computer-use"
+                    target="_blank"
+                    class="learn-more-link"
+                >
                     {{ t("computerUseConfig.viewDocs") }}
                 </a>
             </p>

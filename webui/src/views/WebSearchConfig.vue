@@ -374,9 +374,12 @@ const searchEngines = computed(() => [
             </h3>
             <p class="learn-more-desc">
                 {{ t("webSearchConfig.learnMoreDesc") }}
-                <a href="" target="_blank" class="learn-more-link">{{
-                    t("webSearchConfig.viewDocs")
-                }}</a>
+                <a
+                    href="https://ruri.vince-g.xyz/tools"
+                    target="_blank"
+                    class="learn-more-link"
+                    >{{ t("webSearchConfig.viewDocs") }}</a
+                >
             </p>
         </div>
     </div>

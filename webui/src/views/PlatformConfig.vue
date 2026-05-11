@@ -747,6 +747,23 @@ onUnmounted(() => {
             </div>
         </div>
 
+        <!-- Learn More Section -->
+        <div class="learn-more">
+            <h3 class="learn-more-title">
+                {{ t("platformConfig.learnMore") }}
+            </h3>
+            <p class="learn-more-desc">
+                {{ t("platformConfig.learnMoreDesc") }}
+                <a
+                    href="https://ruri.vince-g.xyz/platforms"
+                    target="_blank"
+                    class="learn-more-link"
+                >
+                    {{ t("platformConfig.viewDocs") }}
+                </a>
+            </p>
+        </div>
+
         <!-- Form Modal -->
         <Teleport to="body">
             <div v-if="showForm" class="persona-modal-overlay">
@@ -2130,5 +2147,37 @@ select.form-input {
         width: 100%;
         justify-content: flex-end;
     }
+}
+
+/* Learn More */
+.learn-more {
+    margin-top: 2rem;
+    padding: 1rem 1.25rem;
+    background-color: var(--color-bg-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.learn-more-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: 0.5rem;
+}
+
+.learn-more-desc {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+}
+
+.learn-more-link {
+    color: var(--color-accent);
+    text-decoration: underline;
+    transition: color 0.2s ease;
+}
+
+.learn-more-link:hover {
+    color: var(--color-accent-hover);
 }
 </style>

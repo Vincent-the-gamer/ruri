@@ -477,3 +477,14 @@ export async function updateUsername(data: { new_username: string }): Promise<{ 
   const res = await client.post('/api/auth/update-username', data)
   return res.data
 }
+
+export async function uploadAvatar(file: File): Promise<{ avatar_url: string }> {
+  const formData = new FormData()
+  formData.append('avatar', file)
+  const res = await client.post('/api/auth/upload-avatar', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return res.data
+}

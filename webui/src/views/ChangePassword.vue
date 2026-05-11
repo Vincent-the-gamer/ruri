@@ -22,6 +22,15 @@ const usernameSuccessMessage = ref("");
 const newUsername = ref("");
 const isUpdatingUsername = ref(false);
 
+const avatarInput = ref<HTMLInputElement | null>(null);
+const avatarUploading = ref(false);
+const avatarMessage = ref("");
+const avatarSuccessMessage = ref("");
+
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
+
+const avatarUrl = computed(() => authStore.avatarUrl);
+
 const isChanging = computed(() => authStore.loading);
 
 function validateNewPassword(): boolean {
@@ -107,6 +116,45 @@ function handleUsernameKeyPress(e: KeyboardEvent) {
         handleUpdateUsername();
     }
 }
+
+function triggerAvatarUpload() {
+    avatarInput.value?.click();
+}
+
+async function handleAvatarChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    avatarMessage.value = "";
+    avatarSuccessMessage.value = "";
+
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > MAX_AVATAR_SIZE) {
+        avatarMessage.value = t("changePassword.avatarTooLarge");
+        return;
+    }
+
+    // Validate file type
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+        avatarMessage.value = t("changePassword.avatarInvalidType");
+        return;
+    }
+
+    avatarUploading.value = true;
+    try {
+        await authStore.uploadAvatar(file);
+        avatarSuccessMessage.value = t("changePassword.avatarUpdatedSuccess");
+    } catch (e: unknown) {
+        avatarMessage.value =
+            authStore.error || t("changePassword.failedToUpdateAvatar");
+    } finally {
+        avatarUploading.value = false;
+        // Reset the input so the same file can be selected again
+        if (input) input.value = "";
+    }
+}
 </script>
 
 <template>
@@ -127,6 +175,73 @@ function handleUsernameKeyPress(e: KeyboardEvent) {
                 </div>
                 <h1 class="card-title">{{ t("changePassword.title") }}</h1>
                 <p class="card-subtitle">{{ t("changePassword.subtitle") }}</p>
+            </div>
+
+            <!-- Avatar Section -->
+            <div class="avatar-section">
+                <h3 class="section-title">{{ t("changePassword.avatar") }}</h3>
+                <div class="avatar-upload">
+                    <div class="avatar-preview" @click="triggerAvatarUpload">
+                        <img
+                            v-if="avatarUrl"
+                            :src="avatarUrl"
+                            alt="Avatar"
+                            class="avatar-image"
+                        />
+                        <div v-else class="avatar-placeholder">
+                            {{
+                                authStore.username?.charAt(0).toUpperCase() ||
+                                "U"
+                            }}
+                        </div>
+                        <div class="avatar-overlay">
+                            <Icon icon="lucide:camera" class="overlay-icon" />
+                        </div>
+                    </div>
+                    <div class="avatar-info">
+                        <button
+                            type="button"
+                            class="avatar-upload-button"
+                            :disabled="avatarUploading"
+                            @click="triggerAvatarUpload"
+                        >
+                            <Icon
+                                v-if="avatarUploading"
+                                icon="lucide:loader-2"
+                                class="loading-icon"
+                            />
+                            <Icon v-else icon="lucide:upload" />
+                            <span>{{
+                                avatarUploading
+                                    ? t("changePassword.updating")
+                                    : t("changePassword.changeAvatar")
+                            }}</span>
+                        </button>
+                        <p class="avatar-hint">
+                            {{ t("changePassword.avatarHint") }}
+                        </p>
+                    </div>
+                </div>
+                <input
+                    ref="avatarInput"
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    style="display: none"
+                    @change="handleAvatarChange"
+                />
+                <!-- Avatar Error Message -->
+                <div v-if="avatarMessage" class="message error-message">
+                    <Icon icon="lucide:alert-circle" class="message-icon" />
+                    <span>{{ avatarMessage }}</span>
+                </div>
+                <!-- Avatar Success Message -->
+                <div
+                    v-if="avatarSuccessMessage"
+                    class="message success-message"
+                >
+                    <Icon icon="lucide:check-circle" class="message-icon" />
+                    <span>{{ avatarSuccessMessage }}</span>
+                </div>
             </div>
 
             <!-- Form -->
@@ -462,6 +577,115 @@ function handleUsernameKeyPress(e: KeyboardEvent) {
 
 .card-subtitle {
     font-size: 14px;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+}
+
+/* Avatar Section */
+.avatar-section {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.3);
+}
+
+.avatar-upload {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+}
+
+.avatar-preview {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    overflow: hidden;
+    cursor: pointer;
+    flex-shrink: 0;
+    border: 3px solid hsl(var(--primary) / 0.5);
+    transition: all 0.2s ease;
+}
+
+.avatar-preview:hover {
+    border-color: hsl(var(--primary));
+    transform: scale(1.05);
+}
+
+.avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 70% 60%));
+    color: hsl(var(--primary-foreground));
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.avatar-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.avatar-preview:hover .avatar-overlay {
+    opacity: 1;
+}
+
+.overlay-icon {
+    font-size: 24px;
+    color: white;
+}
+
+.avatar-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.avatar-upload-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 8px;
+    color: hsl(var(--foreground));
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.avatar-upload-button:hover:not(:disabled) {
+    background: hsl(var(--secondary) / 0.8);
+    border-color: hsl(var(--primary) / 0.5);
+}
+
+.avatar-upload-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.avatar-upload-button .loading-icon {
+    animation: spin 1s linear infinite;
+}
+
+.avatar-hint {
+    font-size: 12px;
     color: hsl(var(--muted-foreground));
     margin: 0;
 }

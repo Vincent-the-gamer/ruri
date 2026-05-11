@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { useAgentStore } from "../stores/agent";
 
+const { t } = useI18n();
 const agentStore = useAgentStore();
 
 const statusClass = computed(() => {
@@ -18,11 +20,11 @@ const statusClass = computed(() => {
 const statusText = computed(() => {
     switch (agentStore.status.status) {
         case "running":
-            return "运行中";
+            return t("dashboard.status.running");
         case "error":
-            return "错误";
+            return t("dashboard.status.error");
         default:
-            return "已停止";
+            return t("dashboard.status.stopped");
     }
 });
 </script>

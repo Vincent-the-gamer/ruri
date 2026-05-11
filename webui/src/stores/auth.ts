@@ -18,6 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value)
   const mustChangePassword = computed(() => user.value?.must_change_password ?? false)
   const username = computed(() => user.value?.username ?? '')
+  const avatarUrl = computed(() => user.value?.avatar_url ?? '')
 
   // Actions
   async function login(credentials: LoginRequest) {
@@ -123,6 +124,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function uploadAvatar(file: File) {
+    try {
+      const res = await api.uploadAvatar(file)
+      if (user.value) {
+        user.value.avatar_url = res.avatar_url
+        localStorage.setItem('auth_user', JSON.stringify(user.value))
+      }
+      return res
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Failed to upload avatar'
+      throw e
+    }
+  }
+
   // Initialize auth state from localStorage
   function initAuth() {
     if (token.value) {
@@ -153,10 +168,12 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     mustChangePassword,
     username,
+    avatarUrl,
     login,
     logout,
     getCurrentUser,
     changePassword,
     updateUsername,
+    uploadAvatar,
   }
 })

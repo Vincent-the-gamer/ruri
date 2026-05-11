@@ -153,6 +153,7 @@ export interface ChatRequest {
   temperature?: number
   max_tokens?: number
   knowledge_base_ids?: string[]
+  custom_error_message?: string
 }
 
 export interface ToolResult {
@@ -342,6 +343,8 @@ export interface ConfigProfile {
   active_platform_ids: string[]
   // 内置指令前缀
   command_prefix: string
+  // 自定义错误信息
+  custom_error_message?: string
   // 代理配置
   proxy_config: ProxyConfig
 }
@@ -359,6 +362,7 @@ export interface CreateConfigProfileRequest {
   active_knowledge_base_ids: string[]
   active_platform_ids: string[]
   command_prefix: string
+  custom_error_message?: string
   proxy_config: ProxyConfig
 }
 
@@ -375,6 +379,7 @@ export interface UpdateConfigProfileRequest {
   active_knowledge_base_ids?: string[]
   active_platform_ids?: string[]
   command_prefix?: string
+  custom_error_message?: string | null
   proxy_config?: ProxyConfig
 }
 
@@ -641,6 +646,7 @@ export interface UserInfo {
   id: string
   username: string
   must_change_password: boolean
+  avatar_url?: string
 }
 
 export interface LoginRequest {

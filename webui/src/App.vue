@@ -63,10 +63,10 @@ onMounted(() => {
 
                 <!-- Right side: Locale, Theme Toggle & User Menu -->
                 <div class="flex items-center gap-3">
+                    <StatusBar />
                     <LocaleSwitcher />
                     <ThemeToggle />
                     <UserMenu />
-                    <StatusBar />
                 </div>
             </div>
         </header>

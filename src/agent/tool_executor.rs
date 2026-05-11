@@ -29,13 +29,22 @@ pub enum ToolError {
 /// Registry that manages available tools and dispatches calls.
 pub struct ToolExecutor {
     tools: HashMap<String, Arc<dyn Tool>>,
+    /// Custom error message to show users when a tool call fails.
+    /// If not set, the raw error message is returned.
+    custom_error_message: Option<String>,
 }
 
 impl ToolExecutor {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            custom_error_message: None,
         }
+    }
+
+    /// Set a custom error message for tool execution failures.
+    pub fn set_custom_error_message(&mut self, message: Option<String>) {
+        self.custom_error_message = message;
     }
 
     /// Register a tool.
@@ -95,9 +104,15 @@ impl ToolExecutor {
                     error = %e,
                     "Tool execution failed"
                 );
+                // If a custom error message is set, use it; otherwise use the raw error
+                let content = if let Some(ref msg) = self.custom_error_message {
+                    msg.clone()
+                } else {
+                    format!("Error: {}", e)
+                };
                 Ok(ToolResult {
                     tool_call_id: String::new(),
-                    content: format!("Error: {}", e),
+                    content,
                 })
             }
         }

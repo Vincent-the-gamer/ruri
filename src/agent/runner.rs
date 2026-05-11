@@ -15,6 +15,9 @@ pub struct AgentConfig {
     pub max_tool_rounds: u32,
     /// Whether to automatically execute tool calls.
     pub auto_execute_tools: bool,
+    /// Custom error message to show users when a tool call or API request fails.
+    /// If not set, the raw error message is returned.
+    pub custom_error_message: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -22,6 +25,7 @@ impl Default for AgentConfig {
         Self {
             max_tool_rounds: MAX_TOOL_ROUNDS,
             auto_execute_tools: true,
+            custom_error_message: None,
         }
     }
 }
@@ -39,6 +43,17 @@ impl AgentConfig {
     pub fn with_auto_execute_tools(mut self, auto: bool) -> Self {
         self.auto_execute_tools = auto;
         self
+    }
+
+    pub fn with_custom_error_message(mut self, message: Option<String>) -> Self {
+        self.custom_error_message = message;
+        self
+    }
+
+    /// Get the custom error message, if set.
+    #[allow(dead_code)]
+    pub fn custom_error_message(&self) -> Option<&str> {
+        self.custom_error_message.as_deref()
     }
 }
 
@@ -60,9 +75,12 @@ pub struct Agent {
 impl Agent {
     /// Create a new Agent with custom configuration.
     pub fn with_config(provider: Box<dyn Provider>, config: AgentConfig) -> Self {
+        let custom_error_message = config.custom_error_message.clone();
+        let mut tool_executor = ToolExecutor::new();
+        tool_executor.set_custom_error_message(custom_error_message);
         Self {
             transport: HttpTransport::with_default_config(provider),
-            tool_executor: ToolExecutor::new(),
+            tool_executor,
             skills: Vec::new(),
             config,
             history: Vec::new(),

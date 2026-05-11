@@ -190,6 +190,10 @@ pub struct ChatRequestDto {
     pub max_tokens: Option<u64>,
     #[serde(default)]
     pub knowledge_base_ids: Vec<String>,
+    /// Custom error message override for this chat session.
+    /// If set, takes priority over the config profile's `custom_error_message`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -513,6 +517,10 @@ pub struct ConfigProfileDto {
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
+    /// Custom error message to show users when a tool call or API request fails.
+    /// If not set, the raw error message is returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -538,6 +546,10 @@ pub struct CreateConfigProfileRequest {
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
+    /// Custom error message to show users when a tool call or API request fails.
+    /// If not set, the raw error message is returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -568,6 +580,10 @@ pub struct UpdateConfigProfileRequest {
     pub proxy_config: Option<crate::types::ProxyConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_prefix: Option<String>,
+    /// Custom error message to show users when a tool call or API request fails.
+    /// If not set, the raw error message is returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

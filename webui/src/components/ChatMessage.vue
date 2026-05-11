@@ -111,6 +111,26 @@ function renderMarkdown(
                                     }}</pre>
                                 </template>
                                 <template
+                                    v-else-if="part.text.startsWith('🎵')"
+                                >
+                                    <div class="audio-badge">
+                                        <svg
+                                            class="file-icon-inline"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <path d="M9 18V5l12-2v13" />
+                                            <circle cx="6" cy="18" r="3" />
+                                            <circle cx="18" cy="16" r="3" />
+                                        </svg>
+                                        {{ part.text.replace("🎵 ", "") }}
+                                    </div>
+                                </template>
+                                <template
                                     v-else-if="part.text.startsWith('📎')"
                                 >
                                     <svg
@@ -621,6 +641,23 @@ function renderMarkdown(
     border-radius: 0.5rem;
     font-size: 0.8125rem;
     color: hsl(var(--foreground) / 0.8);
+    margin: 0.25rem 0;
+}
+
+.audio-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.1) 0%,
+        hsl(280 70% 60% / 0.1) 100%
+    );
+    border: 1px solid hsl(var(--primary) / 0.2);
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    color: hsl(var(--primary));
     margin: 0.25rem 0;
 }
 

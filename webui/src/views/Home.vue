@@ -282,8 +282,6 @@ const goToDashboard = () => {
 .character-shadow {
     position: absolute;
     inset: 0;
-    border-radius: 24px;
-    overflow: hidden;
     transition: transform 0.1s ease-out;
 }
 
@@ -318,8 +316,6 @@ const goToDashboard = () => {
 .character-main {
     position: relative;
     z-index: 10;
-    border-radius: 24px;
-    overflow: hidden;
     transition: transform 0.15s ease-out;
     will-change: transform;
 }

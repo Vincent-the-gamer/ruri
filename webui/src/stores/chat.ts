@@ -43,14 +43,21 @@ export const useChatStore = defineStore('chat', () => {
     // Show attached files as text placeholders in the message
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
-        // For text files, show content; for binary, just show filename
+        const isAudio = file.mime_type.startsWith('audio/') || file.name.match(/\.(mp3|wav|ogg|flac|aac|m4a|wma|webm|opus)$/i)
         const isText = file.mime_type.startsWith('text/') || !file.content.startsWith('data:')
-        contentParts.push({
-          type: 'text',
-          text: isText
-            ? `--- File: ${file.name} ---\n${file.content.length > 2000 ? file.content.slice(0, 2000) + '\n... (truncated)' : file.content}`
-            : `📎 ${file.name}`
-        });
+        if (isAudio) {
+          contentParts.push({
+            type: 'text',
+            text: `🎵 ${file.name}`
+          });
+        } else {
+          contentParts.push({
+            type: 'text',
+            text: isText
+              ? `--- File: ${file.name} ---\n${file.content.length > 2000 ? file.content.slice(0, 2000) + '\n... (truncated)' : file.content}`
+              : `📎 ${file.name}`
+          });
+        }
       }
     }
 

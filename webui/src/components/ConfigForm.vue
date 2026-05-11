@@ -44,6 +44,7 @@ const formData = ref<{
     provider_id: string | null;
     persona_id: string | null;
     command_prefix: string;
+    custom_error_message: string;
     web_search_enabled: boolean;
     computer_use_enabled: boolean;
     acp_enabled: boolean;
@@ -68,6 +69,7 @@ const formData = ref<{
     provider_id: null,
     persona_id: null,
     command_prefix: "",
+    custom_error_message: "",
     web_search_enabled: false,
     computer_use_enabled: false,
     acp_enabled: false,
@@ -98,6 +100,7 @@ watch(
                 provider_id: newConfig.provider_id || null,
                 persona_id: newConfig.persona_id || null,
                 command_prefix: newConfig.command_prefix || "",
+                custom_error_message: newConfig.custom_error_message || "",
                 web_search_enabled: newConfig.web_search_enabled ?? false,
                 computer_use_enabled: newConfig.computer_use_enabled ?? false,
                 acp_enabled: newConfig.acp_enabled ?? false,
@@ -131,6 +134,7 @@ watch(
                 provider_id: null,
                 persona_id: null,
                 command_prefix: "",
+                custom_error_message: "",
                 web_search_enabled: false,
                 computer_use_enabled: false,
                 acp_enabled: false,
@@ -233,9 +237,7 @@ function getRuleTypeColor(type: string): string {
 }
 
 const formTitle = computed(() =>
-    isEdit.value
-        ? t("config.form.editProfile")
-        : t("config.form.createProfile"),
+    isEdit.value ? t("config.form.editTitle") : t("config.form.createTitle"),
 );
 
 function toggleSkill(name: string) {
@@ -349,6 +351,22 @@ function handleSubmit() {
                             class="form-input"
                             :placeholder="'/'"
                         />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.customErrorMessage")
+                        }}</label>
+                        <input
+                            v-model="formData.custom_error_message"
+                            type="text"
+                            class="form-input"
+                            :placeholder="
+                                t('config.form.customErrorMessagePlaceholder')
+                            "
+                        />
+                        <p class="form-hint">
+                            {{ t("config.form.customErrorMessageHint") }}
+                        </p>
                     </div>
                 </div>
 

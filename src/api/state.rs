@@ -82,6 +82,10 @@ pub struct PersistedConfigProfile {
     /// Built-in command prefix for this profile (default: "/").
     #[serde(default = "default_command_prefix")]
     pub command_prefix: String,
+    /// Custom error message to show users when a tool call or API request fails.
+    /// If not set, the raw error message is returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -136,6 +140,7 @@ pub struct StoredConfigProfile {
     pub active_knowledge_base_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
     pub command_prefix: String,
+    pub custom_error_message: Option<String>,
 }
 
 /// Information about a stored provider configuration.
@@ -384,6 +389,7 @@ impl AppState {
                                 active_knowledge_base_ids: p.active_knowledge_base_ids,
                                 proxy_config: p.proxy_config,
                                 command_prefix: p.command_prefix,
+                                custom_error_message: p.custom_error_message,
                             },
                         )
                     })
@@ -852,6 +858,7 @@ impl AppState {
                         active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
                         command_prefix: p.command_prefix.clone(),
+                        custom_error_message: p.custom_error_message.clone(),
                     },
                 )
             })
@@ -1023,9 +1030,19 @@ impl AppState {
         let provider = Self::build_provider(stored)?;
         drop(providers);
 
+        // Get custom_error_message from the active config profile
+        let custom_error_message = {
+            let profiles = self.config_profiles.read().await;
+            profiles
+                .values()
+                .find(|p| p.is_active && p.enable)
+                .and_then(|p| p.custom_error_message.clone())
+        };
+
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
-            .with_auto_execute_tools(true);
+            .with_auto_execute_tools(true)
+            .with_custom_error_message(custom_error_message);
 
         let mut agent = Agent::with_config(provider, config);
 

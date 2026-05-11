@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onUnmounted } from "vue";
+import { useI18n } from "vue-i18n";
 import type { AttachedFile } from "../types";
 
 const props = defineProps<{
@@ -9,6 +10,8 @@ const props = defineProps<{
 const emit = defineEmits<{
     send: [message: string, images: string[], files: AttachedFile[]];
 }>();
+
+const { t } = useI18n();
 
 const inputText = ref("");
 const isComposing = ref(false);
@@ -30,7 +33,22 @@ const IMAGE_EXTENSIONS = [
     "tif",
     "ico",
     "avif",
+    "heic",
+    "heif",
 ];
+const AUDIO_EXTENSIONS = [
+    "mp3",
+    "wav",
+    "ogg",
+    "flac",
+    "aac",
+    "m4a",
+    "wma",
+    "webm",
+    "opus",
+];
+const AUDIO_TYPES =
+    "audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-ms-wma,audio/webm,audio/opus";
 const TEXT_EXTENSIONS = [
     "txt",
     "csv",
@@ -103,6 +121,8 @@ const DOC_EXTENSIONS = [
 const ALL_ACCEPTED =
     IMAGE_TYPES +
     "," +
+    AUDIO_TYPES +
+    "," +
     TEXT_EXTENSIONS.map((e) => `.${e}`).join(",") +
     "," +
     DOC_EXTENSIONS.map((e) => `.${e}`).join(",");
@@ -132,6 +152,23 @@ function handleFileSelect(event: Event) {
                 const dataUrl = e.target?.result as string;
                 if (dataUrl) {
                     attachedImages.value.push(dataUrl);
+                }
+            };
+            reader.readAsDataURL(file);
+        } else if (
+            file.type.startsWith("audio/") ||
+            AUDIO_EXTENSIONS.includes(ext)
+        ) {
+            // Read audio as base64 data URL
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const dataUrl = e.target?.result as string;
+                if (dataUrl) {
+                    attachedFiles.value.push({
+                        name: file.name,
+                        mime_type: file.type || "audio/mpeg",
+                        content: dataUrl,
+                    });
                 }
             };
             reader.readAsDataURL(file);
@@ -198,6 +235,73 @@ function handleKeydown(e: KeyboardEvent) {
         handleSend();
     }
 }
+
+// Voice input using Web Speech API
+const isRecording = ref(false);
+let recognition: any = null;
+
+function toggleVoiceInput() {
+    if (isRecording.value) {
+        stopVoiceInput();
+        return;
+    }
+    startVoiceInput();
+}
+
+function startVoiceInput() {
+    const SpeechRecognition =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert(t("chat.speechNotSupported"));
+        return;
+    }
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "zh-CN";
+
+    recognition.onresult = (event: any) => {
+        let finalTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            }
+        }
+        if (finalTranscript) {
+            inputText.value += finalTranscript;
+        }
+    };
+
+    recognition.onerror = () => {
+        isRecording.value = false;
+    };
+
+    recognition.onend = () => {
+        isRecording.value = false;
+    };
+
+    recognition.start();
+    isRecording.value = true;
+}
+
+function stopVoiceInput() {
+    if (recognition) {
+        recognition.stop();
+        recognition = null;
+    }
+    isRecording.value = false;
+}
+
+function handleImageGen() {
+    inputText.value =
+        "/image " + (inputText.value || t("chat.imageGenPlaceholder"));
+}
+
+onUnmounted(() => {
+    stopVoiceInput();
+});
 </script>
 
 <template>
@@ -210,17 +314,18 @@ function handleKeydown(e: KeyboardEvent) {
         </div>
 
         <div class="chat-input-container">
-            <div class="input-field">
+            <!-- Main input box -->
+            <div class="input-box">
                 <!-- Attached images preview -->
-                <div v-if="attachedImages.length > 0" class="attached-images">
+                <div v-if="attachedImages.length > 0" class="attached-previews">
                     <div
                         v-for="(img, idx) in attachedImages"
-                        :key="idx"
-                        class="image-preview"
+                        :key="'img-' + idx"
+                        class="preview-item image-preview"
                     >
                         <img :src="img" alt="Attached image" />
                         <button
-                            class="remove-image"
+                            class="remove-btn"
                             @click="removeImage(idx)"
                             type="button"
                         >
@@ -230,11 +335,11 @@ function handleKeydown(e: KeyboardEvent) {
                 </div>
 
                 <!-- Attached files preview -->
-                <div v-if="attachedFiles.length > 0" class="attached-files">
+                <div v-if="attachedFiles.length > 0" class="attached-previews">
                     <div
                         v-for="(file, idx) in attachedFiles"
                         :key="'file-' + idx"
-                        class="file-chip"
+                        class="preview-item file-chip"
                     >
                         <svg
                             class="file-chip-icon"
@@ -255,7 +360,7 @@ function handleKeydown(e: KeyboardEvent) {
                         </svg>
                         <span class="file-chip-name">{{ file.name }}</span>
                         <button
-                            class="remove-file"
+                            class="remove-btn small"
                             @click="removeFile(idx)"
                             type="button"
                         >
@@ -264,17 +369,15 @@ function handleKeydown(e: KeyboardEvent) {
                     </div>
                 </div>
 
-                <div class="input-wrapper">
-                    <div class="input-icon">
-                        <span>💬</span>
-                    </div>
+                <!-- Textarea area -->
+                <div class="textarea-area">
                     <textarea
                         v-model="inputText"
                         @keydown="handleKeydown"
                         @compositionstart="isComposing = true"
                         @compositionend="isComposing = false"
-                        placeholder="和琉璃说点什么吧... (Enter 发送, Shift+Enter 换行)"
-                        rows="3"
+                        :placeholder="t('chat.inputPlaceholder')"
+                        rows="1"
                         class="input-textarea"
                         @input="
                             (
@@ -290,19 +393,123 @@ function handleKeydown(e: KeyboardEvent) {
                                 ) + 'px';
                         "
                     ></textarea>
-                    <!-- Attachment button -->
-                    <input
-                        type="file"
-                        ref="fileInput"
-                        @change="handleFileSelect"
-                        :accept="ALL_ACCEPTED"
-                        multiple
-                        class="hidden"
-                    />
+                </div>
+
+                <!-- Action bar -->
+                <div class="action-bar">
+                    <div class="action-tools">
+                        <!-- Attach file button -->
+                        <input
+                            type="file"
+                            ref="fileInput"
+                            @change="handleFileSelect"
+                            :accept="ALL_ACCEPTED"
+                            multiple
+                            class="hidden"
+                        />
+                        <button
+                            @click="triggerFileInput"
+                            class="tool-btn"
+                            :title="t('chat.attachFile')"
+                            type="button"
+                        >
+                            <svg
+                                class="tool-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path
+                                    d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+                                />
+                            </svg>
+                            <span class="tool-label">{{
+                                t("chat.attachFile")
+                            }}</span>
+                        </button>
+
+                        <!-- Voice input button -->
+                        <button
+                            @click="toggleVoiceInput"
+                            class="tool-btn"
+                            :class="{ active: isRecording }"
+                            :title="t('chat.voiceInput')"
+                            type="button"
+                        >
+                            <svg
+                                class="tool-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path
+                                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                                />
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                                <line x1="12" y1="19" x2="12" y2="23" />
+                                <line x1="8" y1="23" x2="16" y2="23" />
+                            </svg>
+                            <span class="tool-label">{{
+                                isRecording
+                                    ? t("chat.recording")
+                                    : t("chat.voiceInput")
+                            }}</span>
+                        </button>
+
+                        <!-- Image generation button -->
+                        <button
+                            @click="handleImageGen"
+                            class="tool-btn"
+                            :title="t('chat.imageGen')"
+                            type="button"
+                        >
+                            <svg
+                                class="tool-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <rect
+                                    x="3"
+                                    y="3"
+                                    width="18"
+                                    height="18"
+                                    rx="2"
+                                    ry="2"
+                                />
+                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                <polyline points="21 15 16 10 5 21" />
+                            </svg>
+                            <span class="tool-label">{{
+                                t("chat.imageGen")
+                            }}</span>
+                        </button>
+                    </div>
+
+                    <!-- Send button -->
                     <button
-                        @click="triggerFileInput"
-                        class="attach-button"
-                        title="添加图片或文件"
+                        @click="handleSend"
+                        :disabled="
+                            !inputText.trim() &&
+                            attachedImages.length === 0 &&
+                            attachedFiles.length === 0
+                        "
+                        class="send-btn"
+                        :class="{
+                            disabled:
+                                !inputText.trim() &&
+                                attachedImages.length === 0 &&
+                                attachedFiles.length === 0,
+                        }"
                         type="button"
                     >
                         <svg
@@ -312,56 +519,19 @@ function handleKeydown(e: KeyboardEvent) {
                             stroke-width="2"
                             stroke-linecap="round"
                             stroke-linejoin="round"
-                            class="attach-icon"
+                            class="send-icon"
                         >
-                            <path
-                                d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
-                            />
+                            <line x1="22" y1="2" x2="11" y2="13" />
+                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
                         </svg>
                     </button>
                 </div>
             </div>
-            <button
-                @click="handleSend"
-                :disabled="
-                    !inputText.trim() &&
-                    attachedImages.length === 0 &&
-                    attachedFiles.length === 0
-                "
-                class="send-button"
-                :class="{
-                    disabled:
-                        !inputText.trim() &&
-                        attachedImages.length === 0 &&
-                        attachedFiles.length === 0,
-                }"
-                :title="
-                    inputText.trim() ||
-                    attachedImages.length > 0 ||
-                    attachedFiles.length > 0
-                        ? '发送消息 💕'
-                        : '请输入消息后再发送'
-                "
-            >
-                <span class="send-emoji">💌</span>
-                <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="send-icon"
-                >
-                    <line x1="22" y1="2" x2="11" y2="13" />
-                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-            </button>
         </div>
 
         <!-- 底部提示 -->
         <div class="input-hint">
-            <span class="hint-text">💡 琉璃会用粉色的心️回答你哦~</span>
+            <span class="hint-text">{{ t("chat.hint") }}</span>
         </div>
     </div>
 </template>
@@ -369,11 +539,10 @@ function handleKeydown(e: KeyboardEvent) {
 <style scoped>
 .chat-input-wrapper {
     border-top: 1px solid hsl(var(--border));
-    padding: 1.25rem 1.5rem;
+    padding: 0.75rem 1.5rem 1rem;
     position: relative;
     overflow: hidden;
     background: hsl(var(--background));
-    border-radius: 1rem 1rem 0 0;
 }
 
 .chat-input-wrapper::before {
@@ -392,7 +561,7 @@ function handleKeydown(e: KeyboardEvent) {
     opacity: 0.6;
 }
 
-/* 装饰星星 */
+/* Decoration stars */
 .decoration-stars {
     position: absolute;
     width: 100%;
@@ -417,13 +586,11 @@ function handleKeydown(e: KeyboardEvent) {
     left: 5%;
     animation-delay: 0s;
 }
-
 .star-2 {
     top: 30%;
     right: 10%;
     animation-delay: 1s;
 }
-
 .star-3 {
     bottom: 25%;
     left: 15%;
@@ -440,6 +607,42 @@ function handleKeydown(e: KeyboardEvent) {
     }
 }
 
+.chat-input-container {
+    max-width: 52rem;
+    margin: 0 auto 0.25rem;
+    position: relative;
+    z-index: 1;
+}
+
+/* Main input box */
+.input-box {
+    background: hsl(var(--card));
+    border: 1.5px solid hsl(var(--border));
+    border-radius: 1rem;
+    padding: 0.5rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px hsl(var(--primary) / 0.05);
+}
+
+.input-box:focus-within {
+    border-color: hsl(var(--primary));
+    box-shadow:
+        0 0 0 3px hsl(var(--primary) / 0.1),
+        0 2px 8px hsl(var(--primary) / 0.1);
+}
+
+/* Attached previews */
+.attached-previews {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem 0;
+}
+
+.preview-item {
+    animation: fadeIn 0.2s ease-out;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -449,140 +652,6 @@ function handleKeydown(e: KeyboardEvent) {
         opacity: 1;
         transform: scale(1);
     }
-}
-
-.chat-input-container {
-    max-width: 52rem;
-    margin: 0 auto 0.5rem;
-    display: flex;
-    align-items: flex-end;
-    gap: 0.75rem;
-    position: relative;
-    z-index: 1;
-}
-
-.input-field {
-    flex: 1;
-    position: relative;
-}
-
-.input-wrapper {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    gap: 0.625rem;
-}
-
-.input-icon {
-    flex-shrink: 0;
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 0.75rem;
-    background: linear-gradient(
-        135deg,
-        hsl(var(--primary)) 0%,
-        hsl(280 70% 60%) 100%
-    );
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1rem;
-    box-shadow: 0 2px 8px hsl(var(--primary) / 0.25);
-    animation: pulse-glow 2s ease-in-out infinite;
-}
-
-@keyframes pulse-glow {
-    0%,
-    100% {
-        box-shadow: 0 2px 8px hsl(var(--primary) / 0.25);
-    }
-    50% {
-        box-shadow: 0 4px 16px hsl(var(--primary) / 0.35);
-    }
-}
-
-.input-textarea {
-    flex: 1;
-    background: hsl(var(--card));
-    border: 1.5px solid hsl(var(--border));
-    border-radius: 0.875rem;
-    padding: 0.75rem 1rem;
-    font-size: 0.9375rem;
-    line-height: 1.5;
-    color: hsl(var(--foreground));
-    resize: none;
-    min-height: 2.75rem;
-    max-height: 160px;
-    transition: all 0.2s ease;
-    font-family: inherit;
-}
-
-.input-textarea::placeholder {
-    color: hsl(var(--muted-foreground));
-}
-
-.input-textarea:focus {
-    outline: none;
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
-    background: hsl(var(--card));
-}
-
-.input-textarea:focus {
-    border-color: hsl(var(--primary));
-}
-
-.input-textarea::-webkit-scrollbar {
-    width: 6px;
-}
-
-.input-textarea::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.input-textarea::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
-    border-radius: 3px;
-}
-
-.input-textarea::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
-}
-
-/* Attachment button */
-.attach-button {
-    flex-shrink: 0;
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 0.75rem;
-    border: 1.5px solid hsl(var(--border));
-    background: hsl(var(--card));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    color: hsl(var(--muted-foreground));
-}
-
-.attach-button:hover {
-    border-color: hsl(var(--primary));
-    color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.05);
-}
-
-.attach-icon {
-    width: 1rem;
-    height: 1rem;
-}
-
-/* Attached images preview */
-.attached-images {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    margin-left: 2.875rem;
 }
 
 .image-preview {
@@ -600,7 +669,33 @@ function handleKeydown(e: KeyboardEvent) {
     object-fit: cover;
 }
 
-.remove-image {
+.file-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    color: hsl(var(--foreground));
+    max-width: 200px;
+}
+
+.file-chip-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: hsl(var(--primary));
+}
+
+.file-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.remove-btn {
     position: absolute;
     top: 2px;
     right: 2px;
@@ -618,207 +713,204 @@ function handleKeydown(e: KeyboardEvent) {
     line-height: 1;
 }
 
-.remove-image:hover {
+.remove-btn:hover {
     background: rgba(0, 0, 0, 0.8);
 }
 
-/* Attached files preview */
-.attached-files {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    margin-left: 2.875rem;
-}
-
-.file-chip {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.625rem;
-    background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
-    border-radius: 0.5rem;
-    font-size: 0.75rem;
-    color: hsl(var(--foreground));
-    max-width: 200px;
-    animation: fadeIn 0.2s ease-out;
-}
-
-.file-chip-icon {
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    color: hsl(var(--primary));
-}
-
-.file-chip-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.remove-file {
-    flex-shrink: 0;
+.remove-btn.small {
+    position: static;
     width: 16px;
     height: 16px;
-    border-radius: 50%;
     background: hsl(var(--muted) / 0.8);
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    line-height: 1;
     color: hsl(var(--muted-foreground));
-    transition: all 0.15s ease;
+    font-size: 10px;
 }
 
-.remove-file:hover {
+.remove-btn.small:hover {
     background: #ef4444;
     color: white;
 }
 
-/* 发送按钮 */
-.send-button {
+/* Textarea */
+.textarea-area {
+    padding: 0.25rem 0.5rem;
+}
+
+.input-textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+    resize: none;
+    min-height: 1.5rem;
+    max-height: 160px;
+    font-family: inherit;
+    padding: 0;
+}
+
+.input-textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+}
+
+.input-textarea::-webkit-scrollbar {
+    width: 4px;
+}
+
+.input-textarea::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.input-textarea::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 2px;
+}
+
+/* Action bar */
+.action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+}
+
+.action-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Tool buttons */
+.tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.625rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.tool-btn:hover {
+    background: hsl(var(--secondary));
+    color: hsl(var(--primary));
+}
+
+.tool-btn.active {
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+}
+
+.tool-btn.active .tool-icon {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+}
+
+.tool-icon {
+    width: 1rem;
+    height: 1rem;
     flex-shrink: 0;
-    width: 2.75rem;
-    height: 2.75rem;
+}
+
+.tool-label {
+    font-size: 0.6875rem;
+    font-weight: 500;
+}
+
+/* Send button */
+.send-btn {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
     background: linear-gradient(
         135deg,
         hsl(var(--primary)) 0%,
         hsl(280 70% 60%) 100%
     );
     border: none;
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: 0 2px 8px hsl(var(--primary) / 0.3);
-    overflow: hidden;
 }
 
-.send-button::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.2) 0%,
-        rgba(255, 255, 255, 0.05) 100%
-    );
-    opacity: 0;
-    transition: opacity 0.2s ease;
+.send-btn:hover:not(.disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.4);
 }
 
-.send-button:hover:not(.disabled)::before {
-    opacity: 1;
-}
-
-.send-button:hover:not(.disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px hsl(var(--primary) / 0.4);
-}
-
-.send-button:active:not(.disabled) {
-    transform: translateY(0) scale(0.98);
+.send-btn:active:not(.disabled) {
+    transform: translateY(0) scale(0.95);
 }
 
 .send-icon {
-    width: 1.125rem;
-    height: 1.125rem;
+    width: 1rem;
+    height: 1rem;
     color: white;
-    transition: transform 0.2s ease;
-    position: relative;
-    z-index: 1;
 }
 
-.send-button:hover:not(.disabled) .send-icon {
-    transform: translateX(2px) translateY(-2px);
-}
-
-.send-emoji {
-    position: absolute;
-    font-size: 1rem;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: all 0.2s ease;
-}
-
-.send-button:hover:not(.disabled) .send-emoji {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.send-button.disabled {
+.send-btn.disabled {
     background: hsl(var(--muted));
     cursor: not-allowed;
     opacity: 0.5;
     box-shadow: none;
 }
 
-.send-button.disabled .send-icon {
+.send-btn.disabled .send-icon {
     color: hsl(var(--muted-foreground));
 }
 
-/* 底部提示 */
+/* Hidden file input */
+.hidden {
+    display: none;
+}
+
+/* Bottom hint */
 .input-hint {
     text-align: center;
-    padding-top: 0.25rem;
+    padding-top: 0.375rem;
 }
 
 .hint-text {
-    font-size: 0.75rem;
-    color: hsl(var(--muted-foreground));
+    font-size: 0.6875rem;
+    color: hsl(var(--muted-foreground) / 0.7);
 }
 
-/* 响应式 */
+/* Responsive */
 @media (max-width: 640px) {
     .chat-input-wrapper {
-        padding: 1rem;
+        padding: 0.75rem 1rem 0.75rem;
     }
 
-    .chat-input-container {
-        flex-direction: column;
-        gap: 0.625rem;
+    .tool-label {
+        display: none;
     }
 
-    .input-wrapper {
-        gap: 0.5rem;
-    }
-
-    .input-icon {
-        width: 2rem;
-        height: 2rem;
-        font-size: 0.875rem;
-    }
-
-    .send-button {
-        width: 100%;
-        height: 2.5rem;
-        flex-direction: row;
-        gap: 0.5rem;
-    }
-
-    .send-button .send-icon {
-        width: 1rem;
-        height: 1rem;
+    .tool-btn {
+        padding: 0.375rem;
     }
 
     .star {
         display: none;
-    }
-
-    .attached-images {
-        margin-left: 2.5rem;
-    }
-
-    .attached-files {
-        margin-left: 2.5rem;
     }
 }
 </style>

@@ -8,7 +8,7 @@
 //! - Authentication middleware for protecting API routes
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, Request, Response, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
@@ -89,6 +89,7 @@ pub struct UserInfo {
     pub id: String,
     pub username: String,
     pub must_change_password: bool,
+    pub avatar_url: Option<String>,
 }
 
 /// Login response with session token
@@ -105,6 +106,7 @@ pub struct User {
     pub username: String,
     pub password_hash: String,
     pub must_change_password: bool,
+    pub avatar_url: Option<String>,
 }
 
 // ─── Session Database Operations ─────────────────────────────────
@@ -180,7 +182,7 @@ pub async fn get_user_by_username(
 ) -> Result<Option<User>, sqlx::Error> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, password_hash, must_change_password
+        SELECT id, username, password_hash, must_change_password, avatar_url
         FROM users
         WHERE username = ?
         "#,
@@ -191,6 +193,7 @@ pub async fn get_user_by_username(
         username: r.try_get(1).unwrap_or_default(),
         password_hash: r.try_get(2).unwrap_or_default(),
         must_change_password: r.try_get(3).unwrap_or(false),
+        avatar_url: r.try_get(4).ok(),
     })
     .fetch_optional(pool)
     .await?;
@@ -248,7 +251,7 @@ pub async fn get_user_by_id(
 ) -> Result<Option<User>, sqlx::Error> {
     let row = sqlx::query(
         r#"
-        SELECT id, username, password_hash, must_change_password
+        SELECT id, username, password_hash, must_change_password, avatar_url
         FROM users
         WHERE id = ?
         "#,
@@ -259,11 +262,34 @@ pub async fn get_user_by_id(
         username: r.try_get(1).unwrap_or_default(),
         password_hash: r.try_get(2).unwrap_or_default(),
         must_change_password: r.try_get(3).unwrap_or(false),
+        avatar_url: r.try_get(4).ok(),
     })
     .fetch_optional(pool)
     .await?;
 
     Ok(row)
+}
+
+/// Update a user's avatar URL.
+pub async fn update_user_avatar(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+    avatar_url: &str,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET avatar_url = ?, updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(avatar_url)
+    .bind(&now)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 // ─── Error type ──────────────────────────────────────────────────
@@ -338,6 +364,7 @@ pub async fn login(
         id: user.id,
         username: user.username,
         must_change_password: user.must_change_password,
+        avatar_url: user.avatar_url,
     };
 
     // Build response with Set-Cookie header
@@ -449,6 +476,7 @@ pub async fn get_current_user(
         id: user.id,
         username: user.username,
         must_change_password: user.must_change_password,
+        avatar_url: user.avatar_url,
     };
 
     Ok((StatusCode::OK, Json(user_info)))
@@ -667,6 +695,195 @@ pub async fn require_auth(
     }
 }
 
+// ─── Avatar Handlers ─────────────────────────────────────────────
+
+/// Maximum allowed avatar file size: 5 MB
+const MAX_AVATAR_SIZE: usize = 5 * 1024 * 1024;
+
+/// Allowed MIME types for avatar uploads
+const ALLOWED_AVATAR_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/// Map a MIME type to a file extension
+fn mime_to_extension(content_type: &str) -> Option<&'static str> {
+    match content_type {
+        "image/jpeg" => Some("jpg"),
+        "image/png" => Some("png"),
+        "image/gif" => Some("gif"),
+        "image/webp" => Some("webp"),
+        _ => None,
+    }
+}
+
+/// POST /api/auth/upload-avatar
+/// Upload a new avatar image for the currently authenticated user.
+pub async fn upload_avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, AuthError> {
+    // Authenticate the user
+    let token = get_session_token(&headers).ok_or(AuthError {
+        status: StatusCode::UNAUTHORIZED,
+        message: "Not authenticated".to_string(),
+    })?;
+
+    let pool = state.db_pool.read().await;
+    let pool = pool.as_ref().ok_or(AuthError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        message: "Database not available".to_string(),
+    })?;
+
+    let user_id = validate_session(pool, &token)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {}", e);
+            AuthError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".to_string(),
+            }
+        })?
+        .ok_or(AuthError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "Invalid session".to_string(),
+        })?;
+
+    // Process the multipart upload
+    let mut avatar_data: Option<(Vec<u8>, String)> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        tracing::error!("Multipart error: {}", e);
+        AuthError {
+            status: StatusCode::BAD_REQUEST,
+            message: "Failed to read upload".to_string(),
+        }
+    })? {
+        let content_type = field.content_type().unwrap_or("").to_string();
+
+        // Validate content type
+        if !ALLOWED_AVATAR_TYPES.contains(&content_type.as_str()) {
+            return Err(AuthError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!(
+                    "Invalid file type. Allowed types: {}",
+                    ALLOWED_AVATAR_TYPES.join(", ")
+                ),
+            });
+        }
+
+        let data = field.bytes().await.map_err(|e| {
+            tracing::error!("Failed to read field bytes: {}", e);
+            AuthError {
+                status: StatusCode::BAD_REQUEST,
+                message: "Failed to read file data".to_string(),
+            }
+        })?;
+
+        // Validate file size
+        if data.len() > MAX_AVATAR_SIZE {
+            return Err(AuthError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!("File too large. Maximum size is {} bytes", MAX_AVATAR_SIZE),
+            });
+        }
+
+        avatar_data = Some((data.to_vec(), content_type));
+        break; // Only process the first field
+    }
+
+    let (data, content_type) = avatar_data.ok_or(AuthError {
+        status: StatusCode::BAD_REQUEST,
+        message: "No file uploaded".to_string(),
+    })?;
+
+    let ext = mime_to_extension(&content_type).unwrap_or("png");
+
+    // Save the file to ~/.ruri/avatars/{user_id}.{ext}
+    let avatars_dir = crate::api::state::ruri_config_dir().join("avatars");
+    tokio::fs::create_dir_all(&avatars_dir).await.map_err(|e| {
+        tracing::error!("Failed to create avatars directory: {}", e);
+        AuthError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Failed to create avatars directory".to_string(),
+        }
+    })?;
+
+    // Remove any existing avatar files for this user (different extensions)
+    for old_ext in &["jpg", "png", "gif", "webp"] {
+        let old_path = avatars_dir.join(format!("{}.{}", &user_id, old_ext));
+        let _ = tokio::fs::remove_file(&old_path).await;
+    }
+
+    let filename = format!("{}.{}", &user_id, ext);
+    let file_path = avatars_dir.join(&filename);
+
+    tokio::fs::write(&file_path, &data).await.map_err(|e| {
+        tracing::error!("Failed to write avatar file: {}", e);
+        AuthError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "Failed to save avatar".to_string(),
+        }
+    })?;
+
+    // Update the user's avatar_url in the database
+    let avatar_url_path = format!("/api/auth/avatar/{}", &user_id);
+    update_user_avatar(pool, &user_id, &avatar_url_path)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update avatar URL: {}", e);
+            AuthError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Failed to update avatar".to_string(),
+            }
+        })?;
+
+    info!(user_id = %user_id, "Avatar uploaded successfully");
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "avatar_url": avatar_url_path })),
+    ))
+}
+
+/// GET /api/auth/avatar/{user_id}
+/// Serve a user's avatar image file.
+pub async fn get_avatar(Path(user_id): Path<String>) -> Result<impl IntoResponse, AuthError> {
+    let avatars_dir = crate::api::state::ruri_config_dir().join("avatars");
+
+    // Try each supported extension to find the avatar file
+    for ext in &["jpg", "png", "gif", "webp"] {
+        let file_path = avatars_dir.join(format!("{}.{}", &user_id, ext));
+        if file_path.exists() {
+            let data = tokio::fs::read(&file_path).await.map_err(|e| {
+                tracing::error!("Failed to read avatar file: {}", e);
+                AuthError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "Failed to read avatar".to_string(),
+                }
+            })?;
+
+            let content_type = match *ext {
+                "jpg" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                _ => "application/octet-stream",
+            };
+
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", content_type)
+                .header("cache-control", "public, max-age=3600")
+                .body(Body::from(data))
+                .unwrap());
+        }
+    }
+
+    Err(AuthError {
+        status: StatusCode::NOT_FOUND,
+        message: "Avatar not found".to_string(),
+    })
+}
+
 // ─── Router Builder ──────────────────────────────────────────────
 
 /// Build the auth router with public and protected routes.
@@ -678,12 +895,14 @@ pub fn create_auth_router(state: Arc<AppState>) -> axum::Router {
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/me", get(get_current_user))
+        .route("/api/auth/avatar/{user_id}", get(get_avatar))
         .with_state(state.clone());
 
     // Auth management routes (require authentication)
     let auth_routes = axum::Router::new()
         .route("/api/auth/change-password", post(change_password))
         .route("/api/auth/update-username", post(update_username))
+        .route("/api/auth/upload-avatar", post(upload_avatar))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_auth,

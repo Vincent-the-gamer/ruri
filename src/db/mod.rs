@@ -242,6 +242,26 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .await
     .context("Failed to create users table")?;
 
+    // ─── Users: avatar_url migration ────────────────────────────
+    // Add avatar_url column if it doesn't exist yet
+    {
+        let columns: Vec<String> = sqlx::query_as("SELECT name FROM pragma_table_info('users')")
+            .fetch_all(pool)
+            .await
+            .context("Failed to check users table columns")?
+            .into_iter()
+            .map(|row: (String,)| row.0)
+            .collect();
+
+        if !columns.iter().any(|c| c == "avatar_url") {
+            sqlx::query("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+                .execute(pool)
+                .await
+                .context("Failed to add avatar_url column to users table")?;
+            info!("Added avatar_url column to users table");
+        }
+    }
+
     // ─── Sessions ───────────────────────────────────────────────
     sqlx::query(
         r#"
