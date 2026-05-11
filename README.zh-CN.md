@@ -36,6 +36,22 @@
 
 ...
 
+## 安装和运行
+
+1. 从Release下载内测版: [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
+2. 添加进环境变量(PATH)
+3. 运行 `ruri`
+
+```bash
+# help
+ruri -h
+
+# run
+ruri run
+ruri run --port 8080
+ruri run --remote
+```
+
 ## 使用
 
 文档即将添加...

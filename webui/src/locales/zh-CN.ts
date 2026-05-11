@@ -873,4 +873,9 @@ export default {
     failedToUpdateUsername: '修改用户名失败，请重试',
     usernameCannotBeEmpty: '用户名不能为空',
   },
+  userMenu: {
+    passwordChangeRequired: '需要修改密码',
+    changePassword: '修改密码',
+    logout: '退出登录',
+  },
 }

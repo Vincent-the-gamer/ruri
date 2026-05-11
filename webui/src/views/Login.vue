@@ -264,12 +264,13 @@ function handleKeyPress(e: KeyboardEvent) {
 }
 
 .login-avatar {
+    display: block;
     width: 64px;
     height: 64px;
     border-radius: 50%;
     object-fit: cover;
     border: 3px solid hsl(var(--primary) / 0.5);
-    margin-bottom: 16px;
+    margin: 0 auto 16px;
     box-shadow: 0 4px 12px hsl(var(--primary) / 0.2);
 }
 

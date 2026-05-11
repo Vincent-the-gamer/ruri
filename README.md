@@ -36,6 +36,22 @@
 
 ...
 
+## Installation and Running
+
+1. Download Alpha Version from release: [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
+2. Add it to PATH
+3. Run `ruri`
+
+```bash
+# help
+ruri -h
+
+# run
+ruri run
+ruri run --port 8080
+ruri run --remote
+```
+
 ## Usage
 
 Documentation will be added soon...

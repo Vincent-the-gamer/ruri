@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { useAuthStore } from "../stores/auth";
 import { Icon } from "@iconify/vue";
 
 const router = useRouter();
+const { t } = useI18n();
 const authStore = useAuthStore();
 
 const showMenu = ref(false);
@@ -75,7 +77,7 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
                 <span
                     v-if="mustChangePassword"
                     class="password-warning"
-                    title="Password change required"
+                    :title="t('userMenu.passwordChangeRequired')"
                 >
                     <Icon icon="lucide:alert-triangle" class="warning-icon" />
                 </span>
@@ -101,7 +103,9 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
                                 icon="lucide:shield-alert"
                                 class="warning-icon-small"
                             />
-                            <span>Password change required</span>
+                            <span>{{
+                                t("userMenu.passwordChangeRequired")
+                            }}</span>
                         </div>
                     </div>
                 </div>
@@ -113,7 +117,7 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
                     <!-- Change Password -->
                     <button class="dropdown-item" @click="goToChangePassword">
                         <Icon icon="lucide:key-round" class="dropdown-icon" />
-                        <span>Change Password</span>
+                        <span>{{ t("userMenu.changePassword") }}</span>
                         <Icon
                             v-if="mustChangePassword"
                             icon="lucide:arrow-right"
@@ -127,7 +131,7 @@ const initialLetter = computed(() => username.value.charAt(0).toUpperCase());
                         @click="handleLogout"
                     >
                         <Icon icon="lucide:log-out" class="dropdown-icon" />
-                        <span>Logout</span>
+                        <span>{{ t("userMenu.logout") }}</span>
                         <Icon
                             icon="lucide:arrow-right"
                             class="dropdown-arrow"

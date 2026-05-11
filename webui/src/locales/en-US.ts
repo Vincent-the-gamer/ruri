@@ -872,4 +872,9 @@ export default {
     failedToUpdateUsername: 'Failed to update username. Please try again.',
     usernameCannotBeEmpty: 'Username cannot be empty',
   },
+  userMenu: {
+    passwordChangeRequired: 'Password change required',
+    changePassword: 'Change Password',
+    logout: 'Logout',
+  },
 }
