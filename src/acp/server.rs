@@ -34,10 +34,13 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
         config_path.display()
     );
 
-    let agent_state = Arc::new(RuriAgentState::new(&config_path));
-    let session_manager = Arc::new(SessionManager::new(Arc::clone(
-        &agent_state.web_search_config,
-    )));
+    let agent_state = Arc::new(RuriAgentState::new(&config_path).await);
+    let session_manager = Arc::new(SessionManager::new(
+        Arc::clone(&agent_state.web_search_config),
+        agent_state.computer_use_config.clone(),
+        Arc::clone(&agent_state.knowledge_base_service),
+        agent_state.active_knowledge_base_ids.clone(),
+    ));
 
     let stdin = tokio::io::stdin().compat();
     let stdout = tokio::io::stdout().compat_write();
@@ -180,18 +183,72 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
 
 /// State shared across all ACP request handlers.
 struct RuriAgentState {
-    provider_factory: ProviderFactory,
+    provider_factory: tokio::sync::RwLock<ProviderFactory>,
     /// Web search configuration shared across sessions.
     web_search_config: Arc<tokio::sync::RwLock<crate::types::WebSearchConfig>>,
+    /// Computer use configuration shared across sessions.
+    computer_use_config: crate::computer_use::ComputerUseConfig,
+    /// Knowledge base service shared across sessions.
+    knowledge_base_service:
+        Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
+    /// Active knowledge base IDs from the active config profile.
+    active_knowledge_base_ids: Vec<String>,
 }
 
 impl RuriAgentState {
-    fn new(config_path: &Path) -> Self {
+    async fn new(config_path: &Path) -> Self {
         let provider_factory = ProviderFactory::from_config_path(config_path);
         let web_search_config = provider_factory.get_web_search_config();
+
+        // Extract computer_use_config and active_knowledge_base_ids from persisted config
+        let (computer_use_config, active_knowledge_base_ids) = provider_factory
+            .config
+            .as_ref()
+            .map(|c| {
+                let kb_ids = c
+                    .config_profiles
+                    .values()
+                    .find(|p| p.is_active && p.enable)
+                    .map(|p| p.active_knowledge_base_ids.clone())
+                    .unwrap_or_default();
+                (c.computer_use_config.clone(), kb_ids)
+            })
+            .unwrap_or_default();
+
+        // Initialize the database and KnowledgeBaseService
+        let knowledge_base_service: Arc<
+            tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>,
+        > = {
+            let db_path = crate::db::database_path();
+            match crate::db::init(db_path).await {
+                Ok(pool) => {
+                    tracing::info!("ACP: Database initialized for knowledge base");
+                    match crate::knowledge::KnowledgeBaseStore::new(pool).await {
+                        Ok(kb_store) => {
+                            let kb_service = crate::knowledge::KnowledgeBaseService::new(
+                                std::sync::Arc::new(kb_store),
+                            );
+                            Arc::new(tokio::sync::RwLock::new(Some(kb_service)))
+                        }
+                        Err(e) => {
+                            tracing::warn!("ACP: Failed to initialize KB store: {}", e);
+                            Arc::new(tokio::sync::RwLock::new(None))
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("ACP: Failed to initialize database: {}", e);
+                    Arc::new(tokio::sync::RwLock::new(None))
+                }
+            }
+        };
+
         Self {
-            provider_factory,
+            provider_factory: tokio::sync::RwLock::new(provider_factory),
             web_search_config,
+            computer_use_config,
+            knowledge_base_service,
+            active_knowledge_base_ids,
         }
     }
 }
@@ -214,11 +271,12 @@ async fn handle_session_new(
     let cwd = request.cwd.display().to_string();
     tracing::info!("Creating new ACP session, cwd={}", cwd);
 
-    let provider = agent_state
-        .provider_factory
+    let mut pf = agent_state.provider_factory.write().await;
+    let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let skills = agent_state.provider_factory.build_skills();
+    let skills = pf.build_skills();
+    drop(pf);
 
     let session_id = session_manager
         .create_session_with_skills(provider, cwd, skills)
@@ -253,11 +311,12 @@ async fn handle_session_load(
     let cwd = request.cwd.display().to_string();
     tracing::info!("Loading session: {}", session_id);
 
-    let provider = agent_state
-        .provider_factory
+    let mut pf = agent_state.provider_factory.write().await;
+    let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let skills = agent_state.provider_factory.build_skills();
+    let skills = pf.build_skills();
+    drop(pf);
 
     session_manager
         .load_session_with_skills(provider, session_id.clone(), cwd, skills)
@@ -477,6 +536,8 @@ fn async_stream_handler(
 /// Creates providers and skills for ACP sessions, using persisted config
 /// when available and falling back to environment variables.
 pub struct ProviderFactory {
+    /// Path to the config file on disk.
+    config_path: PathBuf,
     /// The loaded persisted config (if available).
     config: Option<PersistedConfig>,
 }
@@ -500,7 +561,10 @@ impl ProviderFactory {
                 None
             }
         };
-        Self { config }
+        Self {
+            config_path: config_path.to_path_buf(),
+            config,
+        }
     }
 
     /// Load the persisted config file.
@@ -510,6 +574,25 @@ impl ProviderFactory {
         let config: PersistedConfig = serde_json::from_str(&content)
             .map_err(|e| anyhow::anyhow!("Failed to parse config: {}", e))?;
         Ok(config)
+    }
+
+    /// Re-read the config file from disk and update the cached config.
+    /// On failure, keeps the previous config so existing sessions continue to work.
+    fn reload_config(&mut self) {
+        match Self::load_config(&self.config_path) {
+            Ok(c) => {
+                tracing::debug!("ACP reloaded config from {}", self.config_path.display());
+                self.config = Some(c);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "ACP failed to reload config from {}: {}, keeping previous config",
+                    self.config_path.display(),
+                    e
+                );
+                // Keep the previous config on failure
+            }
+        }
     }
 
     /// Get the web search configuration from the persisted config.
@@ -544,7 +627,10 @@ impl ProviderFactory {
     }
 
     /// Create a provider from the persisted config or environment variables.
-    pub fn create_provider(&self) -> anyhow::Result<Box<dyn Provider>> {
+    pub fn create_provider(&mut self) -> anyhow::Result<Box<dyn Provider>> {
+        // Hot-reload config so new sessions pick up WebUI changes
+        self.reload_config();
+
         // Try to create from persisted config first
         if let Some(provider_id) = self.resolve_acp_provider_id()
             && let Some(ref config) = self.config
@@ -576,7 +662,10 @@ impl ProviderFactory {
     /// Build skill instances based on the persisted ACP config.
     /// Only returns skills whose names are listed in `acp_config.active_skill_names`.
     /// Also injects the persona system prompt if configured and active.
-    pub fn build_skills(&self) -> Vec<Arc<dyn crate::agent::skill::Skill>> {
+    pub fn build_skills(&mut self) -> Vec<Arc<dyn crate::agent::skill::Skill>> {
+        // Hot-reload config so new sessions pick up WebUI changes
+        self.reload_config();
+
         let Some(ref config) = self.config else {
             return Vec::new();
         };

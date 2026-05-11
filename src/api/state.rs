@@ -1,5 +1,7 @@
 use crate::agent::runner::{Agent, AgentConfig};
-use crate::agent::skill::{ContextPrefixSkill, MemorySkill, Skill, SystemPromptSkill};
+use crate::agent::skill::{
+    ContextPrefixSkill, MemorySkill, Skill, SkillPackageSkill, SystemPromptSkill,
+};
 use crate::platform::types::PlatformStatus;
 use crate::provider::Provider;
 use crate::types::ChatMessage;
@@ -978,24 +980,56 @@ impl AppState {
                 }
                 "skill" => {
                     // Custom skill package uploaded via upload_skill_package
-                    // Create a GenericSkill that injects the skill content as system prompt
+                    // Use SkillPackageSkill which handles all SKILL.md frontmatter fields
                     let name = skill.name.clone();
                     let description = skill.description.clone();
-                    let content = skill.config["content"].as_str().unwrap_or("").to_string();
 
-                    if content.is_empty() {
-                        tracing::warn!(
-                            skill_name = %skill.name,
-                            "Skill has no content, skipping"
-                        );
-                    } else {
-                        result.push(Arc::new(SystemPromptSkill::new(format!(
-                            "# {}\n\n{}",
-                            description, content
-                        ))) as Arc<dyn Skill>);
+                    let has_content = skill.config["content"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_shell = skill.config["shell"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_hooks = skill.config.get("hooks").is_some();
+                    let has_when_to_use = skill.config["when_to_use"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_arguments = skill.config.get("arguments").is_some()
+                        || skill.config["argument_hint"]
+                            .as_str()
+                            .is_some_and(|s| !s.is_empty());
+                    let has_allowed_tools = skill.config.get("allowed_tools").is_some();
+                    let has_context = skill.config["context"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_paths = skill.config.get("paths").is_some();
+
+                    // Load the skill if it has any content or executable features
+                    if has_content
+                        || has_shell
+                        || has_hooks
+                        || has_when_to_use
+                        || has_arguments
+                        || has_allowed_tools
+                        || has_context
+                        || has_paths
+                    {
+                        result.push(Arc::new(SkillPackageSkill::from_config(
+                            name.clone(),
+                            description.clone(),
+                            &skill.config,
+                        )) as Arc<dyn Skill>);
                         tracing::info!(
                             skill_name = %name,
-                            "Loaded generic skill as system prompt"
+                            shell = has_shell,
+                            hooks = has_hooks,
+                            allowed_tools = has_allowed_tools,
+                            "Loaded skill package with frontmatter support"
+                        );
+                    } else {
+                        tracing::warn!(
+                            skill_name = %skill.name,
+                            "Skill has no content or executable features, skipping"
                         );
                     }
                 }
@@ -1170,15 +1204,33 @@ impl AppState {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
             }
-            crate::computer_use::ComputerUseRuntime::Sandbox => {
-                // Sandbox mode is not yet implemented
-                tracing::warn!("Sandbox mode is not yet implemented, falling back to basic tools");
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+            crate::computer_use::ComputerUseRuntime::AioSandbox => {
+                // AIO Sandbox mode - use sandbox tools via HTTP API
+                let aio_config = computer_use_config.aio_sandbox_config.as_ref();
+                match aio_config {
+                    Some(config) => {
+                        tracing::info!("Using AIO Sandbox at endpoint: {}", config.endpoint);
+                        let client = Arc::new(crate::computer_use::AioSandboxClient::new(config.endpoint.clone()));
+                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxShellTool::new(client.clone())));
+                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxReadFileTool::new(client.clone())));
+                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxWriteFileTool::new(client.clone())));
+                        agent.register_tool(Arc::new(crate::computer_use::AioSandboxListDirectoryTool::new(client)));
+
+                        // Also register CreateFileTool and EditFileTool as they may be useful alongside sandbox
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+                    }
+                    None => {
+                        tracing::error!("AIO Sandbox runtime selected but no sandbox config provided, falling back to basic tools");
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
+                    }
+                }
             }
         }
 

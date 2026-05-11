@@ -8,8 +8,9 @@ pub enum ComputerUseRuntime {
     None,
     /// Run in local environment (Ruri host machine)
     Local,
-    /// Run in isolated sandbox
-    Sandbox,
+    /// Run in AIO Sandbox (isolated Docker container via HTTP API)
+    #[serde(rename = "aio_sandbox")]
+    AioSandbox,
 }
 
 impl Default for ComputerUseRuntime {
@@ -21,7 +22,7 @@ impl Default for ComputerUseRuntime {
 /// Computer Use configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerUseConfig {
-    /// Runtime mode: none, local, or sandbox
+    /// Runtime mode: none, local, or aio_sandbox
     #[serde(default)]
     pub runtime: ComputerUseRuntime,
 
@@ -37,9 +38,9 @@ pub struct ComputerUseConfig {
     #[serde(default)]
     pub allowed_paths: Vec<String>,
 
-    /// Sandbox configuration (used when runtime is Sandbox)
+    /// AIO Sandbox configuration (used when runtime is AioSandbox)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sandbox_config: Option<SandboxConfig>,
+    pub aio_sandbox_config: Option<AioSandboxConfig>,
 }
 
 impl Default for ComputerUseConfig {
@@ -49,7 +50,7 @@ impl Default for ComputerUseConfig {
             require_admin: true,
             admin_ids: Vec::new(),
             allowed_paths: Vec::new(),
-            sandbox_config: None,
+            aio_sandbox_config: None,
         }
     }
 }
@@ -58,41 +59,22 @@ fn default_require_admin() -> bool {
     true
 }
 
-/// Sandbox configuration
+/// AIO Sandbox configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SandboxConfig {
-    /// Sandbox driver: "shipyard_neo", "cua", etc.
-    pub driver: String,
-
-    /// Sandbox endpoint URL (for remote sandboxes)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
-
-    /// Sandbox profile (e.g., for CUA)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub profile: Option<String>,
-
-    /// Time-to-live for sandbox sessions (in seconds)
-    #[serde(default = "default_ttl")]
-    pub ttl_secs: u64,
-
-    /// Enable browser automation capabilities
-    #[serde(default)]
-    pub enable_browser: bool,
+pub struct AioSandboxConfig {
+    /// AIO Sandbox endpoint URL (e.g., http://localhost:8080)
+    #[serde(default = "default_aio_sandbox_endpoint")]
+    pub endpoint: String,
 }
 
-fn default_ttl() -> u64 {
-    3600 // 1 hour
+fn default_aio_sandbox_endpoint() -> String {
+    "http://localhost:8080".to_string()
 }
 
-impl Default for SandboxConfig {
+impl Default for AioSandboxConfig {
     fn default() -> Self {
         Self {
-            driver: "shipyard_neo".to_string(),
-            endpoint: None,
-            profile: None,
-            ttl_secs: default_ttl(),
-            enable_browser: false,
+            endpoint: default_aio_sandbox_endpoint(),
         }
     }
 }

@@ -1,6 +1,5 @@
 //! Built-in command implementations for Ruri.
 //!
-//! These commands mirror AstrBot's built-in commands:
 //! - `/help` — Show available commands and version info
 //! - `/sid`  — Show current session info (UMO, UID, Bot ID, etc.)
 //! - `/reset` — Reset the current conversation's LLM context

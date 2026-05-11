@@ -2,33 +2,26 @@
 import { onMounted, ref, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useComputerUseStore } from "../stores/computerUse";
-import type { SandboxConfig, SandboxDriver } from "../types";
+import type { AioSandboxConfig } from "../types";
 
 const { t } = useI18n();
 const computerUseStore = useComputerUseStore();
 
 const selectedRuntime = ref<string>("none");
+
+const runtimeLabelKeys: Record<string, string> = {
+    none: "computerUseConfig.runtimeNone",
+    local: "computerUseConfig.runtimeLocal",
+    aio_sandbox: "computerUseConfig.runtimeAioSandbox",
+};
 const requireAdmin = ref(true);
 const adminIds = ref<string[]>([]);
 const allowedPaths = ref<string[]>([]);
 const newAdminId = ref("");
 const newAllowedPath = ref("");
 
-// Sandbox config with default values
-const sandboxConfig = ref<SandboxConfig>({
-    driver: "shipyard_neo",
-    endpoint: undefined,
-    access_token: undefined,
-    profile: undefined,
-    ttl_secs: 3600,
-    enable_browser: false,
-    // CUA defaults
-    cua_image: "linux",
-    cua_os_type: "linux",
-    cua_sandbox_ttl: 3600,
-    cua_telemetry_enabled: false,
-    cua_local_runtime: true,
-    cua_api_key: undefined,
+const aioSandboxConfig = ref<AioSandboxConfig>({
+    endpoint: "http://localhost:8080",
 });
 
 const saveSuccess = ref(false);
@@ -45,29 +38,19 @@ function syncFromStore() {
         requireAdmin.value = computerUseStore.config.require_admin;
         adminIds.value = [...computerUseStore.config.admin_ids];
         allowedPaths.value = [...computerUseStore.config.allowed_paths];
-        // Sync sandbox config if exists
-        if (computerUseStore.config.sandbox_config) {
-            sandboxConfig.value = { ...computerUseStore.config.sandbox_config };
+        if (computerUseStore.config.aio_sandbox_config) {
+            aioSandboxConfig.value = {
+                ...computerUseStore.config.aio_sandbox_config,
+            };
         }
     }
 }
 
-// Watch for runtime changes to provide default sandbox config
+// Watch for runtime changes to provide default aio sandbox config
 watch(selectedRuntime, (newRuntime) => {
-    if (newRuntime === "sandbox" && !sandboxConfig.value.driver) {
-        sandboxConfig.value = {
-            driver: "shipyard_neo",
-            endpoint: undefined,
-            access_token: undefined,
-            profile: undefined,
-            ttl_secs: 3600,
-            enable_browser: false,
-            cua_image: "linux",
-            cua_os_type: "linux",
-            cua_sandbox_ttl: 3600,
-            cua_telemetry_enabled: false,
-            cua_local_runtime: true,
-            cua_api_key: undefined,
+    if (newRuntime === "aio_sandbox" && !aioSandboxConfig.value.endpoint) {
+        aioSandboxConfig.value = {
+            endpoint: "http://localhost:8080",
         };
     }
     clearMessages();
@@ -120,14 +103,14 @@ async function handleSave() {
     clearMessages();
     try {
         await computerUseStore.updateConfig({
-            runtime: selectedRuntime.value as "none" | "local" | "sandbox",
+            runtime: selectedRuntime.value as "none" | "local" | "aio_sandbox",
             require_admin: requireAdmin.value,
             admin_ids: adminIds.value,
             allowed_paths: allowedPaths.value,
-            // Include sandbox config only if runtime is sandbox
-            sandbox_config:
-                selectedRuntime.value === "sandbox"
-                    ? sandboxConfig.value
+            // Include aio sandbox config only if runtime is aio_sandbox
+            aio_sandbox_config:
+                selectedRuntime.value === "aio_sandbox"
+                    ? aioSandboxConfig.value
                     : undefined,
         });
         saveSuccess.value = true;
@@ -141,10 +124,10 @@ async function handleSave() {
 
 const hasChanges = computed(() => {
     if (!computerUseStore.config) return false;
-    const sandboxChanged =
-        selectedRuntime.value === "sandbox" &&
-        JSON.stringify(sandboxConfig.value) !==
-            JSON.stringify(computerUseStore.config.sandbox_config);
+    const aioSandboxChanged =
+        selectedRuntime.value === "aio_sandbox" &&
+        JSON.stringify(aioSandboxConfig.value) !==
+            JSON.stringify(computerUseStore.config.aio_sandbox_config);
     return (
         selectedRuntime.value !== computerUseStore.config.runtime ||
         requireAdmin.value !== computerUseStore.config.require_admin ||
@@ -152,7 +135,7 @@ const hasChanges = computed(() => {
             JSON.stringify(computerUseStore.config.admin_ids) ||
         JSON.stringify(allowedPaths.value) !==
             JSON.stringify(computerUseStore.config.allowed_paths) ||
-        sandboxChanged
+        aioSandboxChanged
     );
 });
 </script>
@@ -224,7 +207,7 @@ const hasChanges = computed(() => {
 
                 <div class="runtime-options">
                     <button
-                        v-for="runtime in ['none', 'local', 'sandbox']"
+                        v-for="runtime in ['none', 'local', 'aio_sandbox']"
                         :key="runtime"
                         @click="selectedRuntime = runtime"
                         :class="[
@@ -253,11 +236,7 @@ const hasChanges = computed(() => {
                         </div>
                         <div class="runtime-info">
                             <div class="runtime-name">
-                                {{
-                                    t(
-                                        `computerUseConfig.runtime${runtime.charAt(0).toUpperCase() + runtime.slice(1)}`,
-                                    )
-                                }}
+                                {{ t(runtimeLabelKeys[runtime]) }}
                             </div>
                         </div>
                     </button>
@@ -363,324 +342,30 @@ const hasChanges = computed(() => {
                 </div>
             </section>
 
-            <!-- Sandbox Configuration (only when runtime is sandbox) -->
+            <!-- AIO Sandbox Configuration (only when runtime is aio_sandbox) -->
             <section
-                v-if="selectedRuntime === 'sandbox'"
+                v-if="selectedRuntime === 'aio_sandbox'"
                 class="config-section"
             >
                 <h2 class="section-title">
-                    {{ t("computerUseConfig.sandboxConfig") }}
+                    {{ t("computerUseConfig.aioSandboxConfig") }}
                 </h2>
 
-                <!-- Driver Selection -->
-                <div class="driver-selection">
-                    <label class="input-label">{{
-                        t("computerUseConfig.sandboxDriver")
-                    }}</label>
-                    <div class="driver-options">
-                        <button
-                            v-for="driver in ['shipyard_neo', 'cua']"
-                            :key="driver"
-                            @click="
-                                sandboxConfig.driver = driver as SandboxDriver;
-                                clearMessages();
-                            "
-                            :class="[
-                                'driver-option',
-                                {
-                                    'driver-option--selected':
-                                        sandboxConfig.driver === driver,
-                                },
-                            ]"
-                        >
-                            <div class="driver-radio">
-                                <span
-                                    :class="[
-                                        'radio-dot',
-                                        {
-                                            'radio-dot--selected':
-                                                sandboxConfig.driver === driver,
-                                        },
-                                    ]"
-                                >
-                                    <span
-                                        v-if="sandboxConfig.driver === driver"
-                                        class="radio-dot-inner"
-                                    ></span>
-                                </span>
-                            </div>
-                            <div class="driver-info">
-                                <div class="driver-name">
-                                    {{
-                                        driver === "shipyard_neo"
-                                            ? "Shipyard Neo"
-                                            : "CUA"
-                                    }}
-                                </div>
-                                <div class="driver-desc">
-                                    {{
-                                        t(
-                                            `computerUseConfig.sandboxDriverDesc.${driver}`,
-                                        )
-                                    }}
-                                </div>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Shipyard Neo Configuration -->
-                <div
-                    v-if="sandboxConfig.driver === 'shipyard_neo'"
-                    class="driver-config"
-                >
-                    <h3 class="config-subtitle">
-                        {{ t("computerUseConfig.shipyardNeoTitle") }}
-                    </h3>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.shipyardEndpoint")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.endpoint"
-                            type="text"
-                            :placeholder="
-                                t(
-                                    'computerUseConfig.shipyardEndpointPlaceholder',
-                                )
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.shipyardEndpointDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.shipyardAccessToken")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.access_token"
-                            type="password"
-                            :placeholder="
-                                t(
-                                    'computerUseConfig.shipyardAccessTokenPlaceholder',
-                                )
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.shipyardAccessTokenDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.shipyardProfile")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.profile"
-                            type="text"
-                            :placeholder="
-                                t(
-                                    'computerUseConfig.shipyardProfilePlaceholder',
-                                )
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.shipyardProfileDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.shipyardTtl")
-                        }}</label>
-                        <input
-                            v-model.number="sandboxConfig.ttl_secs"
-                            type="number"
-                            min="60"
-                            max="86400"
-                            placeholder="3600"
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.shipyardTtlDesc") }}
-                        </p>
-                    </div>
-                </div>
-
-                <!-- CUA Configuration -->
-                <div
-                    v-if="sandboxConfig.driver === 'cua'"
-                    class="driver-config"
-                >
-                    <h3 class="config-subtitle">
-                        {{ t("computerUseConfig.cuaTitle") }}
-                    </h3>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.cuaImage")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.cua_image"
-                            type="text"
-                            :placeholder="
-                                t('computerUseConfig.cuaImagePlaceholder')
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaImageDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.cuaOsType")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.cua_os_type"
-                            type="text"
-                            :placeholder="
-                                t('computerUseConfig.cuaOsTypePlaceholder')
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaOsTypeDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="input-label">{{
-                            t("computerUseConfig.cuaTtl")
-                        }}</label>
-                        <input
-                            v-model.number="sandboxConfig.cua_sandbox_ttl"
-                            type="number"
-                            min="60"
-                            max="86400"
-                            placeholder="3600"
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaTtlDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="toggle-label">
-                            <input
-                                type="checkbox"
-                                v-model="sandboxConfig.cua_local_runtime"
-                                class="toggle-input"
-                                @change="clearMessages"
-                            />
-                            <span
-                                :class="[
-                                    'toggle',
-                                    {
-                                        'toggle--on':
-                                            sandboxConfig.cua_local_runtime,
-                                    },
-                                ]"
-                            >
-                                <span class="toggle-thumb"></span>
-                            </span>
-                            <span class="toggle-text">{{
-                                t("computerUseConfig.cuaLocalRuntime")
-                            }}</span>
-                        </label>
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaLocalRuntimeDesc") }}
-                        </p>
-                    </div>
-
-                    <div class="form-field">
-                        <label class="toggle-label">
-                            <input
-                                type="checkbox"
-                                v-model="sandboxConfig.cua_telemetry_enabled"
-                                class="toggle-input"
-                                @change="clearMessages"
-                            />
-                            <span
-                                :class="[
-                                    'toggle',
-                                    {
-                                        'toggle--on':
-                                            sandboxConfig.cua_telemetry_enabled,
-                                    },
-                                ]"
-                            >
-                                <span class="toggle-thumb"></span>
-                            </span>
-                            <span class="toggle-text">{{
-                                t("computerUseConfig.cuaTelemetry")
-                            }}</span>
-                        </label>
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaTelemetryDesc") }}
-                        </p>
-                    </div>
-
-                    <div
-                        v-if="!sandboxConfig.cua_local_runtime"
-                        class="form-field"
-                    >
-                        <label class="input-label">{{
-                            t("computerUseConfig.cuaApiKey")
-                        }}</label>
-                        <input
-                            v-model="sandboxConfig.cua_api_key"
-                            type="password"
-                            :placeholder="
-                                t('computerUseConfig.cuaApiKeyPlaceholder')
-                            "
-                            class="text-input"
-                            @change="clearMessages"
-                        />
-                        <p class="input-hint">
-                            {{ t("computerUseConfig.cuaApiKeyDesc") }}
-                        </p>
-                    </div>
-                </div>
-
-                <!-- Enable Browser (common) -->
                 <div class="form-field">
-                    <label class="toggle-label">
-                        <input
-                            type="checkbox"
-                            v-model="sandboxConfig.enable_browser"
-                            class="toggle-input"
-                            @change="clearMessages"
-                        />
-                        <span
-                            :class="[
-                                'toggle',
-                                { 'toggle--on': sandboxConfig.enable_browser },
-                            ]"
-                        >
-                            <span class="toggle-thumb"></span>
-                        </span>
-                        <span class="toggle-text">{{
-                            t("computerUseConfig.enableBrowser")
-                        }}</span>
-                    </label>
+                    <label class="input-label">{{
+                        t("computerUseConfig.aioSandboxEndpoint")
+                    }}</label>
+                    <input
+                        v-model="aioSandboxConfig.endpoint"
+                        type="text"
+                        :placeholder="
+                            t('computerUseConfig.aioSandboxEndpointPlaceholder')
+                        "
+                        class="text-input"
+                        @change="clearMessages"
+                    />
                     <p class="input-hint">
-                        {{ t("computerUseConfig.enableBrowserDesc") }}
+                        {{ t("computerUseConfig.aioSandboxEndpointDesc") }}
                     </p>
                 </div>
             </section>

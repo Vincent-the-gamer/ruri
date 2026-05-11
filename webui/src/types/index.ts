@@ -257,29 +257,10 @@ export interface WsGetSinceCommand {
 
 // ─── Computer Use Types ────────────────────────────────────────────
 
-export type ComputerUseRuntime = 'none' | 'local' | 'sandbox'
+export type ComputerUseRuntime = 'none' | 'local' | 'aio_sandbox'
 
-export type SandboxDriver = 'shipyard_neo' | 'cua'
-
-export interface SandboxConfig {
-  driver: SandboxDriver
-
-  // Shipyard Neo 配置
-  endpoint?: string
-  access_token?: string
-  profile?: string
-  ttl_secs?: number
-
-  // CUA 配置
-  cua_image?: string
-  cua_os_type?: string
-  cua_sandbox_ttl?: number
-  cua_telemetry_enabled?: boolean
-  cua_local_runtime?: boolean
-  cua_api_key?: string
-
-  // 通用配置
-  enable_browser?: boolean
+export interface AioSandboxConfig {
+  endpoint: string
 }
 
 export interface ComputerUseConfig {
@@ -287,7 +268,7 @@ export interface ComputerUseConfig {
   require_admin: boolean
   admin_ids: string[]
   allowed_paths: string[]
-  sandbox_config?: SandboxConfig
+  aio_sandbox_config?: AioSandboxConfig
 }
 
 export interface UpdateComputerUseConfigRequest {
@@ -295,7 +276,7 @@ export interface UpdateComputerUseConfigRequest {
   require_admin?: boolean
   admin_ids?: string[]
   allowed_paths?: string[]
-  sandbox_config?: SandboxConfig
+  aio_sandbox_config?: AioSandboxConfig
 }
 
 // ─── Web Search Types ────────────────────────────────────────────

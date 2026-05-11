@@ -1474,12 +1474,12 @@ async fn update_computer_use_config(
         computer_use_config.runtime = match runtime.as_str() {
             "none" => crate::computer_use::ComputerUseRuntime::None,
             "local" => crate::computer_use::ComputerUseRuntime::Local,
-            "sandbox" => crate::computer_use::ComputerUseRuntime::Sandbox,
+            "aio_sandbox" => crate::computer_use::ComputerUseRuntime::AioSandbox,
             _ => {
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": format!("Invalid runtime: {}. Must be 'none', 'local', or 'sandbox'", runtime)
+                        "error": format!("Invalid runtime: {}. Must be 'none', 'local', or 'aio_sandbox'", runtime)
                     })),
                 ));
             }
@@ -1501,14 +1501,10 @@ async fn update_computer_use_config(
         computer_use_config.allowed_paths = allowed_paths;
     }
 
-    // Update sandbox_config if provided
-    if let Some(sandbox_config_dto) = req.sandbox_config {
-        computer_use_config.sandbox_config = Some(crate::computer_use::SandboxConfig {
-            driver: sandbox_config_dto.driver,
-            endpoint: sandbox_config_dto.endpoint,
-            profile: sandbox_config_dto.profile,
-            ttl_secs: sandbox_config_dto.ttl_secs,
-            enable_browser: sandbox_config_dto.enable_browser,
+    // Update aio_sandbox_config if provided
+    if let Some(aio_sandbox_config_dto) = req.aio_sandbox_config {
+        computer_use_config.aio_sandbox_config = Some(crate::computer_use::AioSandboxConfig {
+            endpoint: aio_sandbox_config_dto.endpoint,
         });
     }
 

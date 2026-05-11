@@ -1,6 +1,5 @@
 //! Built-in command system for Ruri.
 //!
-//! This module provides a command dispatching mechanism similar to AstrBot's
 //! built-in commands. Commands are prefixed with `/` (e.g. `/help`, `/reset`)
 //! and are intercepted before the message is sent to the AI agent.
 //!
