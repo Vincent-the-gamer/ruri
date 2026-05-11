@@ -199,6 +199,8 @@ export default {
     proxyMode: 'Proxy Mode',
     proxyModeGlobal: 'Global Proxy',
     proxyModeRules: 'Rule-based Proxy',
+    persona: 'Persona',
+    personaDefault: 'Default (follow config profile)',
   },
 
   // Providers

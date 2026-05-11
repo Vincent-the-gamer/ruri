@@ -31,6 +31,22 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 const showSettings = ref(false);
 const selectedKbIds = ref<string[]>([]);
+const selectedPersonaId = ref<string | null>(null);
+
+// Available personas for selection
+const personas = computed(() => personaStore.personas);
+
+// The effective persona: manually selected > active config profile's persona
+const effectivePersona = computed(() => {
+    if (selectedPersonaId.value) {
+        return (
+            personaStore.personas.find(
+                (p) => p.id === selectedPersonaId.value,
+            ) || personaStore.activePersona
+        );
+    }
+    return personaStore.activePersona;
+});
 
 // Available knowledge bases for selection
 const knowledgeBases = computed(() => knowledgeBaseStore.knowledgeBases);
@@ -136,7 +152,7 @@ function scrollToBottom() {
 async function handleSend(message: string) {
     await chatStore.sendMessage({
         message,
-        persona_id: personaStore.activePersona?.id,
+        persona_id: selectedPersonaId.value || personaStore.activePersona?.id,
         temperature: temperature.value,
         max_tokens: maxTokens.value,
         knowledge_base_ids:
@@ -198,12 +214,9 @@ function toggleSettings() {
             </div>
 
             <div class="header-right">
-                <div
-                    v-if="personaStore.activePersona"
-                    class="model-badge persona-badge"
-                >
+                <div v-if="effectivePersona" class="model-badge persona-badge">
                     <span class="badge-icon">🎭</span>
-                    <span>{{ personaStore.activePersona.name }}</span>
+                    <span>{{ effectivePersona.name }}</span>
                 </div>
                 <div v-if="providerStore.activeProvider" class="model-badge">
                     <span class="badge-icon">🤖</span>
@@ -283,6 +296,52 @@ function toggleSettings() {
                                 step="1"
                                 class="number-input"
                             />
+                        </div>
+                    </div>
+                    <!-- Persona Selector -->
+                    <div class="setting-item persona-setting">
+                        <label class="setting-label font-cute">
+                            <span>🎭</span>
+                            <span>{{ t("chat.persona") }}</span>
+                        </label>
+                        <div class="setting-control persona-control">
+                            <select
+                                v-model="selectedPersonaId"
+                                class="persona-select"
+                            >
+                                <option :value="null">
+                                    {{ t("chat.personaDefault") }}
+                                </option>
+                                <option
+                                    v-for="p in personas"
+                                    :key="p.id"
+                                    :value="p.id"
+                                >
+                                    {{ p.name }}
+                                    <template v-if="p.description">
+                                        - {{ p.description }}</template
+                                    >
+                                </option>
+                            </select>
+                            <div
+                                v-if="selectedPersonaId"
+                                class="persona-preview"
+                            >
+                                <div class="persona-preview-name">
+                                    {{ effectivePersona?.name }}
+                                </div>
+                                <div class="persona-preview-prompt">
+                                    {{
+                                        (
+                                            effectivePersona?.prompt ?? ""
+                                        ).substring(0, 100) +
+                                        ((effectivePersona?.prompt ?? "")
+                                            .length > 100
+                                            ? "..."
+                                            : "")
+                                    }}
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <!-- Proxy Configuration -->
@@ -808,6 +867,60 @@ function toggleSettings() {
 .number-input:focus {
     border-color: hsl(var(--primary));
     box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+/* ── Persona Selector ─────────────────────────── */
+
+.persona-setting {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.persona-control {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.persona-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1.5px solid rgba(249, 168, 212, 0.3);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.2s ease;
+    cursor: pointer;
+}
+
+.persona-select:focus {
+    border-color: var(--color-accent);
+}
+
+.persona-preview {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.15);
+}
+
+.persona-preview-name {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--color-accent);
+    margin-bottom: 0.25rem;
+}
+
+.persona-preview-prompt {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    word-break: break-all;
 }
 
 /* ── Proxy Configuration ─────────────────────────── */

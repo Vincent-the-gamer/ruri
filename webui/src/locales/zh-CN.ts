@@ -166,6 +166,8 @@ export default {
     proxyMode: '代理模式',
     proxyModeGlobal: '全局代理',
     proxyModeRules: '规则代理',
+    persona: '人设',
+    personaDefault: '默认（跟随配置文件）',
   },
 
   // 供应商
