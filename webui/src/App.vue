@@ -6,6 +6,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
 import LocaleSwitcher from "./components/LocaleSwitcher.vue";
 import UserMenu from "./components/UserMenu.vue";
+import StatusBar from "./components/StatusBar.vue";
 import ruriAvatar from "../assets/ruri-avatar.png";
 
 const route = useRoute();
@@ -65,6 +66,7 @@ onMounted(() => {
                     <LocaleSwitcher />
                     <ThemeToggle />
                     <UserMenu />
+                    <StatusBar />
                 </div>
             </div>
         </header>
@@ -79,13 +81,10 @@ onMounted(() => {
                 <!-- Main Content -->
                 <main class="flex-1 overflow-y-auto scroll-hover">
                     <div class="max-w-[1440px] mx-auto w-full p-6">
-                        <router-view v-slot="{ Component, route }">
+                        <router-view v-slot="{ Component }">
                             <transition name="fade" mode="out-in">
                                 <keep-alive :include="['Chat']">
-                                    <component
-                                        :is="Component"
-                                        :key="route.path"
-                                    />
+                                    <component :is="Component" />
                                 </keep-alive>
                             </transition>
                         </router-view>

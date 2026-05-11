@@ -182,14 +182,82 @@ impl AnthropicProvider {
                             "text": p.text,
                         }),
                         ContentPartType::ImageUrl => {
+                            if let Some(ref iu) = p.image_url {
+                                let url = &iu.url;
+                                if url.starts_with("data:") {
+                                    // Parse data URL: data:{media_type};base64,{data}
+                                    if let Some(semicolon) = url.find(';') {
+                                        let media_type = url[5..semicolon].to_string();
+                                        let rest = &url[semicolon + 1..];
+                                        if let Some(comma) = rest.find(',') {
+                                            let data = &rest[comma + 1..];
+                                            json!({
+                                                "type": "image",
+                                                "source": {
+                                                    "type": "base64",
+                                                    "media_type": media_type,
+                                                    "data": data,
+                                                },
+                                            })
+                                        } else {
+                                            json!({
+                                                "type": "image",
+                                                "source": {
+                                                    "type": "url",
+                                                    "url": url,
+                                                },
+                                            })
+                                        }
+                                    } else {
+                                        json!({
+                                            "type": "image",
+                                            "source": {
+                                                "type": "url",
+                                                "url": url,
+                                            },
+                                        })
+                                    }
+                                } else {
+                                    // Regular URL
+                                    json!({
+                                        "type": "image",
+                                        "source": {
+                                            "type": "url",
+                                            "url": url,
+                                        },
+                                    })
+                                }
+                            } else {
+                                json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "url",
+                                        "url": "",
+                                    },
+                                })
+                            }
+                        }
+                        ContentPartType::Image => {
                             // Anthropic uses base64 image content
-                            json!({
-                                "type": "image",
-                                "source": {
-                                    "type": "url",
-                                    "url": p.image_url.as_ref().map(|u| u.url.as_str()).unwrap_or(""),
-                                },
-                            })
+                            if let Some(ref img_data) = p.image_data {
+                                json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": img_data.media_type,
+                                        "data": img_data.data,
+                                    },
+                                })
+                            } else {
+                                json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": "",
+                                    },
+                                })
+                            }
                         }
                     })
                     .collect();
@@ -346,5 +414,10 @@ impl Provider for AnthropicProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+
+    /// Anthropic's cloud API always supports multimodal content.
+    fn supports_multimodal(&self) -> bool {
+        true
     }
 }

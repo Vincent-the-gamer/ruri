@@ -60,6 +60,19 @@ client.interceptors.response.use(
   (error) => {
     const message = error.response?.data?.error || error.message || 'Unknown error'
     console.error('[API Error]', message)
+
+    // If we get a 401 Unauthorized response, the session has expired
+    // Clear local auth state and redirect to login
+    if (error.response?.status === 401) {
+      // Import guards to avoid circular dependency - use direct localStorage manipulation
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+      // Only redirect if not already on login page
+      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/change-password')) {
+        window.location.href = '/login'
+      }
+    }
+
     return Promise.reject(new Error(message))
   },
 )

@@ -229,6 +229,7 @@ export default {
       modelPath: '模型路径',
       finishReasonPath: '结束原因路径',
       useOpenaiFormat: '使用 OpenAI 格式',
+      supportsMultimodal: '支持多模态',
       extraHeaders: '额外请求头 (JSON)',
       update: '更新',
       create: '创建',
@@ -846,6 +847,7 @@ export default {
     pleaseEnterCredentials: '请输入用户名和密码',
     loginFailed: '登录失败，请重试',
     onlyOneDefaultUser: '仅允许一个默认用户。注册已禁用。',
+    rememberMe: '30天内免登录',
   },
 
   // 修改密码页

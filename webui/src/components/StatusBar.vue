@@ -29,16 +29,16 @@ const statusText = computed(() => {
 
 <template>
     <div class="status-bar" :class="statusClass">
-        <span class="status-dot pulse-dot"></span>
+        <span class="status-dot"></span>
         <span class="status-label">{{ statusText }}</span>
         <template v-if="agentStore.status.active_provider">
-            <span class="status-divider">·</span>
+            <span class="status-divider"></span>
             <span class="status-provider">{{
                 agentStore.status.active_provider
             }}</span>
         </template>
         <template v-if="agentStore.status.active_model">
-            <span class="status-divider">·</span>
+            <span class="status-divider"></span>
             <span class="status-model">{{
                 agentStore.status.active_model
             }}</span>
@@ -50,53 +50,110 @@ const statusText = computed(() => {
 .status-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
     line-height: 1;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    background: hsl(var(--card) / 0.6);
+    border: 1px solid hsl(var(--border) / 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    white-space: nowrap;
+    max-width: 320px;
+    overflow: hidden;
 }
 
 .status-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
+    transition: background 0.3s ease;
+}
+
+.status-label {
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    transition: color 0.3s ease;
 }
 
 .status-divider {
-    color: var(--color-text-muted);
+    width: 1px;
+    height: 10px;
+    background: hsl(var(--border));
+    flex-shrink: 0;
 }
 
 .status-provider {
-    color: var(--color-accent);
-    font-weight: 500;
+    color: hsl(var(--primary));
+    font-weight: 600;
+    font-size: 11px;
 }
 
 .status-model {
-    color: var(--color-text-secondary);
+    color: hsl(var(--muted-foreground));
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Status variants */
 .status-running .status-dot {
-    background: var(--color-success);
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981 / 0.5;
+    animation: pulse-dot 2s ease-in-out infinite;
 }
 
 .status-running .status-label {
-    color: var(--color-success);
+    color: #10b981;
 }
 
 .status-error .status-dot {
-    background: var(--color-danger);
+    background: #ef4444;
+    box-shadow: 0 0 6px #ef4444 / 0.4;
 }
 
 .status-error .status-label {
-    color: var(--color-danger);
+    color: #ef4444;
 }
 
 .status-stopped .status-dot {
-    background: var(--color-text-muted);
+    background: hsl(var(--muted-foreground));
 }
 
 .status-stopped .status-label {
-    color: var(--color-text-muted);
+    color: hsl(var(--muted-foreground));
+}
+
+@keyframes pulse-dot {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Responsive: hide model name on small screens */
+@media (max-width: 768px) {
+    .status-model {
+        display: none;
+    }
+    .status-bar {
+        max-width: 200px;
+    }
+}
+
+@media (max-width: 480px) {
+    .status-provider {
+        display: none;
+    }
+    .status-bar {
+        max-width: 120px;
+    }
 }
 </style>

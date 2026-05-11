@@ -105,6 +105,7 @@ export const useProviderStore = defineStore('provider', () => {
           base_url: 'https://api.openai.com/v1',
           api_key: '',
           default_model: 'gpt-4o',
+          supports_multimodal: true,
         }
       case 'anthropic':
         return {
@@ -113,6 +114,7 @@ export const useProviderStore = defineStore('provider', () => {
           api_key: '',
           default_model: 'claude-sonnet-4-20250514',
           api_version: '2023-06-01',
+          supports_multimodal: true,
         }
       case 'custom':
         return {
@@ -131,6 +133,7 @@ export const useProviderStore = defineStore('provider', () => {
           response_finish_reason_path: 'choices.0.finish_reason',
           default_model: 'default',
           use_openai_format: true,
+          supports_multimodal: false,
         }
     }
   }

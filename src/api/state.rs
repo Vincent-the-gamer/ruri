@@ -883,12 +883,15 @@ impl AppState {
                     .as_str()
                     .unwrap_or("gpt-4o")
                     .to_string();
+                let supports_multimodal = config
+                    .get("supports_multimodal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
 
-                Ok(Box::new(crate::provider::openai::OpenAIProvider::new(
-                    base_url,
-                    api_key,
-                    default_model,
-                )))
+                Ok(Box::new(
+                    crate::provider::openai::OpenAIProvider::new(base_url, api_key, default_model)
+                        .with_multimodal_support(supports_multimodal),
+                ))
             }
             "anthropic" => {
                 let base_url = config["base_url"].as_str().unwrap_or("").to_string();
@@ -897,6 +900,13 @@ impl AppState {
                     .as_str()
                     .unwrap_or("claude-sonnet-4-20250514")
                     .to_string();
+
+                // Anthropic cloud always supports multimodal; we still read the
+                // flag so that it's persisted back correctly, but ignore it.
+                let _supports_multimodal = config
+                    .get("supports_multimodal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
 
                 Ok(Box::new(
                     crate::provider::anthropic::AnthropicProvider::new(api_key, default_model)

@@ -398,6 +398,7 @@ fn stored_provider_to_dto(
                 response_finish_reason_path: None,
                 default_model: String::new(),
                 use_openai_format: true,
+                supports_multimodal: false,
             })),
         ),
         is_active: active_id == Some(stored.id.as_str()),
@@ -919,7 +920,7 @@ async fn send_chat_message(
                 // Return the command result as a chat response
                 let message_dto = ChatMessageDto {
                     role: "assistant".to_string(),
-                    content: result.reply,
+                    content: serde_json::Value::String(result.reply),
                     tool_calls: None,
                     tool_call_id: None,
                 };
@@ -970,9 +971,108 @@ async fn send_chat_message(
         tasks.insert(session_key.clone(), cancel_token);
     }
 
+    // Build user message (text-only or multimodal with images/files)
+    let user_msg = if req.images.is_empty() && req.files.is_empty() {
+        crate::types::ChatMessage::user(&req.message)
+    } else {
+        let mut parts: Vec<crate::types::ContentPart> = Vec::new();
+
+        // Add images
+        for url in &req.images {
+            if url.starts_with("data:") {
+                // Parse data URL: data:{media_type};base64,{data}
+                if let Some((media_type, data)) = parse_data_url(url) {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Image,
+                        text: None,
+                        image_url: None,
+                        image_data: Some(crate::types::ImageData { data, media_type }),
+                    });
+                } else {
+                    // Fallback: if we can't parse the data URL, send it as image_url
+                    // (some providers like OpenAI accept data URLs in the url field)
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::ImageUrl,
+                        text: None,
+                        image_url: Some(crate::types::ImageUrl {
+                            url: url.clone(),
+                            detail: None,
+                        }),
+                        image_data: None,
+                    });
+                }
+            } else {
+                // Regular HTTP(S) URL
+                parts.push(crate::types::ContentPart {
+                    part_type: crate::types::ContentPartType::ImageUrl,
+                    text: None,
+                    image_url: Some(crate::types::ImageUrl {
+                        url: url.clone(),
+                        detail: None,
+                    }),
+                    image_data: None,
+                });
+            }
+        }
+
+        // Extract text from attached files and add as text or image parts
+        for file in &req.files {
+            if file.mime_type.starts_with("image/") && file.content.starts_with("data:") {
+                // Image file: convert to Image part
+                if let Some((media_type, data)) = parse_data_url(&file.content) {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Image,
+                        text: None,
+                        image_url: None,
+                        image_data: Some(crate::types::ImageData { data, media_type }),
+                    });
+                } else {
+                    // Fallback: treat as image_url with data URL
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::ImageUrl,
+                        text: None,
+                        image_url: Some(crate::types::ImageUrl {
+                            url: file.content.clone(),
+                            detail: None,
+                        }),
+                        image_data: None,
+                    });
+                }
+            } else {
+                // Non-image file or plain text: extract text content
+                let file_text =
+                    extract_attached_file_text(&file.name, &file.mime_type, &file.content);
+                if let Some(text) = file_text {
+                    parts.push(crate::types::ContentPart {
+                        part_type: crate::types::ContentPartType::Text,
+                        text: Some(format!("--- File: {} ---\n{}", file.name, text)),
+                        image_url: None,
+                        image_data: None,
+                    });
+                }
+            }
+        }
+
+        // Add the user's text message as the last part
+        parts.push(crate::types::ContentPart {
+            part_type: crate::types::ContentPartType::Text,
+            text: Some(req.message.clone()),
+            image_url: None,
+            image_data: None,
+        });
+
+        crate::types::ChatMessage {
+            role: crate::types::MessageRole::User,
+            content: Some(crate::types::MessageContent::Parts(parts)),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    };
+
     // Send message with cancellation support
     let response = tokio::select! {
-        result = agent.chat(&req.message) => {
+        result = agent.chat_with_message(user_msg) => {
             // Remove the cancellation token when done
             {
                 let mut tasks = state.running_agent_tasks.write().await;
@@ -1096,7 +1196,7 @@ async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMe
                     .iter()
                     .map(|m| ChatMessageDto {
                         role: m.role.clone(),
-                        content: m.content.clone(),
+                        content: serde_json::Value::String(m.content.clone()),
                         tool_calls: None,
                         tool_call_id: None,
                     })
@@ -3291,6 +3391,209 @@ async fn weixin_qr_login_status(
 }
 
 // ─── Knowledge Base File Extraction Helpers ─────────────────────
+
+/// Extract text content from an attached file in a chat message.
+///
+/// For text files the content is the raw text. For binary files (PDF, DOCX, XLSX, etc.)
+/// the content is a base64 data-URL — we decode it and extract text.
+/// Parse a data URL like `data:image/png;base64,iVBORw0KGgo...` into its
+/// media type and base64 data components.
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+    // Format: data:{media_type};base64,{data}
+    if !data_url.starts_with("data:") {
+        return None;
+    }
+    let rest = &data_url[5..]; // strip "data:"
+    let semicolon = rest.find(';')?;
+    let media_type = rest[..semicolon].to_string();
+    let after_semicolon = &rest[semicolon + 1..];
+
+    // Expect "base64," prefix
+    if !after_semicolon.starts_with("base64,") {
+        return None;
+    }
+    let data = after_semicolon["base64,".len()..].to_string();
+    Some((media_type, data))
+}
+
+fn extract_attached_file_text(name: &str, mime_type: &str, content: &str) -> Option<String> {
+    let name_lower = name.to_lowercase();
+
+    // Text-based files: content is plain text
+    if mime_type.starts_with("text/")
+        || name_lower.ends_with(".txt")
+        || name_lower.ends_with(".csv")
+        || name_lower.ends_with(".md")
+        || name_lower.ends_with(".markdown")
+        || name_lower.ends_with(".json")
+        || name_lower.ends_with(".xml")
+        || name_lower.ends_with(".html")
+        || name_lower.ends_with(".htm")
+        || name_lower.ends_with(".yaml")
+        || name_lower.ends_with(".yml")
+        || name_lower.ends_with(".toml")
+        || name_lower.ends_with(".ini")
+        || name_lower.ends_with(".cfg")
+        || name_lower.ends_with(".log")
+        || name_lower.ends_with(".rs")
+        || name_lower.ends_with(".py")
+        || name_lower.ends_with(".js")
+        || name_lower.ends_with(".ts")
+        || name_lower.ends_with(".tsx")
+        || name_lower.ends_with(".jsx")
+        || name_lower.ends_with(".java")
+        || name_lower.ends_with(".c")
+        || name_lower.ends_with(".cpp")
+        || name_lower.ends_with(".h")
+        || name_lower.ends_with(".hpp")
+        || name_lower.ends_with(".go")
+        || name_lower.ends_with(".sh")
+        || name_lower.ends_with(".bash")
+        || name_lower.ends_with(".zsh")
+        || name_lower.ends_with(".bat")
+        || name_lower.ends_with(".ps1")
+        || name_lower.ends_with(".sql")
+        || name_lower.ends_with(".r")
+        || name_lower.ends_with(".rb")
+        || name_lower.ends_with(".php")
+        || name_lower.ends_with(".swift")
+        || name_lower.ends_with(".kt")
+        || name_lower.ends_with(".scala")
+        || name_lower.ends_with(".lua")
+        || name_lower.ends_with(".pl")
+        || name_lower.ends_with(".css")
+        || name_lower.ends_with(".scss")
+        || name_lower.ends_with(".less")
+        || name_lower.ends_with(".sass")
+        || name_lower.ends_with(".env")
+        || name_lower.ends_with(".gitignore")
+        || name_lower.ends_with(".dockerfile")
+        || name_lower.ends_with(".makefile")
+    {
+        // Truncate very large text content
+        let truncated = if content.len() > 100_000 {
+            format!(
+                "{}\n\n... (truncated, original size: {} bytes)",
+                &content[..100_000],
+                content.len()
+            )
+        } else {
+            content.to_string()
+        };
+        return Some(truncated);
+    }
+
+    // Binary files: content is a base64 data-URL — decode and extract
+    let data = if content.starts_with("data:") {
+        // data-URL format: data:<mime>;base64,<payload>
+        if let Some(idx) = content.find(",") {
+            use base64::Engine;
+            let payload = &content[idx + 1..];
+            match base64::engine::general_purpose::STANDARD.decode(payload) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    tracing::warn!(file = %name, error = %e, "Failed to decode base64 data-URL");
+                    return None;
+                }
+            }
+        } else {
+            tracing::warn!(file = %name, "Invalid data-URL format");
+            return None;
+        }
+    } else {
+        // Not a data-URL, skip
+        return None;
+    };
+
+    // Extract based on file extension
+    if name_lower.ends_with(".pdf") {
+        match pdf_extract::extract_text_from_mem(&data) {
+            Ok(text) => {
+                let truncated = if text.len() > 100_000 {
+                    format!("{}\n\n... (truncated)", &text[..100_000])
+                } else {
+                    text
+                };
+                return Some(truncated);
+            }
+            Err(e) => {
+                tracing::warn!(file = %name, error = %e, "Failed to extract text from PDF");
+                return None;
+            }
+        }
+    } else if name_lower.ends_with(".xlsx") || name_lower.ends_with(".xls") {
+        match extract_excel_text(&data) {
+            Ok(text) => {
+                let truncated = if text.len() > 100_000 {
+                    format!("{}\n\n... (truncated)", &text[..100_000])
+                } else {
+                    text
+                };
+                return Some(truncated);
+            }
+            Err(e) => {
+                tracing::warn!(file = %name, error = %e, "Failed to extract text from Excel");
+                return None;
+            }
+        }
+    } else if name_lower.ends_with(".docx") {
+        match extract_docx_text(&data) {
+            Ok(text) => {
+                let truncated = if text.len() > 100_000 {
+                    format!("{}\n\n... (truncated)", &text[..100_000])
+                } else {
+                    text
+                };
+                return Some(truncated);
+            }
+            Err(e) => {
+                tracing::warn!(file = %name, error = %e, "Failed to extract text from DOCX");
+                return None;
+            }
+        }
+    } else if name_lower.ends_with(".rtf") {
+        // Basic RTF: just strip control words and return plain text
+        let text = strip_rtf_text(std::str::from_utf8(&data).unwrap_or(""));
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+
+    // Unsupported binary format — skip silently
+    None
+}
+
+/// Naive RTF text extraction: strips control words and returns the remaining text.
+fn strip_rtf_text(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_control = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                in_control = true;
+            }
+            '{' | '}' => {
+                // Group delimiters — skip
+                in_control = false;
+            }
+            '\n' | '\r' => {
+                in_control = false;
+            }
+            ' ' if in_control => {
+                in_control = false;
+            }
+            _ if in_control => {
+                // Part of a control word, skip
+            }
+            _ => {
+                result.push(c);
+            }
+        }
+    }
+    result
+}
 
 /// Extract text content from an Excel file (xls or xlsx) using calamine.
 fn extract_excel_text(data: &[u8]) -> Result<String, anyhow::Error> {

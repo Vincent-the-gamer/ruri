@@ -684,6 +684,7 @@ impl ProviderFactory {
                     response_finish_reason_path: None,
                     default_model: model,
                     use_openai_format: true,
+                    supports_multimodal: false,
                 };
                 Ok(Box::new(crate::provider::custom::CustomProvider::new(
                     config, api_key,

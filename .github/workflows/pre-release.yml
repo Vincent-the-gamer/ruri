@@ -19,8 +19,8 @@ jobs:
         id: version
         run: |
           VERSION=$(grep "^version" Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION-alpha.1" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION-alpha.1"
+          echo "version=$VERSION-alpha.2" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION-alpha.2"
 
   build:
     needs: extract-version

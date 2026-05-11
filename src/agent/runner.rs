@@ -186,9 +186,17 @@ impl Agent {
     }
 
     /// Build a ChatRequest from the current history and configuration.
+    ///
+    /// If the provider does not support multimodal content, image content
+    /// parts are automatically stripped from messages and a warning is logged.
     fn build_request(&self) -> ChatRequest {
-        let mut request =
-            ChatRequest::new(self.history.clone()).with_model(self.transport.default_model());
+        let messages = if self.transport.supports_multimodal() {
+            self.history.clone()
+        } else {
+            self.strip_multimodal_content()
+        };
+
+        let mut request = ChatRequest::new(messages).with_model(self.transport.default_model());
 
         // Add tools if any are registered
         let tool_defs = self.tool_executor.definitions();
@@ -197,6 +205,78 @@ impl Agent {
         }
 
         request
+    }
+
+    /// Strip image content parts from all messages in history, logging a
+    /// warning the first time images are dropped for a given session.
+    ///
+    /// Messages that only contained a single image (no text) are converted to
+    /// a placeholder text message so that the conversation structure is
+    /// preserved.
+    fn strip_multimodal_content(&self) -> Vec<ChatMessage> {
+        self.history
+            .iter()
+            .map(|msg| {
+                let Some(ref content) = msg.content else {
+                    return msg.clone();
+                };
+
+                match content {
+                    MessageContent::Text(_) => msg.clone(),
+                    MessageContent::Parts(parts) => {
+                        let has_images = parts
+                            .iter()
+                            .any(|p| p.part_type == ContentPartType::ImageUrl || p.part_type == ContentPartType::Image);
+
+                        if !has_images {
+                            return msg.clone();
+                        }
+
+                        // Log a warning about dropped images
+                        tracing::warn!(
+                            role = ?msg.role,
+                            "Dropping image content from message because the active provider does not support multimodal. \
+                             Enable multimodal on the provider or start the backend with the --multimodal flag."
+                        );
+
+                        // Keep only text parts
+                        let text_parts: Vec<&ContentPart> = parts
+                            .iter()
+                            .filter(|p| p.part_type == ContentPartType::Text)
+                            .collect();
+
+                        let new_content = if text_parts.is_empty() {
+                            // No text parts remaining — use a placeholder
+                            Some(MessageContent::Text(
+                                "[Image content was removed: the active provider does not support multimodal]"
+                                    .to_string(),
+                            ))
+                        } else if text_parts.len() == 1 {
+                            // Single text part — simplify to plain text
+                            Some(MessageContent::Text(
+                                text_parts[0]
+                                    .text
+                                    .clone()
+                                    .unwrap_or_default(),
+                            ))
+                        } else {
+                            // Multiple text parts — keep them
+                            Some(MessageContent::Parts(
+                                text_parts
+                                    .into_iter()
+                                    .cloned()
+                                    .collect(),
+                            ))
+                        };
+
+                        ChatMessage {
+                            content: new_content,
+                            ..msg.clone()
+                        }
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Initialize skills that haven't been attached yet.

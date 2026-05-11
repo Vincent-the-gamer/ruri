@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: "Chat" });
 import {
     onMounted,
     onActivated,
@@ -14,7 +15,7 @@ import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
-import type { ProxyConfig, ProxyMode } from "../types";
+import type { AttachedFile, ProxyConfig, ProxyMode } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
 import ruriAvatar from "../../assets/ruri-avatar.png";
@@ -149,9 +150,15 @@ function scrollToBottom() {
     });
 }
 
-async function handleSend(message: string) {
+async function handleSend(
+    message: string,
+    images: string[] = [],
+    files: AttachedFile[] = [],
+) {
     await chatStore.sendMessage({
         message,
+        images: images.length > 0 ? images : undefined,
+        files: files.length > 0 ? files : undefined,
         persona_id: selectedPersonaId.value || personaStore.activePersona?.id,
         temperature: temperature.value,
         max_tokens: maxTokens.value,

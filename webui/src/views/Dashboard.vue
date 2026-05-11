@@ -7,7 +7,6 @@ import { useProviderStore } from "../stores/provider";
 import { useSkillStore } from "../stores/skill";
 import { useToolStore } from "../stores/tool";
 import { useChatStore } from "../stores/chat";
-import StatusBar from "../components/StatusBar.vue";
 
 const router = useRouter();
 const { t } = useI18n();
@@ -475,9 +474,6 @@ const getIconSvg = (icon: string) => {
                 </button>
             </div>
         </section>
-
-        <!-- StatusBar at bottom -->
-        <StatusBar class="status-bar-container" />
     </div>
 </template>
 
@@ -998,15 +994,6 @@ const getIconSvg = (icon: string) => {
     color: hsl(var(--foreground));
 }
 
-/* Status Bar Container */
-.status-bar-container {
-    position: fixed;
-    bottom: 0;
-    left: 256px;
-    right: 0;
-    z-index: 100;
-}
-
 /* Responsive */
 @media (max-width: 1280px) {
     .features-grid {
@@ -1025,10 +1012,6 @@ const getIconSvg = (icon: string) => {
 
     .two-column-section {
         grid-template-columns: 1fr;
-    }
-
-    .status-bar-container {
-        left: 0;
     }
 }
 

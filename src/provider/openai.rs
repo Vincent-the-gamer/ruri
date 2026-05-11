@@ -15,6 +15,11 @@ pub struct OpenAIProvider {
     default_model: String,
     /// Optional custom headers to send with every request.
     extra_headers: Vec<(String, String)>,
+    /// Whether the backend supports multimodal (image) content.
+    ///
+    /// Set to `false` when using a self-hosted server (e.g., llama.cpp) that
+    /// hasn't been started with the `--multimodal` flag.
+    supports_multimodal: bool,
 }
 
 impl OpenAIProvider {
@@ -29,7 +34,14 @@ impl OpenAIProvider {
             api_key,
             default_model: default_model.into(),
             extra_headers: Vec::new(),
+            supports_multimodal: true,
         }
+    }
+
+    /// Set whether this provider's backend supports multimodal content.
+    pub fn with_multimodal_support(mut self, enabled: bool) -> Self {
+        self.supports_multimodal = enabled;
+        self
     }
 
     /// Build the full endpoint URL.
@@ -50,7 +62,81 @@ impl OpenAIProvider {
         // OpenAI uses "max_tokens" directly — no transformation needed since our
         // ChatRequest already uses this field name.
 
+        // Convert inline image data parts to OpenAI's image_url format with data URLs
+        Self::convert_image_parts_to_openai_format(&mut body);
+
         body
+    }
+
+    /// Walk through the request body and convert any `ContentPartType::Image`
+    /// parts (serialized as `{"type":"image", "image_data":{...}}`) to
+    /// OpenAI's `image_url` format with a data URL:
+    ///
+    /// ```json
+    /// {
+    ///   "type": "image_url",
+    ///   "image_url": {
+    ///     "url": "data:{media_type};base64,{data}"
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// Parts with `"type": "image_url"` or `"type": "text"` are left as-is.
+    fn convert_image_parts_to_openai_format(body: &mut serde_json::Value) {
+        let messages = match body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+            Some(msgs) => msgs,
+            None => return,
+        };
+
+        for message in messages.iter_mut() {
+            let content = match message.get_mut("content") {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Content can be a string or an array of content parts
+            let parts = match content.as_array_mut() {
+                Some(arr) => arr,
+                None => continue,
+            };
+
+            for part in parts.iter_mut() {
+                let part_type = match part.get("type").and_then(|t| t.as_str()) {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                if part_type != "image" {
+                    continue;
+                }
+
+                // Extract image_data fields
+                let image_data = match part.get("image_data") {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                let data = image_data
+                    .get("data")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("");
+                let media_type = image_data
+                    .get("media_type")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("image/png");
+
+                // Build the data URL
+                let data_url = format!("data:{};base64,{}", media_type, data);
+
+                // Replace the content part with OpenAI's image_url format
+                *part = serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url
+                    }
+                });
+            }
+        }
     }
 }
 
@@ -98,6 +184,10 @@ impl Provider for OpenAIProvider {
 
     fn default_model(&self) -> &str {
         &self.default_model
+    }
+
+    fn supports_multimodal(&self) -> bool {
+        self.supports_multimodal
     }
 }
 

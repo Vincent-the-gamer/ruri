@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { marked } from "marked";
-import type { ChatMessage as ChatMessageType } from "../types";
+import type { ChatMessage as ChatMessageType, ContentPart } from "../types";
 import ruriAvatar from "../../assets/ruri-avatar.png";
 
 const props = defineProps<{
@@ -26,11 +26,20 @@ function formatArgs(args: string): string {
     }
 }
 
-function renderMarkdown(content: string): string {
+function renderMarkdown(
+    content: string | import("../types").ContentPart[],
+): string {
+    const text =
+        typeof content === "string"
+            ? content
+            : content
+                  .filter((p) => p.type === "text" && p.text)
+                  .map((p) => p.text!)
+                  .join("\n");
     try {
-        return marked.parse(content, { async: false }) as string;
+        return marked.parse(text, { async: false }) as string;
     } catch {
-        return content;
+        return text;
     }
 }
 </script>
@@ -47,10 +56,89 @@ function renderMarkdown(content: string): string {
         <div v-if="isUser" class="message message-user">
             <div class="message-content-wrapper user-content-wrapper">
                 <div class="message-label">你</div>
-                <div
-                    class="message-content user-content"
-                    v-html="renderMarkdown(message.content)"
-                ></div>
+                <div class="message-content user-content">
+                    <template v-if="Array.isArray(message.content)">
+                        <template
+                            v-for="(part, idx) in message.content"
+                            :key="idx"
+                        >
+                            <img
+                                v-if="
+                                    part.type === 'image_url' && part.image_url
+                                "
+                                :src="part.image_url.url"
+                                class="chat-image"
+                                alt="Attached image"
+                            />
+                            <div
+                                v-else-if="part.type === 'text' && part.text"
+                                :class="{
+                                    'file-content-block':
+                                        part.text.startsWith('--- File:'),
+                                    'file-badge': part.text.startsWith('📎'),
+                                }"
+                            >
+                                <template
+                                    v-if="part.text.startsWith('--- File:')"
+                                >
+                                    <div class="file-content-header">
+                                        <svg
+                                            class="file-icon-inline"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <path
+                                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                                            />
+                                            <polyline points="14 2 14 8 20 8" />
+                                        </svg>
+                                        <span class="file-name-inline">{{
+                                            part.text
+                                                .split("\n")[0]
+                                                .replace("--- File: ", "")
+                                                .replace(" ---", "")
+                                        }}</span>
+                                    </div>
+                                    <pre class="file-content-pre">{{
+                                        part.text
+                                            .split("\n")
+                                            .slice(1)
+                                            .join("\n")
+                                    }}</pre>
+                                </template>
+                                <template
+                                    v-else-if="part.text.startsWith('📎')"
+                                >
+                                    <svg
+                                        class="file-icon-inline"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                                        />
+                                        <polyline points="14 2 14 8 20 8" />
+                                    </svg>
+                                    {{ part.text.replace("📎 ", "") }}
+                                </template>
+                                <template v-else>
+                                    <div
+                                        v-html="renderMarkdown(part.text)"
+                                    ></div>
+                                </template>
+                            </div>
+                        </template>
+                    </template>
+                    <div v-else v-html="renderMarkdown(message.content)"></div>
+                </div>
             </div>
             <div class="message-avatar user-avatar">
                 <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
@@ -75,10 +163,28 @@ function renderMarkdown(content: string): string {
                     <span>琉璃</span>
                     <span class="label-dot"></span>
                 </div>
-                <div
-                    class="message-content assistant-content"
-                    v-html="renderMarkdown(message.content)"
-                ></div>
+                <div class="message-content assistant-content">
+                    <template v-if="Array.isArray(message.content)">
+                        <template
+                            v-for="(part, idx) in message.content"
+                            :key="idx"
+                        >
+                            <img
+                                v-if="
+                                    part.type === 'image_url' && part.image_url
+                                "
+                                :src="part.image_url.url"
+                                class="chat-image"
+                                alt="Image"
+                            />
+                            <div
+                                v-else-if="part.type === 'text' && part.text"
+                                v-html="renderMarkdown(part.text)"
+                            ></div>
+                        </template>
+                    </template>
+                    <div v-else v-html="renderMarkdown(message.content)"></div>
+                </div>
                 <!-- Tool calls -->
                 <div v-if="hasToolCalls" class="tool-calls">
                     <div
@@ -432,6 +538,98 @@ function renderMarkdown(content: string): string {
     border-radius: 1rem 1rem 1rem 0.25rem;
     color: hsl(38 92% 30%);
     font-size: 0.8125rem;
+}
+
+.chat-image {
+    max-width: 280px;
+    max-height: 280px;
+    border-radius: 0.5rem;
+    margin: 0.25rem 0;
+    object-fit: contain;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.chat-image:hover {
+    transform: scale(1.02);
+}
+
+/* File content block (text files shown inline) */
+.file-content-block {
+    background: hsl(var(--foreground) / 0.08);
+    border-radius: 0.5rem;
+    margin: 0.375rem 0;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.dark .file-content-block {
+    background: hsl(var(--foreground) / 0.06);
+}
+
+.file-content-header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    background: hsl(var(--foreground) / 0.06);
+    border-bottom: 1px solid hsl(var(--foreground) / 0.08);
+    font-size: 0.75rem;
+    color: hsl(var(--foreground) / 0.7);
+}
+
+.dark .file-content-header {
+    background: hsl(var(--foreground) / 0.08);
+    border-bottom-color: hsl(var(--foreground) / 0.06);
+}
+
+.file-icon-inline {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: hsl(var(--primary));
+}
+
+.file-name-inline {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-content-pre {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: hsl(var(--foreground) / 0.85);
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* File badge (binary file attachment indicator) */
+.file-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    background: hsl(var(--foreground) / 0.08);
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    color: hsl(var(--foreground) / 0.8);
+    margin: 0.25rem 0;
+}
+
+.dark .file-badge {
+    background: hsl(var(--foreground) / 0.06);
+}
+
+.file-badge .file-icon-inline {
+    color: hsl(var(--muted-foreground));
 }
 
 .dark .tool-content {

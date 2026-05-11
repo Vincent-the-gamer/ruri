@@ -14,6 +14,7 @@ const username = ref("");
 const password = ref("");
 const showPassword = ref(false);
 const errorMessage = ref("");
+const rememberMe = ref(false);
 
 const isLoggingIn = computed(() => authStore.loading);
 
@@ -29,6 +30,7 @@ async function handleLogin() {
         await authStore.login({
             username: username.value,
             password: password.value,
+            remember_me: rememberMe.value,
         });
 
         // Redirect based on whether password change is required
@@ -131,6 +133,18 @@ function handleKeyPress(e: KeyboardEvent) {
                             />
                         </button>
                     </div>
+                </div>
+
+                <!-- Remember Me -->
+                <div class="remember-me-group">
+                    <label class="remember-me-label">
+                        <input
+                            v-model="rememberMe"
+                            type="checkbox"
+                            class="remember-me-checkbox"
+                        />
+                        <span>{{ t("login.rememberMe") }}</span>
+                    </label>
                 </div>
 
                 <!-- Error Message -->
@@ -496,6 +510,34 @@ function handleKeyPress(e: KeyboardEvent) {
 
 .login-footer p {
     margin: 0;
+}
+
+/* Remember Me */
+.remember-me-group {
+    display: flex;
+    align-items: center;
+}
+
+.remember-me-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: hsl(var(--muted-foreground));
+    user-select: none;
+}
+
+.remember-me-label:hover {
+    color: hsl(var(--foreground));
+}
+
+.remember-me-checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+    border-radius: 4px;
 }
 
 /* Responsive */

@@ -38,6 +38,7 @@ const openaiConfig = reactive<OpenAIProviderConfig>({
     base_url: "https://api.openai.com/v1",
     api_key: "",
     default_model: "gpt-4o",
+    supports_multimodal: true,
     ...(props.provider?.provider_type === "openai"
         ? (props.provider.config as OpenAIProviderConfig)
         : {}),
@@ -49,6 +50,7 @@ const anthropicConfig = reactive<AnthropicProviderConfig>({
     api_key: "",
     default_model: "claude-sonnet-4-20250514",
     api_version: "2023-06-01",
+    supports_multimodal: true,
     ...(props.provider?.provider_type === "anthropic"
         ? (props.provider.config as AnthropicProviderConfig)
         : {}),
@@ -69,6 +71,7 @@ const customConfig = reactive<CustomProviderConfig>({
     response_finish_reason_path: "choices.0.finish_reason",
     default_model: "default",
     use_openai_format: true,
+    supports_multimodal: false,
     ...(props.provider?.provider_type === "custom"
         ? (props.provider.config as CustomProviderConfig)
         : {}),
@@ -305,6 +308,31 @@ function handleSave() {
                             class="form-input"
                         />
                     </div>
+                    <!-- Multimodal toggle -->
+                    <div class="toggle-row">
+                        <label class="form-label">{{
+                            t("providers.form.supportsMultimodal")
+                        }}</label>
+                        <button
+                            @click="
+                                openaiConfig.supports_multimodal =
+                                    !openaiConfig.supports_multimodal
+                            "
+                            class="toggle"
+                            :class="{
+                                'toggle-active':
+                                    openaiConfig.supports_multimodal,
+                            }"
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        openaiConfig.supports_multimodal,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
                 </template>
 
                 <!-- Anthropic Config -->
@@ -392,6 +420,31 @@ function handleSave() {
                             "
                             class="form-input"
                         />
+                    </div>
+                    <!-- Multimodal toggle -->
+                    <div class="toggle-row">
+                        <label class="form-label">{{
+                            t("providers.form.supportsMultimodal")
+                        }}</label>
+                        <button
+                            @click="
+                                anthropicConfig.supports_multimodal =
+                                    !anthropicConfig.supports_multimodal
+                            "
+                            class="toggle"
+                            :class="{
+                                'toggle-active':
+                                    anthropicConfig.supports_multimodal,
+                            }"
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        anthropicConfig.supports_multimodal,
+                                }"
+                            ></span>
+                        </button>
                     </div>
                 </template>
 
@@ -601,6 +654,32 @@ function handleSave() {
                         </button>
                     </div>
 
+                    <!-- Multimodal toggle -->
+                    <div class="toggle-row">
+                        <label class="form-label">{{
+                            t("providers.form.supportsMultimodal")
+                        }}</label>
+                        <button
+                            @click="
+                                customConfig.supports_multimodal =
+                                    !customConfig.supports_multimodal
+                            "
+                            class="toggle"
+                            :class="{
+                                'toggle-active':
+                                    customConfig.supports_multimodal,
+                            }"
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        customConfig.supports_multimodal,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
+
                     <!-- Extra headers -->
                     <div class="form-group">
                         <label class="form-label">{{
@@ -641,36 +720,62 @@ function handleSave() {
 .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: hsl(var(--background) / 0.6);
     backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 50;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .modal-card {
-    background: var(--color-bg-soft);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
     width: 100%;
     max-width: 42rem;
     max-height: 90vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 50px -12px hsl(var(--foreground) / 0.25);
+    animation: modalSlideIn 0.25s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
 }
 
 .modal-header {
-    padding: 1rem 1.5rem;
-    border-bottom: 1px solid var(--color-border);
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.2);
     display: flex;
     align-items: center;
     justify-content: space-between;
 }
 
 .modal-title {
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: hsl(var(--foreground));
+    margin: 0;
 }
 
 .btn-close {
@@ -679,17 +784,17 @@ function handleSave() {
     justify-content: center;
     width: 1.75rem;
     height: 1.75rem;
-    border-radius: var(--radius-sm);
-    color: var(--color-text-muted);
+    border-radius: 0.375rem;
+    color: hsl(var(--muted-foreground));
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
 }
 
 .btn-close:hover {
-    color: var(--color-text);
-    background: var(--color-bg-hover);
+    background: hsl(var(--secondary) / 0.5);
+    color: hsl(var(--foreground));
 }
 
 .btn-close svg {
@@ -698,18 +803,20 @@ function handleSave() {
 }
 
 .modal-body {
-    padding: 1.5rem;
+    padding: 1.25rem;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 1rem;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .modal-footer {
-    padding: 1rem 1.5rem;
-    border-top: 1px solid var(--color-border);
+    padding: 1rem 1.25rem;
+    border-top: 1px solid hsl(var(--border) / 0.2);
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
+    gap: 0.625rem;
 }
 
 /* Form elements */
@@ -720,15 +827,15 @@ function handleSave() {
 }
 
 .form-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
 }
 
 .form-label-sm {
     font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--color-text-muted);
+    font-weight: 600;
+    color: hsl(var(--muted-foreground) / 0.8);
 }
 
 .form-input,
@@ -736,13 +843,13 @@ function handleSave() {
 .form-select,
 .form-textarea-sm {
     width: 100%;
-    background: var(--color-bg-mute);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    background: hsl(var(--background) / 0.5);
+    border: 1px solid hsl(var(--border) / 0.4);
+    border-radius: 0.5rem;
     padding: 0.5rem 0.75rem;
     font-size: 0.8125rem;
-    color: var(--color-text);
-    transition: border-color 0.15s ease;
+    color: hsl(var(--foreground));
+    transition: all 0.2s ease;
     outline: none;
 }
 
@@ -754,14 +861,15 @@ function handleSave() {
 .form-input::placeholder,
 .form-input-sm::placeholder,
 .form-textarea-sm::placeholder {
-    color: var(--color-text-dim);
+    color: hsl(var(--muted-foreground) / 0.5);
 }
 
 .form-input:focus,
 .form-input-sm:focus,
 .form-select:focus,
 .form-textarea-sm:focus {
-    border-color: var(--color-accent);
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
 }
 
 .form-select {
@@ -776,7 +884,8 @@ function handleSave() {
 
 .form-textarea-sm {
     resize: vertical;
-    font-family: var(--font-mono, ui-monospace, monospace);
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.75rem;
     min-height: 2.5rem;
 }
@@ -784,7 +893,7 @@ function handleSave() {
 .form-grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.875rem;
 }
 
 /* Input with eye button */
@@ -806,16 +915,16 @@ function handleSave() {
     justify-content: center;
     width: 1.5rem;
     height: 1.5rem;
-    color: var(--color-text-muted);
+    color: hsl(var(--muted-foreground));
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: 0.375rem;
     cursor: pointer;
-    transition: color 0.15s ease;
+    transition: color 0.2s ease;
 }
 
 .btn-eye:hover {
-    color: var(--color-text-secondary);
+    color: hsl(var(--foreground));
 }
 
 .btn-eye svg {
@@ -836,25 +945,25 @@ function handleSave() {
     justify-content: center;
     gap: 0.375rem;
     padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-md);
+    border-radius: 0.5rem;
     font-size: 0.8125rem;
     font-weight: 500;
-    border: 1px solid var(--color-border);
-    background: var(--color-bg-mute);
-    color: var(--color-text-muted);
+    border: 1px solid hsl(var(--border) / 0.4);
+    background: hsl(var(--background) / 0.5);
+    color: hsl(var(--muted-foreground));
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
 }
 
 .type-btn:hover {
-    color: var(--color-text-secondary);
-    border-color: var(--color-border-hover);
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border) / 0.6);
 }
 
 .type-btn-active {
-    background: var(--color-accent-soft);
-    color: var(--color-accent);
-    border-color: transparent;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary) / 0.4);
 }
 
 .type-icon {
@@ -865,13 +974,13 @@ function handleSave() {
 /* Section divider */
 .section-divider {
     padding-top: 0.5rem;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid hsl(var(--border) / 0.2);
 }
 
 .section-title {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: hsl(var(--muted-foreground));
     margin-bottom: 0;
 }
 
@@ -887,15 +996,15 @@ function handleSave() {
     width: 2.25rem;
     height: 1.25rem;
     border-radius: 9999px;
-    background: var(--color-bg-mute);
-    border: 1px solid var(--color-border);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border) / 0.5);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
 }
 
 .toggle-active {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
+    background: hsl(var(--primary));
+    border-color: hsl(var(--primary));
 }
 
 .toggle-thumb {
@@ -904,54 +1013,104 @@ function handleSave() {
     left: 1px;
     width: 0.875rem;
     height: 0.875rem;
-    background: var(--color-text-muted);
+    background: hsl(var(--muted-foreground));
     border-radius: 50%;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
 }
 
 .toggle-thumb-active {
     left: calc(100% - 1px);
     transform: translateX(-100%);
-    background: #fff;
+    background: white;
 }
 
-/* Footer buttons */
+/* Footer buttons - consistent sizing */
 .btn-ghost {
-    padding: 0.5rem 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 0.5rem 1.125rem;
     font-size: 0.8125rem;
-    color: var(--color-text-muted);
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
     background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 0.5rem;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
+    min-height: 2.125rem;
+    line-height: 1.4;
 }
 
 .btn-ghost:hover {
-    color: var(--color-text);
-    border-color: var(--color-border-hover);
-    background: var(--color-bg-hover);
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border));
+    background: hsl(var(--secondary) / 0.5);
 }
 
 .btn-accent {
-    padding: 0.5rem 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 0.5rem 1.125rem;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #fff;
-    background: var(--color-accent);
+    color: hsl(var(--primary-foreground));
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)),
+        hsl(var(--primary) / 0.9)
+    );
     border: none;
-    border-radius: var(--radius-md);
+    border-radius: 0.5rem;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: all 0.2s ease;
+    min-height: 2.125rem;
+    line-height: 1.4;
+    box-shadow: 0 1px 4px hsl(var(--primary) / 0.25);
 }
 
 .btn-accent:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.95),
+        hsl(var(--primary) / 0.85)
+    );
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.35);
+    transform: translateY(-1px);
 }
 
 .btn-accent:disabled {
-    background: var(--color-bg-mute);
-    color: var(--color-text-dim);
+    background: hsl(var(--secondary));
+    color: hsl(var(--muted-foreground));
     cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Scrollbar */
+.modal-body::-webkit-scrollbar {
+    width: 5px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted) / 0.5);
+    border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .form-grid-2 {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

@@ -18,6 +18,13 @@ pub struct OpenAIProviderConfigDto {
     pub base_url: String,
     pub api_key: String,
     pub default_model: String,
+    /// Whether this provider's backend supports multimodal (image) content.
+    ///
+    /// Defaults to `true` for the standard OpenAI API. Set to `false` when
+    /// using a self-hosted server (e.g., llama.cpp) that hasn't been started
+    /// with the `--multimodal` flag.
+    #[serde(default = "default_true")]
+    pub supports_multimodal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +33,11 @@ pub struct AnthropicProviderConfigDto {
     pub api_key: String,
     pub default_model: String,
     pub api_version: String,
+    /// Whether this provider's backend supports multimodal (image) content.
+    ///
+    /// Defaults to `true` because Anthropic's cloud API always supports images.
+    #[serde(default = "default_true")]
+    pub supports_multimodal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +62,13 @@ pub struct CustomProviderConfigDto {
     pub default_model: String,
     #[serde(default = "default_true")]
     pub use_openai_format: bool,
+    /// Whether this provider's backend supports multimodal (image) content.
+    ///
+    /// Defaults to `false` because custom providers are often self-hosted
+    /// servers (e.g., llama.cpp) that may not have multimodal processing
+    /// enabled.
+    #[serde(default)]
+    pub supports_multimodal: bool,
 }
 
 fn default_method() -> String {
@@ -143,9 +162,23 @@ pub struct ToolParameterDto {
 
 // ─── Chat Models ─────────────────────────────────────────────────
 
+/// An attached file sent with a chat message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachedFileDto {
+    pub name: String,
+    /// MIME type of the file.
+    pub mime_type: String,
+    /// File content: plain text for text files, or base64 data-URL for binary files.
+    pub content: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatRequestDto {
     pub message: String,
+    #[serde(default)]
+    pub images: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<AttachedFileDto>,
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
@@ -171,7 +204,7 @@ pub struct ChatResponseDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessageDto {
     pub role: String,
-    pub content: String,
+    pub content: serde_json::Value, // Supports both string and array of content parts
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -330,6 +363,37 @@ pub struct UpdateComputerUseConfigRequest {
 
 impl From<&types::ChatMessage> for ChatMessageDto {
     fn from(msg: &types::ChatMessage) -> Self {
+        let content_value = match &msg.content {
+            Some(types::MessageContent::Text(t)) => serde_json::Value::String(t.clone()),
+            Some(types::MessageContent::Parts(parts)) => {
+                let parts_json: Vec<serde_json::Value> = parts
+                    .iter()
+                    .map(|p| {
+                        match &p.part_type {
+                            types::ContentPartType::Text => serde_json::json!({
+                                "type": "text",
+                                "text": p.text.as_deref().unwrap_or(""),
+                            }),
+                            types::ContentPartType::ImageUrl => serde_json::json!({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": p.image_url.as_ref().map(|iu| &iu.url).unwrap_or(&String::new()),
+                                },
+                            }),
+                            types::ContentPartType::Image => serde_json::json!({
+                                "type": "image",
+                                "image_data": {
+                                    "data": p.image_data.as_ref().map(|d| &d.data).unwrap_or(&String::new()),
+                                    "media_type": p.image_data.as_ref().map(|d| &d.media_type).unwrap_or(&String::new()),
+                                },
+                            }),
+                        }
+                    })
+                    .collect();
+                serde_json::Value::Array(parts_json)
+            }
+            None => serde_json::Value::String(String::new()),
+        };
         Self {
             role: match msg.role {
                 types::MessageRole::System => "system",
@@ -338,12 +402,7 @@ impl From<&types::ChatMessage> for ChatMessageDto {
                 types::MessageRole::Tool => "tool",
             }
             .to_string(),
-            content: msg
-                .content
-                .as_ref()
-                .and_then(|c| c.as_text())
-                .unwrap_or("")
-                .to_string(),
+            content: content_value,
             tool_calls: msg.tool_calls.as_ref().map(|calls| {
                 calls
                     .iter()

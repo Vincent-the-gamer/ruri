@@ -5,6 +5,7 @@ export interface OpenAIProviderConfig {
   base_url: string
   api_key: string
   default_model: string
+  supports_multimodal?: boolean
 }
 
 export interface AnthropicProviderConfig {
@@ -13,6 +14,7 @@ export interface AnthropicProviderConfig {
   api_key: string
   default_model: string
   api_version: string
+  supports_multimodal?: boolean
 }
 
 export interface CustomProviderConfig {
@@ -31,6 +33,7 @@ export interface CustomProviderConfig {
   response_finish_reason_path: string | null
   default_model: string
   use_openai_format: boolean
+  supports_multimodal?: boolean
 }
 
 export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | CustomProviderConfig
@@ -119,15 +122,32 @@ export interface ToolCall {
   function: ToolCallFunction
 }
 
+export interface ContentPart {
+  type: 'text' | 'image_url'
+  text?: string
+  image_url?: {
+    url: string
+    detail?: string
+  }
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string
+  content: string | ContentPart[]
   tool_calls?: ToolCall[]
   tool_call_id?: string
 }
 
+export interface AttachedFile {
+  name: string
+  mime_type: string  // mime type
+  content: string  // text content or base64 data URL
+}
+
 export interface ChatRequest {
   message: string
+  images?: string[]  // base64 data URLs or HTTP URLs
+  files?: AttachedFile[]  // attached files
   provider_id?: string
   persona_id?: string
   temperature?: number
@@ -626,6 +646,7 @@ export interface UserInfo {
 export interface LoginRequest {
   username: string
   password: string
+  remember_me?: boolean
 }
 
 export interface LoginResponse {

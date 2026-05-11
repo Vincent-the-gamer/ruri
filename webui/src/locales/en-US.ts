@@ -262,6 +262,7 @@ export default {
       modelPath: 'Model Path',
       finishReasonPath: 'Finish Reason Path',
       useOpenaiFormat: 'Use OpenAI Format',
+      supportsMultimodal: 'Supports Multimodal',
       extraHeaders: 'Extra Headers (JSON)',
       update: 'Update',
       create: 'Create',
@@ -845,6 +846,7 @@ export default {
     pleaseEnterCredentials: 'Please enter both username and password',
     loginFailed: 'Login failed. Please try again.',
     onlyOneDefaultUser: 'Only one default user is allowed. Registration is disabled.',
+    rememberMe: 'Remember me for 30 days',
   },
 
   // Change Password page

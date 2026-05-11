@@ -41,4 +41,14 @@ pub trait Provider: Send + Sync {
 
     /// Return the default model used by this provider.
     fn default_model(&self) -> &str;
+
+    /// Whether this provider supports multimodal (image) content.
+    ///
+    /// Returns `true` by default. Providers backed by servers that don't
+    /// support multimodal processing (e.g., llama.cpp without `--multimodal`)
+    /// should override this to return `false` so that image content parts are
+    /// stripped from requests before they are sent.
+    fn supports_multimodal(&self) -> bool {
+        true
+    }
 }

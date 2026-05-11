@@ -47,6 +47,8 @@ pub struct ContentPart {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<ImageUrl>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_data: Option<ImageData>,
 }
 
 /// Type of a content part.
@@ -55,6 +57,20 @@ pub struct ContentPart {
 pub enum ContentPartType {
     Text,
     ImageUrl,
+    Image,
+}
+
+/// Inline image data (base64-encoded).
+///
+/// Compatible with:
+/// - OpenAI: `{ "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }`
+/// - Anthropic: `{ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "..." } }`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageData {
+    /// The base64-encoded image data (without the data URL prefix).
+    pub data: String,
+    /// MIME type of the image (e.g., "image/png", "image/jpeg").
+    pub media_type: String,
 }
 
 /// An image URL within a content part.

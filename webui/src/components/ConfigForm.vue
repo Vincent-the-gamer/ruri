@@ -1,21 +1,18 @@
 <script setup lang="ts">
-import { computed, watch, ref } from "vue";
+import { ref, watch, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
-import type {
-    ConfigProfile,
-    CreateConfigProfileRequest,
-    UpdateConfigProfileRequest,
-    ProxyConfig,
-    ProxyMode,
-    ProxyRule,
-    ProxyRuleType,
+import {
+    type ProxyRuleType,
+    type ProxyMode,
+    ProxyRuleTypeLabels,
+    type ConfigProfile,
+    type ProxyRule,
 } from "../types";
-import { ProxyRuleTypeLabels } from "../types";
 
 interface Props {
     config?: ConfigProfile | null;
@@ -23,10 +20,7 @@ interface Props {
 }
 
 interface Emits {
-    (
-        e: "save",
-        data: CreateConfigProfileRequest | UpdateConfigProfileRequest,
-    ): void;
+    (e: "save", data: Partial<ConfigProfile>): void;
     (e: "cancel"): void;
 }
 
@@ -36,7 +30,6 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<Emits>();
-
 const { t } = useI18n();
 const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
@@ -44,81 +37,100 @@ const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
 const kbStore = useKnowledgeBaseStore();
 
-// Form data
-const formData = ref({
+const formData = ref<{
+    name: string;
+    description: string;
+    enable: boolean;
+    provider_id: string | null;
+    persona_id: string | null;
+    command_prefix: string;
+    web_search_enabled: boolean;
+    computer_use_enabled: boolean;
+    acp_enabled: boolean;
+    active_skill_names: string[];
+    active_platform_ids: string[];
+    active_knowledge_base_ids: string[];
+    proxy_config: {
+        enabled: boolean;
+        url: string;
+        mode: ProxyMode;
+        proxy_domains: string[];
+        bypass_domains: string[];
+        username: string | null;
+        password: string | null;
+        bypass_localhost: boolean;
+        rules: ProxyRule[];
+    };
+}>({
     name: "",
     description: "",
     enable: true,
-    provider_id: null as string | null,
-    persona_id: null as string | null,
-    command_prefix: "/" as string,
+    provider_id: null,
+    persona_id: null,
+    command_prefix: "",
     web_search_enabled: false,
     computer_use_enabled: false,
     acp_enabled: false,
-    active_skill_names: [] as string[],
-    active_platform_ids: [] as string[],
-    active_knowledge_base_ids: [] as string[],
+    active_skill_names: [],
+    active_platform_ids: [],
+    active_knowledge_base_ids: [],
     proxy_config: {
         enabled: false,
         url: "",
-        mode: "global" as ProxyMode,
-        proxy_domains: [] as string[],
-        bypass_domains: [] as string[],
-        username: null,
-        password: null,
+        mode: "global",
+        proxy_domains: [],
+        bypass_domains: [],
+        username: "",
+        password: "",
         bypass_localhost: true,
-        rules: [] as ProxyRule[],
-    } as ProxyConfig,
+        rules: [],
+    },
 });
 
-// Initialize form when config changes
 watch(
     () => props.config,
-    (config) => {
-        if (config) {
+    (newConfig) => {
+        if (newConfig) {
             formData.value = {
-                name: config.name,
-                description: config.description,
-                enable: config.enable,
-                provider_id: config.provider_id,
-                persona_id: config.persona_id,
-                command_prefix: config.command_prefix || "/",
-                web_search_enabled: config.web_search_enabled,
-                computer_use_enabled: config.computer_use_enabled,
-                acp_enabled: config.acp_enabled,
-                active_skill_names: [...config.active_skill_names],
-                active_platform_ids: [...config.active_platform_ids],
+                name: newConfig.name,
+                description: newConfig.description || "",
+                enable: newConfig.enable ?? true,
+                provider_id: newConfig.provider_id || null,
+                persona_id: newConfig.persona_id || null,
+                command_prefix: newConfig.command_prefix || "",
+                web_search_enabled: newConfig.web_search_enabled ?? false,
+                computer_use_enabled: newConfig.computer_use_enabled ?? false,
+                acp_enabled: newConfig.acp_enabled ?? false,
+                active_skill_names: [...(newConfig.active_skill_names || [])],
+                active_platform_ids: [...(newConfig.active_platform_ids || [])],
                 active_knowledge_base_ids: [
-                    ...(config.active_knowledge_base_ids || []),
+                    ...(newConfig.active_knowledge_base_ids || []),
                 ],
                 proxy_config: {
-                    enabled: config.proxy_config?.enabled ?? false,
-                    url: config.proxy_config?.url || "",
-                    mode: config.proxy_config?.mode || "global",
-                    proxy_domains: config.proxy_config?.proxy_domains
-                        ? [...config.proxy_config.proxy_domains]
-                        : [],
-                    bypass_domains: config.proxy_config?.bypass_domains
-                        ? [...config.proxy_config.bypass_domains]
-                        : [],
-                    username: config.proxy_config?.username || null,
-                    password: config.proxy_config?.password || null,
+                    enabled: newConfig.proxy_config?.enabled ?? false,
+                    url: newConfig.proxy_config?.url || "",
+                    mode: newConfig.proxy_config?.mode || "global",
+                    proxy_domains: [
+                        ...(newConfig.proxy_config?.proxy_domains || []),
+                    ],
+                    bypass_domains: [
+                        ...(newConfig.proxy_config?.bypass_domains || []),
+                    ],
+                    username: newConfig.proxy_config?.username || "",
+                    password: newConfig.proxy_config?.password || "",
                     bypass_localhost:
-                        config.proxy_config?.bypass_localhost ?? true,
-                    rules: config.proxy_config?.rules
-                        ? [...config.proxy_config.rules]
-                        : [],
+                        newConfig.proxy_config?.bypass_localhost ?? true,
+                    rules: [...(newConfig.proxy_config?.rules || [])],
                 },
             };
         } else {
-            // Reset for new config
             formData.value = {
                 name: "",
                 description: "",
                 enable: true,
                 provider_id: null,
                 persona_id: null,
-                command_prefix: "/",
+                command_prefix: "",
                 web_search_enabled: false,
                 computer_use_enabled: false,
                 acp_enabled: false,
@@ -131,8 +143,8 @@ watch(
                     mode: "global",
                     proxy_domains: [],
                     bypass_domains: [],
-                    username: null,
-                    password: null,
+                    username: "",
+                    password: "",
                     bypass_localhost: true,
                     rules: [],
                 },
@@ -142,9 +154,8 @@ watch(
     { immediate: true },
 );
 
-const isEdit = computed(() => props.config !== null);
+const isEdit = computed(() => !!props.config);
 
-// Proxy domain inputs
 const proxyDomainInput = ref("");
 const bypassDomainInput = ref("");
 
@@ -175,107 +186,104 @@ function removeBypassDomain(index: number) {
     formData.value.proxy_config.bypass_domains.splice(index, 1);
 }
 
-// Clash-style rule editing
-const newRuleType = ref<ProxyRuleType>("domain-suffix");
+const newRuleType = ref<ProxyRuleType>("domain");
 const newRuleValue = ref("");
 
-const ruleTypeOptions = computed(() => {
-    return (Object.keys(ProxyRuleTypeLabels) as ProxyRuleType[]).map(
-        (type) => ({
-            value: type,
-            label: ProxyRuleTypeLabels[type],
-        }),
-    );
-});
+const ruleTypeOptions = computed(() => [
+    { value: "domain", label: ProxyRuleTypeLabels.domain },
+    { value: "domain-suffix", label: ProxyRuleTypeLabels["domain-suffix"] },
+    {
+        value: "domain-keyword",
+        label: ProxyRuleTypeLabels["domain-keyword"],
+    },
+    { value: "ip-cidr", label: ProxyRuleTypeLabels["ip-cidr"] },
+    { value: "geoip", label: ProxyRuleTypeLabels.geoip },
+    { value: "match", label: ProxyRuleTypeLabels.match },
+]);
 
 function addRule() {
     const value = newRuleValue.value.trim();
-    if (newRuleType.value === "match") {
-        // MATCH rule doesn't need a value
-        formData.value.proxy_config.rules.push({
-            rule_type: "match",
-            value: "",
-        });
+    if (newRuleType.value === "match" || value) {
+        const rule: ProxyRule = {
+            rule_type: newRuleType.value,
+            value: newRuleType.value === "match" ? "*" : value,
+        };
+        formData.value.proxy_config.rules.push(rule);
         newRuleValue.value = "";
-        return;
+        if (newRuleType.value === "match") {
+            newRuleType.value = "domain";
+        }
     }
-    if (!value) return;
-    formData.value.proxy_config.rules.push({
-        rule_type: newRuleType.value,
-        value,
-    });
-    newRuleValue.value = "";
 }
 
 function removeRule(index: number) {
     formData.value.proxy_config.rules.splice(index, 1);
 }
 
-function getRuleTypeColor(type: ProxyRuleType): string {
-    const colors: Record<ProxyRuleType, string> = {
-        domain: "hsl(var(--primary))",
-        "domain-suffix": "hsl(220 70% 55%)",
-        "domain-keyword": "hsl(280 60% 55%)",
-        "ip-cidr": "hsl(30 80% 50%)",
-        geoip: "hsl(150 60% 40%)",
-        match: "hsl(var(--destructive))",
+function getRuleTypeColor(type: string): string {
+    const colors: Record<string, string> = {
+        domain: "#3b82f6",
+        "domain-suffix": "#8b5cf6",
+        "domain-keyword": "#f59e0b",
+        "ip-cidr": "#ef4444",
+        geoip: "#10b981",
+        match: "#6b7280",
     };
-    return colors[type];
+    return colors[type] || "#6b7280";
 }
 
 const formTitle = computed(() =>
-    isEdit.value ? t("config.form.editTitle") : t("config.form.createTitle"),
+    isEdit.value
+        ? t("config.form.editProfile")
+        : t("config.form.createProfile"),
 );
 
-// Skill toggle
-function toggleSkill(skillName: string) {
-    const index = formData.value.active_skill_names.indexOf(skillName);
-    if (index === -1) {
-        formData.value.active_skill_names.push(skillName);
-    } else {
+function toggleSkill(name: string) {
+    const index = formData.value.active_skill_names.indexOf(name);
+    if (index >= 0) {
         formData.value.active_skill_names.splice(index, 1);
+    } else {
+        formData.value.active_skill_names.push(name);
     }
 }
 
-function isSkillActive(skillName: string): boolean {
-    return formData.value.active_skill_names.includes(skillName);
+function isSkillActive(name: string) {
+    return formData.value.active_skill_names.includes(name);
 }
 
-// Platform toggle
-function togglePlatform(platformId: string) {
-    const index = formData.value.active_platform_ids.indexOf(platformId);
-    if (index === -1) {
-        formData.value.active_platform_ids.push(platformId);
-    } else {
+function togglePlatform(id: string) {
+    const index = formData.value.active_platform_ids.indexOf(id);
+    if (index >= 0) {
         formData.value.active_platform_ids.splice(index, 1);
-    }
-}
-
-function isPlatformActive(platformId: string): boolean {
-    return formData.value.active_platform_ids.includes(platformId);
-}
-
-// Knowledge base toggle
-function toggleKb(kbId: string) {
-    const index = formData.value.active_knowledge_base_ids.indexOf(kbId);
-    if (index === -1) {
-        formData.value.active_knowledge_base_ids.push(kbId);
     } else {
-        formData.value.active_knowledge_base_ids.splice(index, 1);
+        formData.value.active_platform_ids.push(id);
     }
 }
 
-function isKbActive(kbId: string): boolean {
-    return formData.value.active_knowledge_base_ids.includes(kbId);
+function isPlatformActive(id: string) {
+    return formData.value.active_platform_ids.includes(id);
 }
 
-function getPlatformStatus(platformId: string): string {
-    const instance = platformStore.instances.find((p) => p.id === platformId);
-    return instance?.status || "unknown";
+function toggleKb(id: string) {
+    const index = formData.value.active_knowledge_base_ids.indexOf(id);
+    if (index >= 0) {
+        formData.value.active_knowledge_base_ids.splice(index, 1);
+    } else {
+        formData.value.active_knowledge_base_ids.push(id);
+    }
 }
 
-function isPlatformRunning(platformId: string): boolean {
-    return getPlatformStatus(platformId) === "running";
+function isKbActive(id: string) {
+    return formData.value.active_knowledge_base_ids.includes(id);
+}
+
+function getPlatformStatus(id: string) {
+    const instance = platformStore.instances.find((i) => i.id === id);
+    return instance?.status || "stopped";
+}
+
+function isPlatformRunning(id: string) {
+    return getPlatformStatus(id) === "running";
 }
 
 const restartingPlatformId = ref<string | null>(null);
@@ -284,15 +292,13 @@ async function handleRestartPlatform(platformId: string) {
     restartingPlatformId.value = platformId;
     try {
         await platformStore.restartInstance(platformId);
-    } catch (e: unknown) {
-        console.error("Failed to restart platform:", e);
     } finally {
         restartingPlatformId.value = null;
     }
 }
 
 function handleSubmit() {
-    emit("save", formData.value);
+    emit("save", { ...formData.value });
 }
 </script>
 
@@ -300,6 +306,19 @@ function handleSubmit() {
     <div class="config-form">
         <div class="form-header">
             <h2 class="form-title">{{ formTitle }}</h2>
+            <button class="btn-close" @click="$emit('cancel')">
+                <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+            </button>
         </div>
 
         <div class="form-body">
@@ -307,17 +326,30 @@ function handleSubmit() {
             <div class="form-section">
                 <h3 class="section-title">{{ t("config.form.basicInfo") }}</h3>
 
-                <div class="form-group">
-                    <label class="form-label"
-                        >{{ t("config.form.name") }} *</label
-                    >
-                    <input
-                        v-model="formData.name"
-                        type="text"
-                        class="form-input"
-                        :placeholder="t('config.form.namePlaceholder')"
-                        required
-                    />
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label"
+                            >{{ t("config.form.name") }} *</label
+                        >
+                        <input
+                            v-model="formData.name"
+                            type="text"
+                            class="form-input"
+                            :placeholder="t('config.form.namePlaceholder')"
+                            required
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.commandPrefix")
+                        }}</label>
+                        <input
+                            v-model="formData.command_prefix"
+                            type="text"
+                            class="form-input"
+                            :placeholder="'/'"
+                        />
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -332,83 +364,84 @@ function handleSubmit() {
                     />
                 </div>
 
-                <div class="toggle-group">
-                    <label class="toggle-label">
-                        <input
-                            v-model="formData.enable"
-                            type="checkbox"
-                            class="toggle-input"
-                        />
+                <div class="toggle-row">
+                    <div class="toggle-info">
                         <span class="toggle-text">{{
                             t("config.form.enableProfile")
                         }}</span>
                         <span class="toggle-description">{{
                             t("config.form.enableProfileDesc")
                         }}</span>
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.commandPrefix")
-                    }}</label>
-                    <input
-                        v-model="formData.command_prefix"
-                        type="text"
-                        class="form-input"
-                        style="max-width: 120px"
-                        :placeholder="'/'"
-                    />
-                    <p class="form-hint">
-                        {{ t("config.form.commandPrefixDesc") }}
-                    </p>
+                    </div>
+                    <button
+                        type="button"
+                        class="toggle-switch"
+                        :class="{ 'toggle-switch-active': formData.enable }"
+                        @click="formData.enable = !formData.enable"
+                    >
+                        <span
+                            class="toggle-thumb"
+                            :class="{
+                                'toggle-thumb-active': formData.enable,
+                            }"
+                        ></span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Model Provider -->
+            <!-- Model Provider & Persona -->
             <div class="form-section">
                 <h3 class="section-title">
-                    {{ t("config.form.modelProvider") }}
+                    {{ t("config.form.modelProvider") }} &
+                    {{ t("config.form.persona") }}
                 </h3>
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.selectProvider")
-                    }}</label>
-                    <select v-model="formData.provider_id" class="form-select">
-                        <option :value="null">
-                            {{ t("config.form.noProvider") }}
-                        </option>
-                        <option
-                            v-for="provider in providerStore.providers"
-                            :key="provider.id"
-                            :value="provider.id"
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.selectProvider")
+                        }}</label>
+                        <select
+                            v-model="formData.provider_id"
+                            class="form-select"
                         >
-                            {{ provider.name }} ({{ provider.provider_type }})
-                        </option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Persona -->
-            <div class="form-section">
-                <h3 class="section-title">{{ t("config.form.persona") }}</h3>
-                <div class="form-group">
-                    <label class="form-label">{{
-                        t("config.form.selectPersona")
-                    }}</label>
-                    <select v-model="formData.persona_id" class="form-select">
-                        <option :value="null">
-                            {{ t("config.form.noPersona") }}
-                        </option>
-                        <option
-                            v-for="persona in personaStore.personas"
-                            :key="persona.id"
-                            :value="persona.id"
+                            <option :value="null">
+                                {{ t("config.form.noProvider") }}
+                            </option>
+                            <option
+                                v-for="provider in providerStore.providers"
+                                :key="provider.id"
+                                :value="provider.id"
+                            >
+                                {{ provider.name }} ({{
+                                    provider.provider_type
+                                }})
+                            </option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.selectPersona")
+                        }}</label>
+                        <select
+                            v-model="formData.persona_id"
+                            class="form-select"
                         >
-                            {{ persona.name }}
-                        </option>
-                    </select>
+                            <option :value="null">
+                                {{ t("config.form.noPersona") }}
+                            </option>
+                            <option
+                                v-for="persona in personaStore.personas"
+                                :key="persona.id"
+                                :value="persona.id"
+                            >
+                                {{ persona.name }}
+                            </option>
+                        </select>
+                    </div>
                 </div>
+                <p class="form-hint">
+                    {{ t("config.form.commandPrefixDesc") }}
+                </p>
             </div>
 
             <!-- Capabilities -->
@@ -416,80 +449,123 @@ function handleSubmit() {
                 <h3 class="section-title">
                     {{ t("config.form.capabilities") }}
                 </h3>
+                <div class="toggles-grid">
+                    <div class="toggle-row">
+                        <div class="toggle-info">
+                            <span class="toggle-text">{{
+                                t("config.form.webSearch")
+                            }}</span>
+                            <span class="toggle-description">{{
+                                t("config.form.webSearchDesc")
+                            }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active':
+                                    formData.web_search_enabled,
+                            }"
+                            @click="
+                                formData.web_search_enabled =
+                                    !formData.web_search_enabled
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        formData.web_search_enabled,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
 
-                <div class="toggle-group">
-                    <label class="toggle-label">
-                        <input
-                            v-model="formData.web_search_enabled"
-                            type="checkbox"
-                            class="toggle-input"
-                        />
-                        <span class="toggle-text">{{
-                            t("config.form.webSearch")
-                        }}</span>
-                        <span class="toggle-description">{{
-                            t("config.form.webSearchDesc")
-                        }}</span>
-                    </label>
-                </div>
+                    <div class="toggle-row">
+                        <div class="toggle-info">
+                            <span class="toggle-text">{{
+                                t("config.form.computerUse")
+                            }}</span>
+                            <span class="toggle-description">{{
+                                t("config.form.computerUseDesc")
+                            }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active':
+                                    formData.computer_use_enabled,
+                            }"
+                            @click="
+                                formData.computer_use_enabled =
+                                    !formData.computer_use_enabled
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        formData.computer_use_enabled,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
 
-                <div class="toggle-group">
-                    <label class="toggle-label">
-                        <input
-                            v-model="formData.computer_use_enabled"
-                            type="checkbox"
-                            class="toggle-input"
-                        />
-                        <span class="toggle-text">{{
-                            t("config.form.computerUse")
-                        }}</span>
-                        <span class="toggle-description">{{
-                            t("config.form.computerUseDesc")
-                        }}</span>
-                    </label>
-                </div>
-
-                <div class="toggle-group">
-                    <label class="toggle-label">
-                        <input
-                            v-model="formData.acp_enabled"
-                            type="checkbox"
-                            class="toggle-input"
-                        />
-                        <span class="toggle-text">{{
-                            t("config.form.acp")
-                        }}</span>
-                        <span class="toggle-description">{{
-                            t("config.form.acpDesc")
-                        }}</span>
-                    </label>
+                    <div class="toggle-row">
+                        <div class="toggle-info">
+                            <span class="toggle-text">{{
+                                t("config.form.acp")
+                            }}</span>
+                            <span class="toggle-description">{{
+                                t("config.form.acpDesc")
+                            }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active': formData.acp_enabled,
+                            }"
+                            @click="
+                                formData.acp_enabled = !formData.acp_enabled
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active': formData.acp_enabled,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <!-- Skills -->
             <div class="form-section">
                 <h3 class="section-title">{{ t("config.form.skills") }}</h3>
-                <div v-if="skillStore.skills.length === 0" class="no-skills">
+                <div v-if="skillStore.skills.length === 0" class="no-items">
                     {{ t("config.form.noSkillsAvailable") }}
                 </div>
-                <div v-else class="skills-grid">
+                <div v-else class="items-grid">
                     <div
                         v-for="skill in skillStore.skills"
                         :key="skill.name"
                         :class="[
-                            'skill-item',
+                            'item-card',
                             { active: isSkillActive(skill.name) },
                         ]"
                         @click="toggleSkill(skill.name)"
                     >
-                        <span class="skill-name">{{ skill.name }}</span>
-                        <span class="skill-checkbox">
+                        <span class="item-name">{{ skill.name }}</span>
+                        <span class="item-checkbox">
                             <svg
                                 v-if="isSkillActive(skill.name)"
                                 viewBox="0 0 24 24"
                                 fill="none"
                                 stroke="currentColor"
-                                stroke-width="2"
+                                stroke-width="2.5"
                             >
                                 <polyline points="20 6 9 17 4 12" />
                             </svg>
@@ -500,19 +576,21 @@ function handleSubmit() {
 
             <!-- Platforms -->
             <div class="form-section">
-                <h3 class="section-title">{{ t("config.form.platforms") }}</h3>
+                <h3 class="section-title">
+                    {{ t("config.form.platforms") }}
+                </h3>
                 <div
                     v-if="platformStore.instances.length === 0"
-                    class="no-skills"
+                    class="no-items"
                 >
                     {{ t("config.form.noPlatformsAvailable") }}
                 </div>
-                <div v-else class="skills-grid">
+                <div v-else class="items-grid">
                     <div
                         v-for="platform in platformStore.instances"
                         :key="platform.id"
                         :class="[
-                            'skill-item',
+                            'item-card',
                             { active: isPlatformActive(platform.id) },
                         ]"
                         @click="togglePlatform(platform.id)"
@@ -534,7 +612,7 @@ function handleSubmit() {
                                         : t('common.inactive')
                                 "
                             ></span>
-                            <span class="skill-name"
+                            <span class="item-name"
                                 >{{ platform.id }} ({{
                                     platform.platform_type
                                 }})</span
@@ -572,13 +650,13 @@ function handleSubmit() {
                                     />
                                 </svg>
                             </button>
-                            <span class="skill-checkbox">
+                            <span class="item-checkbox">
                                 <svg
                                     v-if="isPlatformActive(platform.id)"
                                     viewBox="0 0 24 24"
                                     fill="none"
                                     stroke="currentColor"
-                                    stroke-width="2"
+                                    stroke-width="2.5"
                                 >
                                     <polyline points="20 6 9 17 4 12" />
                                 </svg>
@@ -595,7 +673,7 @@ function handleSubmit() {
                 </h3>
                 <div
                     v-if="kbStore.knowledgeBases.length === 0"
-                    class="no-skills"
+                    class="no-items"
                 >
                     {{
                         t(
@@ -604,21 +682,21 @@ function handleSubmit() {
                         )
                     }}
                 </div>
-                <div v-else class="skills-grid">
+                <div v-else class="items-grid">
                     <div
                         v-for="kb in kbStore.knowledgeBases"
                         :key="kb.id"
-                        :class="['skill-item', { active: isKbActive(kb.id) }]"
+                        :class="['item-card', { active: isKbActive(kb.id) }]"
                         @click="toggleKb(kb.id)"
                     >
-                        <span class="skill-name">{{ kb.name }}</span>
-                        <span class="skill-checkbox">
+                        <span class="item-name">{{ kb.name }}</span>
+                        <span class="item-checkbox">
                             <svg
                                 v-if="isKbActive(kb.id)"
                                 viewBox="0 0 24 24"
                                 fill="none"
                                 stroke="currentColor"
-                                stroke-width="2"
+                                stroke-width="2.5"
                             >
                                 <polyline points="20 6 9 17 4 12" />
                             </svg>
@@ -633,50 +711,68 @@ function handleSubmit() {
                     {{ t("config.form.proxyConfig") }}
                 </h3>
 
-                <div class="toggle-group">
-                    <label class="toggle-label">
-                        <input
-                            v-model="formData.proxy_config.enabled"
-                            type="checkbox"
-                            class="toggle-input"
-                        />
+                <div class="toggle-row">
+                    <div class="toggle-info">
                         <span class="toggle-text">{{
                             t("config.form.proxyEnabled")
                         }}</span>
                         <span class="toggle-description">{{
                             t("config.form.proxyEnabledDesc")
                         }}</span>
-                    </label>
+                    </div>
+                    <button
+                        type="button"
+                        class="toggle-switch"
+                        :class="{
+                            'toggle-switch-active':
+                                formData.proxy_config.enabled,
+                        }"
+                        @click="
+                            formData.proxy_config.enabled =
+                                !formData.proxy_config.enabled
+                        "
+                    >
+                        <span
+                            class="toggle-thumb"
+                            :class="{
+                                'toggle-thumb-active':
+                                    formData.proxy_config.enabled,
+                            }"
+                        ></span>
+                    </button>
                 </div>
 
                 <template v-if="formData.proxy_config.enabled">
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("config.form.proxyUrl")
-                        }}</label>
-                        <input
-                            v-model="formData.proxy_config.url"
-                            type="text"
-                            class="form-input"
-                            :placeholder="t('config.form.proxyUrlPlaceholder')"
-                        />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("config.form.proxyMode")
-                        }}</label>
-                        <select
-                            v-model="formData.proxy_config.mode"
-                            class="form-select"
-                        >
-                            <option value="global">
-                                {{ t("config.form.proxyModeGlobal") }}
-                            </option>
-                            <option value="rules">
-                                {{ t("config.form.proxyModeRules") }}
-                            </option>
-                        </select>
+                    <div class="form-grid" style="margin-top: 0.75rem">
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("config.form.proxyUrl")
+                            }}</label>
+                            <input
+                                v-model="formData.proxy_config.url"
+                                type="text"
+                                class="form-input"
+                                :placeholder="
+                                    t('config.form.proxyUrlPlaceholder')
+                                "
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("config.form.proxyMode")
+                            }}</label>
+                            <select
+                                v-model="formData.proxy_config.mode"
+                                class="form-select"
+                            >
+                                <option value="global">
+                                    {{ t("config.form.proxyModeGlobal") }}
+                                </option>
+                                <option value="rules">
+                                    {{ t("config.form.proxyModeRules") }}
+                                </option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Clash-style Rules Editor -->
@@ -805,18 +901,18 @@ function handleSubmit() {
                                     formData.proxy_config.proxy_domains.length >
                                     0
                                 "
-                                class="bypass-hosts-list"
+                                class="tag-list"
                             >
                                 <span
                                     v-for="(domain, index) in formData
                                         .proxy_config.proxy_domains"
                                     :key="index"
-                                    class="bypass-host-tag"
+                                    class="tag-item"
                                 >
                                     {{ domain }}
                                     <button
                                         type="button"
-                                        class="remove-host-btn"
+                                        class="tag-remove-btn"
                                         @click="removeProxyDomain(index)"
                                     >
                                         ×
@@ -843,18 +939,18 @@ function handleSubmit() {
                             v-if="
                                 formData.proxy_config.bypass_domains.length > 0
                             "
-                            class="bypass-hosts-list"
+                            class="tag-list"
                         >
                             <span
                                 v-for="(domain, index) in formData.proxy_config
                                     .bypass_domains"
                                 :key="index"
-                                class="bypass-host-tag"
+                                class="tag-item"
                             >
                                 {{ domain }}
                                 <button
                                     type="button"
-                                    class="remove-host-btn"
+                                    class="tag-remove-btn"
                                     @click="removeBypassDomain(index)"
                                 >
                                     ×
@@ -863,48 +959,64 @@ function handleSubmit() {
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("config.form.proxyUsername")
-                        }}</label>
-                        <input
-                            v-model="formData.proxy_config.username"
-                            type="text"
-                            class="form-input"
-                            :placeholder="
-                                t('config.form.proxyUsernamePlaceholder')
-                            "
-                        />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("config.form.proxyPassword")
-                        }}</label>
-                        <input
-                            v-model="formData.proxy_config.password"
-                            type="password"
-                            class="form-input"
-                            :placeholder="
-                                t('config.form.proxyPasswordPlaceholder')
-                            "
-                        />
-                    </div>
-
-                    <div class="toggle-group">
-                        <label class="toggle-label">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("config.form.proxyUsername")
+                            }}</label>
                             <input
-                                v-model="formData.proxy_config.bypass_localhost"
-                                type="checkbox"
-                                class="toggle-input"
+                                v-model="formData.proxy_config.username"
+                                type="text"
+                                class="form-input"
+                                :placeholder="
+                                    t('config.form.proxyUsernamePlaceholder')
+                                "
                             />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("config.form.proxyPassword")
+                            }}</label>
+                            <input
+                                v-model="formData.proxy_config.password"
+                                type="password"
+                                class="form-input"
+                                :placeholder="
+                                    t('config.form.proxyPasswordPlaceholder')
+                                "
+                            />
+                        </div>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="toggle-info">
                             <span class="toggle-text">{{
                                 t("config.form.bypassLocalhost")
                             }}</span>
                             <span class="toggle-description">{{
                                 t("config.form.bypassLocalhostDesc")
                             }}</span>
-                        </label>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active':
+                                    formData.proxy_config.bypass_localhost,
+                            }"
+                            @click="
+                                formData.proxy_config.bypass_localhost =
+                                    !formData.proxy_config.bypass_localhost
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        formData.proxy_config.bypass_localhost,
+                                }"
+                            ></span>
+                        </button>
                     </div>
                 </template>
             </div>
@@ -913,14 +1025,14 @@ function handleSubmit() {
         <div class="form-footer">
             <button
                 type="button"
-                class="btn btn-ghost"
+                class="btn btn-outline"
                 @click="$emit('cancel')"
             >
                 {{ t("common.cancel") }}
             </button>
             <button
                 type="button"
-                class="btn btn-accent"
+                class="btn btn-primary"
                 :disabled="!formData.name || saving"
                 @click="handleSubmit"
             >
@@ -938,25 +1050,52 @@ function handleSubmit() {
 }
 
 .form-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid hsl(var(--border));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.2);
 }
 
 .form-title {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: hsl(var(--foreground));
     margin: 0;
 }
 
+.btn-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    background: transparent;
+    border: none;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+    background: hsl(var(--secondary) / 0.5);
+    color: hsl(var(--foreground));
+}
+
+.btn-close svg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
 .form-body {
     flex: 1;
     overflow-y: auto;
-    padding: 1.5rem;
+    padding: 1.25rem;
 }
 
 .form-section {
-    margin-bottom: 2rem;
+    margin-bottom: 1.75rem;
 }
 
 .form-section:last-child {
@@ -964,80 +1103,156 @@ function handleSubmit() {
 }
 
 .section-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: hsl(var(--foreground));
-    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 0.875rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.875rem;
 }
 
 .form-group {
-    margin-bottom: 1.25rem;
+    margin-bottom: 1rem;
 }
 
 .form-label {
     display: block;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: hsl(var(--foreground));
-    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 0.375rem;
 }
 
 .form-input,
 .form-textarea,
 .form-select {
     width: 100%;
-    padding: 0.625rem 0.875rem;
+    padding: 0.6rem 0.75rem;
     font-size: 0.875rem;
     line-height: 1.5;
     color: hsl(var(--foreground));
-    background-color: hsl(var(--background));
-    border: 1px solid hsl(var(--border));
+    background-color: hsl(var(--background) / 0.5);
+    border: 1px solid hsl(var(--border) / 0.4);
     border-radius: 0.5rem;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
     font-family: inherit;
+    outline: none;
 }
 
 .form-input:focus,
 .form-textarea:focus,
 .form-select:focus {
-    outline: none;
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
+}
+
+.form-select {
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
 }
 
 .form-textarea {
     resize: vertical;
-    min-height: 80px;
+    min-height: 60px;
 }
 
-.toggle-group {
-    margin-bottom: 1rem;
-    padding: 0.875rem;
-    border: 1px solid hsl(var(--border));
-    border-radius: 0.5rem;
-    background: hsl(var(--background));
-    transition: all 0.2s;
-}
-
-.toggle-group:hover {
-    border-color: hsl(var(--primary) / 0.5);
-}
-
-.toggle-label {
+/* Toggle Row */
+.toggle-row {
     display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    cursor: pointer;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 0;
 }
 
-/* Proxy Configuration Styles */
+.toggle-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.toggle-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+}
+
+.toggle-description {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    line-height: 1.4;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 1.25rem;
+    border-radius: 9999px;
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border) / 0.5);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.toggle-switch-active {
+    background: hsl(var(--primary));
+    border-color: hsl(var(--primary));
+}
+
+.toggle-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 0.875rem;
+    height: 0.875rem;
+    background: hsl(var(--muted-foreground));
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.toggle-thumb-active {
+    left: calc(100% - 1px);
+    transform: translateX(-100%);
+    background: white;
+}
+
+/* Toggles grid for capabilities section */
+.toggles-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.toggles-grid .toggle-row {
+    padding: 0.75rem 0.875rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.15);
+}
+
+.toggles-grid .toggle-row:last-child {
+    border-bottom: none;
+}
 
 .form-hint {
-    font-size: 0.8125rem;
-    color: hsl(var(--muted-foreground));
-    margin: 0.375rem 0 0.75rem;
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground) / 0.8);
+    margin: 0.25rem 0 0.5rem;
     line-height: 1.4;
 }
 
@@ -1057,25 +1272,25 @@ function handleSubmit() {
 .rule-type-select {
     flex-shrink: 0;
     width: auto;
-    min-width: 9rem;
+    min-width: 8.5rem;
     padding: 0.5rem 0.75rem;
     font-size: 0.8125rem;
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-weight: 600;
-    background: hsl(var(--secondary));
+    background: hsl(var(--secondary) / 0.5);
     color: hsl(var(--foreground));
-    border: 1px solid hsl(var(--border));
+    border: 1px solid hsl(var(--border) / 0.4);
     border-radius: 0.5rem;
     cursor: pointer;
     transition: all 0.2s;
     appearance: auto;
+    outline: none;
 }
 
 .rule-type-select:focus {
-    border-color: hsl(var(--primary));
-    outline: none;
-    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
 }
 
 .rule-value-input {
@@ -1083,11 +1298,12 @@ function handleSubmit() {
     min-width: 0;
     padding: 0.5rem 0.75rem;
     font-size: 0.8125rem;
-    background: hsl(var(--background));
+    background: hsl(var(--background) / 0.5);
     color: hsl(var(--foreground));
-    border: 1px solid hsl(var(--border));
+    border: 1px solid hsl(var(--border) / 0.4);
     border-radius: 0.5rem;
     transition: all 0.2s;
+    outline: none;
 }
 
 .rule-value-input::placeholder {
@@ -1095,9 +1311,8 @@ function handleSubmit() {
 }
 
 .rule-value-input:focus {
-    border-color: hsl(var(--primary));
-    outline: none;
-    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+    border-color: hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
 }
 
 .rule-add-btn {
@@ -1130,29 +1345,29 @@ function handleSubmit() {
 .rules-list {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.375rem;
     margin-top: 0.5rem;
 }
 
 .rule-item {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.5rem 0.75rem;
-    background: hsl(var(--secondary) / 0.5);
-    border: 1px solid hsl(var(--border) / 0.5);
-    border-radius: 0.5rem;
+    gap: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    background: hsl(var(--secondary) / 0.3);
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 0.375rem;
     transition: all 0.2s;
 }
 
 .rule-item:hover {
-    border-color: hsl(var(--border));
-    background: hsl(var(--secondary));
+    border-color: hsl(var(--border) / 0.6);
+    background: hsl(var(--secondary) / 0.5);
 }
 
 .rule-type-badge {
     flex-shrink: 0;
-    padding: 0.125rem 0.5rem;
+    padding: 0.0625rem 0.375rem;
     font-size: 0.6875rem;
     font-weight: 700;
     font-family:
@@ -1200,145 +1415,138 @@ function handleSubmit() {
     color: hsl(var(--destructive-foreground));
 }
 
-.bypass-hosts-list {
+/* Tag list */
+.tag-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
 }
 
-.bypass-host-tag {
+.tag-item {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    padding: 0.25rem 0.5rem;
-    background-color: hsl(var(--muted));
+    padding: 0.1875rem 0.5rem;
+    background-color: hsl(var(--secondary) / 0.6);
+    border: 1px solid hsl(var(--border) / 0.3);
     border-radius: 0.25rem;
-    font-size: 0.875rem;
-    color: hsl(var(--muted-foreground));
+    font-size: 0.8125rem;
+    color: hsl(var(--foreground));
 }
 
-.remove-host-btn {
+.tag-remove-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1rem;
+    height: 1rem;
     padding: 0;
-    margin-left: 0.25rem;
+    margin-left: 0.125rem;
     background: transparent;
     border: none;
     border-radius: 50%;
     color: hsl(var(--muted-foreground));
     cursor: pointer;
-    font-size: 1rem;
+    font-size: 0.875rem;
     line-height: 1;
     transition:
         background-color 0.2s,
         color 0.2s;
 }
 
-.remove-host-btn:hover {
+.tag-remove-btn:hover {
     background-color: hsl(var(--destructive));
     color: hsl(var(--destructive-foreground));
 }
 
-.toggle-input {
-    margin-top: 0.25rem;
-    width: 1rem;
-    height: 1rem;
-    accent-color: hsl(var(--primary));
-    cursor: pointer;
-}
-
-.toggle-text {
-    font-weight: 500;
-    color: hsl(var(--foreground));
-    flex-shrink: 0;
-}
-
-.toggle-description {
-    font-size: 0.875rem;
-    color: hsl(var(--muted-foreground));
-    margin-left: 0.25rem;
-}
-
-.no-skills {
-    padding: 1rem;
+/* Items grid (skills, platforms, KB) */
+.no-items {
+    padding: 1.5rem;
     text-align: center;
     color: hsl(var(--muted-foreground));
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
+    background: hsl(var(--secondary) / 0.2);
+    border-radius: 0.5rem;
+    border: 1px dashed hsl(var(--border) / 0.5);
 }
 
-.skills-grid {
+.items-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.5rem;
 }
 
-.skill-item {
+.item-card {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.875rem;
-    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    border: 1px solid hsl(var(--border) / 0.4);
     border-radius: 0.5rem;
-    background: hsl(var(--background));
+    background: hsl(var(--background) / 0.5);
     cursor: pointer;
     transition: all 0.2s;
 }
 
-.skill-item:hover {
-    border-color: hsl(var(--primary) / 0.5);
-    background: hsl(var(--secondary));
+.item-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    background: hsl(var(--secondary) / 0.3);
 }
 
-.skill-item.active {
-    border-color: hsl(var(--primary));
-    background: hsl(var(--primary) / 0.1);
+.item-card.active {
+    border-color: hsl(var(--primary) / 0.6);
+    background: hsl(var(--primary) / 0.08);
 }
 
-.skill-name {
+.item-name {
     font-weight: 500;
     color: hsl(var(--foreground));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
-.skill-checkbox {
-    width: 1.25rem;
-    height: 1.25rem;
+.item-checkbox {
+    width: 1.125rem;
+    height: 1.125rem;
     color: hsl(var(--primary));
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .platform-info {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.375rem;
     min-width: 0;
     overflow: hidden;
 }
 
 .platform-status-dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
 }
 
 .platform-status-dot--running {
     background: hsl(142 71% 45%);
-    box-shadow: 0 0 6px hsl(142 71% 45% / 0.5);
+    box-shadow: 0 0 4px hsl(142 71% 45% / 0.5);
 }
 
 .platform-status-dot--stopped {
-    background: hsl(var(--muted-foreground) / 0.4);
+    background: hsl(var(--muted-foreground) / 0.3);
 }
 
 .platform-actions {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.25rem;
     flex-shrink: 0;
 }
 
@@ -1346,8 +1554,8 @@ function handleSubmit() {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.25rem;
+    height: 1.25rem;
     padding: 0;
     border: none;
     border-radius: 0.25rem;
@@ -1358,7 +1566,7 @@ function handleSubmit() {
 }
 
 .platform-restart-btn:hover:not(:disabled) {
-    background: hsl(var(--secondary));
+    background: hsl(var(--secondary) / 0.5);
     color: hsl(var(--foreground));
 }
 
@@ -1380,51 +1588,75 @@ function handleSubmit() {
     }
 }
 
+/* Footer with aligned buttons */
 .form-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
-    padding: 1.5rem;
-    border-top: 1px solid hsl(var(--border));
+    gap: 0.625rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid hsl(var(--border) / 0.2);
 }
 
+/* Consistent button styles - same height, same padding baseline */
 .btn {
-    padding: 0.625rem 1.25rem;
-    font-size: 0.875rem;
-    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    white-space: nowrap;
     border-radius: 0.5rem;
-    border: none;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
     cursor: pointer;
-    transition: all 0.2s;
+    outline: none;
+    padding: 0.5rem 1.125rem;
+    min-height: 2.125rem;
+    line-height: 1.4;
 }
 
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    pointer-events: none;
 }
 
-.btn-ghost {
+.btn-outline {
     background: transparent;
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.btn-outline:hover:not(:disabled) {
     color: hsl(var(--foreground));
-    border: 1px solid hsl(var(--border));
+    border-color: hsl(var(--border));
+    background: hsl(var(--secondary) / 0.5);
 }
 
-.btn-ghost:hover:not(:disabled) {
-    background: hsl(var(--secondary));
-}
-
-.btn-accent {
-    background: hsl(var(--primary));
+.btn-primary {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)),
+        hsl(var(--primary) / 0.9)
+    );
     color: hsl(var(--primary-foreground));
+    border: none;
+    box-shadow: 0 1px 4px hsl(var(--primary) / 0.25);
 }
 
-.btn-accent:hover:not(:disabled) {
-    background: hsl(var(--primary) / 0.9);
+.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.95),
+        hsl(var(--primary) / 0.85)
+    );
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.35);
+    transform: translateY(-1px);
 }
 
 /* Scrollbar */
 .form-body::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
 }
 
 .form-body::-webkit-scrollbar-track {
@@ -1432,11 +1664,18 @@ function handleSubmit() {
 }
 
 .form-body::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
+    background: hsl(var(--muted) / 0.5);
     border-radius: 3px;
 }
 
 .form-body::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground) / 0.5);
+    background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

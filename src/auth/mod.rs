@@ -45,10 +45,10 @@ fn get_session_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Create a Set-Cookie header value
-fn set_cookie_header(name: &str, value: &str) -> HeaderValue {
+fn set_cookie_header(name: &str, value: &str, max_age_secs: i64) -> HeaderValue {
     HeaderValue::from_str(&format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax",
-        name, value
+        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+        name, value, max_age_secs
     ))
     .unwrap_or_else(|_| HeaderValue::from_static(""))
 }
@@ -66,6 +66,8 @@ fn clear_cookie_header(name: &str) -> HeaderValue {
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    #[serde(default)]
+    pub remember_me: bool,
 }
 
 /// Request body for password change
@@ -107,15 +109,26 @@ pub struct User {
 
 // ─── Session Database Operations ─────────────────────────────────
 
-/// Session validity period in hours (7 days).
-const SESSION_EXPIRY_HOURS: i64 = 168;
+/// Default session validity period in hours (7 days).
+const SESSION_DEFAULT_EXPIRY_HOURS: i64 = 168;
+/// Extended session validity period in hours (30 days) for "remember me".
+const SESSION_REMEMBER_ME_EXPIRY_HOURS: i64 = 720;
 
 /// Create a new session in the database and return the token.
-async fn create_session(pool: &sqlx::SqlitePool, user_id: &str) -> Result<String, sqlx::Error> {
+async fn create_session(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+    remember_me: bool,
+) -> Result<String, sqlx::Error> {
     let token = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
+    let expiry_hours = if remember_me {
+        SESSION_REMEMBER_ME_EXPIRY_HOURS
+    } else {
+        SESSION_DEFAULT_EXPIRY_HOURS
+    };
     let expires_at = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::hours(SESSION_EXPIRY_HOURS))
+        .checked_add_signed(chrono::Duration::hours(expiry_hours))
         .unwrap()
         .to_rfc3339();
 
@@ -305,13 +318,15 @@ pub async fn login(
     }
 
     // Create session
-    let token = create_session(pool, &user.id).await.map_err(|e| {
-        tracing::error!("Failed to create session: {}", e);
-        AuthError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "Internal server error".to_string(),
-        }
-    })?;
+    let token = create_session(pool, &user.id, req.remember_me)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create session: {}", e);
+            AuthError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "Internal server error".to_string(),
+            }
+        })?;
 
     info!(
         user_id = %user.id,
@@ -335,9 +350,14 @@ pub async fn login(
     ));
 
     *res.status_mut() = StatusCode::OK;
+    let max_age_secs = if req.remember_me {
+        SESSION_REMEMBER_ME_EXPIRY_HOURS * 3600
+    } else {
+        SESSION_DEFAULT_EXPIRY_HOURS * 3600
+    };
     res.headers_mut().insert(
         axum::http::header::SET_COOKIE,
-        set_cookie_header("session_token", &token),
+        set_cookie_header("session_token", &token, max_age_secs),
     );
     res.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,

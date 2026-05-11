@@ -376,9 +376,65 @@ async fn main() -> anyhow::Result<()> {
                                 tasks.insert(msg.session_id.clone(), cancel_token);
                             }
 
+                            // Build user message from platform message (may include images/files)
+                            let user_msg = {
+                                let mut parts: Vec<types::ContentPart> = Vec::new();
+
+                                // Add images as image_url parts
+                                for comp in &msg.components {
+                                    if let platform::types::MessageComponent::Image { url } = comp {
+                                        parts.push(types::ContentPart {
+                                            part_type: types::ContentPartType::ImageUrl,
+                                            text: None,
+                                            image_url: Some(types::ImageUrl {
+                                                url: url.clone(),
+                                                detail: None,
+                                            }),
+                                            image_data: None,
+                                        });
+                                    }
+                                }
+
+                                // Add file descriptions as text parts
+                                for comp in &msg.components {
+                                    if let platform::types::MessageComponent::File { name, url } =
+                                        comp
+                                    {
+                                        parts.push(types::ContentPart {
+                                            part_type: types::ContentPartType::Text,
+                                            text: Some(format!(
+                                                "[File attached: {}]({})",
+                                                name, url
+                                            )),
+                                            image_url: None,
+                                            image_data: None,
+                                        });
+                                    }
+                                }
+
+                                if parts.is_empty() {
+                                    types::ChatMessage::user(&msg.message_str)
+                                } else {
+                                    // Add the user's text message as the last part
+                                    parts.push(types::ContentPart {
+                                        part_type: types::ContentPartType::Text,
+                                        text: Some(msg.message_str.clone()),
+                                        image_url: None,
+                                        image_data: None,
+                                    });
+                                    types::ChatMessage {
+                                        role: types::MessageRole::User,
+                                        content: Some(types::MessageContent::Parts(parts)),
+                                        name: None,
+                                        tool_calls: None,
+                                        tool_call_id: None,
+                                    }
+                                }
+                            };
+
                             // Run the agent chat with cancellation support
                             tokio::select! {
-                                result = agent.chat(&msg.message_str) => {
+                                result = agent.chat_with_message(user_msg) => {
                                     // Remove the cancellation token when done
                                     {
                                         let mut tasks = state_for_platform.running_agent_tasks.write().await;

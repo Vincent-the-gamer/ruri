@@ -1143,13 +1143,23 @@ function getPersonaName(personaId: string | null): string {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: hsl(var(--background) / 0.8);
-    backdrop-filter: blur(8px);
+    background: hsl(var(--background) / 0.6);
+    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 100;
-    padding: 1.5rem;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .modal-content {
@@ -1161,6 +1171,18 @@ function getPersonaName(personaId: string | null): string {
     border: 1px solid hsl(var(--border));
     box-shadow: 0 25px 50px -12px hsl(var(--foreground) / 0.25);
     overflow: hidden;
+    animation: modalSlideIn 0.25s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
 }
 
 .modal-sm {
@@ -1173,27 +1195,27 @@ function getPersonaName(personaId: string | null): string {
 }
 
 .modal-header {
-    padding: 1.5rem;
-    border-bottom: 1px solid hsl(var(--border));
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid hsl(var(--border) / 0.2);
 }
 
 .modal-title {
-    font-size: 1.125rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: hsl(var(--foreground));
     margin: 0;
 }
 
 .modal-body {
-    padding: 1.5rem;
+    padding: 1.25rem;
 }
 
 .modal-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
-    padding: 1.5rem;
-    border-top: 1px solid hsl(var(--border));
+    gap: 0.625rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid hsl(var(--border) / 0.2);
 }
 
 /* Responsive */

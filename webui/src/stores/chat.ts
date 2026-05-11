@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { ChatMessage, ChatRequest } from '../types'
+import type { ChatMessage, ChatRequest, ContentPart } from '../types'
 import * as api from '../api'
 
 export const useChatStore = defineStore('chat', () => {
@@ -28,10 +28,38 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendMessage(req: ChatRequest) {
-    // Add user message optimistically
+    // Build display content for the optimistic user message
+    const contentParts: ContentPart[] = [];
+
+    if (req.images && req.images.length > 0) {
+      for (const img of req.images) {
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: img }
+        });
+      }
+    }
+
+    // Show attached files as text placeholders in the message
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        // For text files, show content; for binary, just show filename
+        const isText = file.mime_type.startsWith('text/') || !file.content.startsWith('data:')
+        contentParts.push({
+          type: 'text',
+          text: isText
+            ? `--- File: ${file.name} ---\n${file.content.length > 2000 ? file.content.slice(0, 2000) + '\n... (truncated)' : file.content}`
+            : `📎 ${file.name}`
+        });
+      }
+    }
+
+    contentParts.push({ type: 'text', text: req.message });
+
+    const hasMultiContent = (req.images && req.images.length > 0) || (req.files && req.files.length > 0)
     const userMessage: ChatMessage = {
       role: 'user',
-      content: req.message,
+      content: hasMultiContent ? contentParts : req.message,
     }
     messages.value.push(userMessage)
 

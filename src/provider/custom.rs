@@ -49,6 +49,13 @@ pub struct CustomProviderConfig {
     /// Whether to send the body as OpenAI-compatible format directly.
     #[serde(default = "default_true")]
     pub use_openai_format: bool,
+    /// Whether the backend supports multimodal (image) content.
+    ///
+    /// Defaults to `false` because custom providers are often self-hosted
+    /// servers (e.g., llama.cpp) that may not have multimodal processing
+    /// enabled.
+    #[serde(default)]
+    pub supports_multimodal: bool,
 }
 
 fn default_method() -> String {
@@ -105,7 +112,72 @@ impl CustomProvider {
             );
         }
 
+        // When using OpenAI-compatible format, convert inline image data parts
+        // to OpenAI's image_url format with data URLs
+        if self.config.use_openai_format {
+            Self::convert_image_parts_to_openai_format(&mut body);
+        }
+
         body
+    }
+
+    /// Walk through the request body and convert any `ContentPartType::Image`
+    /// parts (serialized as `{"type":"image", "image_data":{...}}`) to
+    /// OpenAI's `image_url` format with a data URL.
+    ///
+    /// This is the same conversion used by `OpenAIProvider` so that custom
+    /// providers using OpenAI-compatible format also support inline images.
+    fn convert_image_parts_to_openai_format(body: &mut serde_json::Value) {
+        let messages = match body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+            Some(msgs) => msgs,
+            None => return,
+        };
+
+        for message in messages.iter_mut() {
+            let content = match message.get_mut("content") {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let parts = match content.as_array_mut() {
+                Some(arr) => arr,
+                None => continue,
+            };
+
+            for part in parts.iter_mut() {
+                let part_type = match part.get("type").and_then(|t| t.as_str()) {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                if part_type != "image" {
+                    continue;
+                }
+
+                let image_data = match part.get("image_data") {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                let data = image_data
+                    .get("data")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("");
+                let media_type = image_data
+                    .get("media_type")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("image/png");
+
+                let data_url = format!("data:{};base64,{}", media_type, data);
+
+                *part = serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url
+                    }
+                });
+            }
+        }
     }
 
     /// Apply simple template substitution on a JSON value.
@@ -289,5 +361,9 @@ impl Provider for CustomProvider {
 
     fn default_model(&self) -> &str {
         &self.config.default_model
+    }
+
+    fn supports_multimodal(&self) -> bool {
+        self.config.supports_multimodal
     }
 }

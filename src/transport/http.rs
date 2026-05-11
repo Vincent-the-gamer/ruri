@@ -138,4 +138,9 @@ impl HttpTransport {
     pub fn default_model(&self) -> &str {
         self.provider.default_model()
     }
+
+    /// Whether the underlying provider supports multimodal (image) content.
+    pub fn supports_multimodal(&self) -> bool {
+        self.provider.supports_multimodal()
+    }
 }
