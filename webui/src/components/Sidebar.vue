@@ -181,10 +181,10 @@ const isGroupActive = (group: (typeof navGroups.value)[0]) => {
 
 <template>
     <aside
-        class="sidebar-container w-64 border-r border-border/30 bg-background/25 backdrop-blur-xl supports-[backdrop-filter]:bg-background/15 flex flex-col transition-all duration-300"
+        class="sidebar-container w-64 flex-shrink-0 border-r border-border/30 bg-background/25 backdrop-blur-xl supports-[backdrop-filter]:bg-background/15 flex flex-col min-h-0 overflow-hidden"
     >
         <!-- Navigation -->
-        <nav class="flex-1 p-3 space-y-1 overflow-y-auto scroll-hover">
+        <nav class="flex-1 min-h-0 p-3 space-y-1 overflow-y-auto scroll-hover">
             <div v-for="group in navGroups" :key="group.key" class="nav-group">
                 <!-- Group Header -->
                 <button
@@ -242,7 +242,7 @@ const isGroupActive = (group: (typeof navGroups.value)[0]) => {
         </nav>
 
         <!-- Footer -->
-        <div class="sidebar-footer p-3 border-t border-border/40">
+        <div class="sidebar-footer p-3 border-t border-border/40 flex-shrink-0">
             <div
                 class="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2"
             >

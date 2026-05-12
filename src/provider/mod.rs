@@ -55,6 +55,12 @@ pub trait Provider: Send + Sync {
         true
     }
 
+    /// Set an HTTP proxy for this provider's client.
+    ///
+    /// If the proxy URL is invalid, the existing client is left unchanged.
+    /// When both `username` and `password` are provided, proxy basic auth is configured.
+    fn set_proxy(&mut self, _proxy_url: &str, _username: Option<&str>, _password: Option<&str>) {}
+
     /// Send a chat completion request and return a stream of events.
     ///
     /// The default implementation falls back to the non-streaming [`chat`] method

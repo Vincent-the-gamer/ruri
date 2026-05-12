@@ -363,6 +363,7 @@ async fn main() -> anyhow::Result<()> {
                             Some(&msg.sender.user_id),
                             Some(&msg.session_id),
                             None,
+                            None,
                         )
                         .await
                     {

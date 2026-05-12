@@ -56,14 +56,6 @@ async function handleDelete(id: string) {
     }
 }
 
-async function handleActivate(id: string) {
-    try {
-        await providerStore.activateProvider(id);
-    } catch {
-        // error is in store
-    }
-}
-
 const providerTypeLabel = (type: string) => {
     switch (type) {
         case "openai":
@@ -223,13 +215,9 @@ function maskApiKey(key: string): string {
                 v-for="(provider, index) in providerStore.providers"
                 :key="provider.id"
                 class="provider-card"
-                :class="{ 'provider-card--active': provider.is_active }"
                 :style="{ animationDelay: `${index * 50}ms` }"
             >
-                <div
-                    class="card-glow"
-                    :class="{ 'card-glow--active': provider.is_active }"
-                ></div>
+                <div class="card-glow"></div>
                 <div class="card-content">
                     <div class="card-info">
                         <div
@@ -244,13 +232,6 @@ function maskApiKey(key: string): string {
                         <div class="card-details">
                             <div class="card-title-row">
                                 <h3 class="card-title">{{ provider.name }}</h3>
-                                <span
-                                    v-if="provider.is_active"
-                                    class="status-badge status-badge--active"
-                                >
-                                    <span class="status-dot"></span>
-                                    {{ t("providers.status.active") }}
-                                </span>
                             </div>
                             <div class="card-meta">
                                 {{ providerTypeLabel(provider.provider_type) }}
@@ -313,27 +294,6 @@ function maskApiKey(key: string): string {
                     </div>
 
                     <div class="card-actions">
-                        <button
-                            v-if="!provider.is_active"
-                            class="btn btn-ghost btn-sm"
-                            @click="handleActivate(provider.id)"
-                            :title="t('providers.activateProvider')"
-                        >
-                            <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path d="M22 11.08V12a10 10 0 1 1 -5.93-9.14" />
-                                <polyline points="22 4 12 14.01 9 11.01" />
-                            </svg>
-                            {{ t("providers.activate") }}
-                        </button>
                         <button
                             class="btn btn-ghost btn-sm"
                             @click="openEdit(provider)"

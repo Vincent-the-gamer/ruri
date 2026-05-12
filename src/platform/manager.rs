@@ -1,5 +1,6 @@
 use crate::platform::dingtalk::DingtalkAdapter;
 use crate::platform::discord::DiscordAdapter;
+use crate::platform::onebot12::OneBot12Adapter;
 use crate::platform::trait_def::{Platform, PlatformEvent};
 use crate::platform::types::{MessageType, PlatformStatus};
 use crate::platform::weixin_oc::WeixinOcAdapter;
@@ -72,6 +73,11 @@ impl PlatformManager {
             "weixin_oc" => {
                 let adapter = WeixinOcAdapter::from_config(config.id.clone(), &config.extra)
                     .map_err(|e| format!("Failed to create WeixinOc adapter: {e}"))?;
+                Ok(Box::new(adapter))
+            }
+            "onebot12" => {
+                let adapter = OneBot12Adapter::from_config(config.id.clone(), &config.extra)
+                    .map_err(|e| format!("Failed to create OneBot12 adapter: {e}"))?;
                 Ok(Box::new(adapter))
             }
             other => Err(format!("Unknown platform type: {}", other)),

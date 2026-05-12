@@ -478,36 +478,42 @@ function getPersonaName(personaId: string | null): string {
         </div>
 
         <!-- Form Modal -->
-        <div v-if="showForm" class="modal-overlay">
-            <div class="modal-content glass" @click.stop>
-                <ConfigForm
-                    :config="editingConfig"
-                    :saving="saving"
-                    @save="handleSave"
-                    @cancel="handleCancel"
-                />
+        <Teleport to="body">
+            <div v-if="showForm" class="modal-overlay">
+                <div class="modal-content glass" @click.stop>
+                    <ConfigForm
+                        :config="editingConfig"
+                        :saving="saving"
+                        @save="handleSave"
+                        @cancel="handleCancel"
+                    />
+                </div>
             </div>
-        </div>
+        </Teleport>
 
         <!-- Delete Confirm Modal -->
-        <div v-if="deleteConfirm" class="modal-overlay">
-            <div class="modal-content glass modal-sm" @click.stop>
-                <div class="modal-header">
-                    <h2 class="modal-title">{{ t("config.deleteConfirm") }}</h2>
-                </div>
-                <div class="modal-body">
-                    <p>{{ t("config.deleteConfirmDesc") }}</p>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-ghost" @click="cancelDelete">
-                        {{ t("common.cancel") }}
-                    </button>
-                    <button class="btn btn-danger" @click="confirmDelete">
-                        {{ t("common.confirm") }}
-                    </button>
+        <Teleport to="body">
+            <div v-if="deleteConfirm" class="modal-overlay">
+                <div class="modal-content glass modal-sm" @click.stop>
+                    <div class="modal-header">
+                        <h2 class="modal-title">
+                            {{ t("config.deleteConfirm") }}
+                        </h2>
+                    </div>
+                    <div class="modal-body">
+                        <p>{{ t("config.deleteConfirmDesc") }}</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-ghost" @click="cancelDelete">
+                            {{ t("common.cancel") }}
+                        </button>
+                        <button class="btn btn-danger" @click="confirmDelete">
+                            {{ t("common.confirm") }}
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </Teleport>
     </div>
 </template>
 

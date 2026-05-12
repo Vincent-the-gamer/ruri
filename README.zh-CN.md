@@ -24,11 +24,11 @@
 - [x] 聊天平台 - 个人微信(微信ClawBot插件)
 - [x] 沙盒 - AIO Sandbox (https://github.com/agent-infra/sandbox)
 - [x] 聊天记录 - 对话管理与筛选搜索
+- [ ] 聊天平台 - OneBot V12（一个自定义聊天机器人标准）
 
 ### 未来计划
 
 - Sub Agent
-- 聊天平台 - OneBot V11（一个自定义聊天机器人标准）
 - 聊天平台 - Matrix
 - 聊天平台 - VoceChat
 - 聊天平台 - QQ
@@ -87,6 +87,8 @@ Zed配置范例:
 
 ![preview](.github/preview-cn.png)
 
-## 许可证
+## 开源许可证
 
-[MIT License](./LICENSE) © 2026-PRESENT Vincent-the-gamer
+[GPLv3 License](./COPYING)
+
+版权所有 (C) 2026-现在 Vincent-the-gamer <https://github.com/Vincent-the-gamer>

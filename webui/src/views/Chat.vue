@@ -1,125 +1,53 @@
 <script setup lang="ts">
 defineOptions({ name: "Chat" });
-import {
-    onMounted,
-    onActivated,
-    ref,
-    nextTick,
-    computed,
-    reactive,
-    watch,
-} from "vue";
+import { onMounted, onActivated, ref, nextTick, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
-import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useAuthStore } from "../stores/auth";
-import type { AttachedFile, ProxyConfig, ProxyMode } from "../types";
+import type { AttachedFile } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
 import ruriAvatar from "../../assets/ruri-avatar.png";
+import ChatConfigModal from "../components/ChatConfigModal.vue";
 
 const { t } = useI18n();
 const chatStore = useChatStore();
 const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const configStore = useConfigStore();
-const knowledgeBaseStore = useKnowledgeBaseStore();
 const authStore = useAuthStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
+const showConfigModal = ref(false);
+const chatConfigModal = ref<InstanceType<typeof ChatConfigModal> | null>(null);
 const temperature = ref(0.7);
 const maxTokens = ref(4096);
-const showSettings = ref(false);
-const selectedKbIds = ref<string[]>([]);
-const selectedPersonaId = ref<string | null>(null);
-const customErrorMessage = ref("");
 
-// Available personas for selection
-const personas = computed(() => personaStore.personas);
+const effectivePersona = computed(() => personaStore.activePersona);
 
-// The effective persona: manually selected > active config profile's persona
-const effectivePersona = computed(() => {
-    if (selectedPersonaId.value) {
+const effectiveProvider = computed(() => {
+    // Priority: chat config modal selection → config profile provider_id → active provider
+    if (chatConfigModal.value?.selectedProviderId) {
         return (
-            personaStore.personas.find(
-                (p) => p.id === selectedPersonaId.value,
-            ) || personaStore.activePersona
+            providerStore.providers.find(
+                (p) => p.id === chatConfigModal.value!.selectedProviderId,
+            ) || providerStore.activeProvider
         );
     }
-    return personaStore.activePersona;
+    const profileProviderId = configStore.activeConfigProfile?.provider_id;
+    if (profileProviderId) {
+        return (
+            providerStore.providers.find((p) => p.id === profileProviderId) ||
+            providerStore.activeProvider
+        );
+    }
+    return providerStore.activeProvider;
 });
 
-// Available knowledge bases for selection
-const knowledgeBases = computed(() => knowledgeBaseStore.knowledgeBases);
-
-// Toggle a knowledge base selection
-function toggleKbSelection(kbId: string) {
-    const idx = selectedKbIds.value.indexOf(kbId);
-    if (idx === -1) {
-        selectedKbIds.value.push(kbId);
-    } else {
-        selectedKbIds.value.splice(idx, 1);
-    }
-}
-
-function selectAllKb() {
-    selectedKbIds.value = knowledgeBases.value.map((kb) => kb.id);
-}
-
-function clearAllKb() {
-    selectedKbIds.value = [];
-}
-
-// Proxy configuration (synced with active config profile)
-const proxyConfig = reactive<ProxyConfig>({
-    enabled: false,
-    url: "",
-    mode: "global" as ProxyMode,
-    proxy_domains: [],
-    bypass_domains: [],
-    username: null,
-    password: null,
-    bypass_localhost: true,
-    rules: [],
-});
-
-// Sync proxy config from active config profile
-watch(
-    () => configStore.activeConfigProfile,
-    (profile) => {
-        if (profile?.proxy_config) {
-            Object.assign(proxyConfig, profile.proxy_config);
-        } else {
-            proxyConfig.enabled = false;
-            proxyConfig.url = "";
-            proxyConfig.mode = "global";
-            proxyConfig.proxy_domains = [];
-            proxyConfig.bypass_domains = [];
-            proxyConfig.username = null;
-            proxyConfig.password = null;
-            proxyConfig.bypass_localhost = true;
-            proxyConfig.rules = [];
-        }
-        // Sync custom_error_message from config profile as default
-        customErrorMessage.value = profile?.custom_error_message || "";
-    },
-    { immediate: true },
-);
-
-async function saveProxyConfig() {
-    const activeProfileId = configStore.activeProfileId;
-    if (!activeProfileId) return;
-    try {
-        await configStore.updateConfigProfile(activeProfileId, {
-            proxy_config: { ...proxyConfig },
-        });
-    } catch (e) {
-        console.error("Failed to save proxy config:", e);
-    }
-}
+const hasAnyProvider = computed(() => providerStore.providers.length > 0);
 
 const isConfigEnabled = computed(
     () => configStore.activeConfigProfile?.enable ?? false,
@@ -133,7 +61,6 @@ onMounted(async () => {
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
-        knowledgeBaseStore.fetchKnowledgeBases(),
     ]);
     scrollToBottom();
 });
@@ -171,16 +98,29 @@ async function handleSend(
     images: string[] = [],
     files: AttachedFile[] = [],
 ) {
+    const profile = configStore.activeConfigProfile;
+    const effectiveTemp =
+        chatConfigModal.value?.temperature ?? temperature.value;
+    const effectiveMaxTokens =
+        chatConfigModal.value?.maxTokens ?? maxTokens.value;
+    // Resolve provider_id: from chat config modal selection, then config profile, then active provider
+    const effectiveProviderId =
+        chatConfigModal.value?.selectedProviderId ??
+        profile?.provider_id ??
+        providerStore.activeProvider?.id ??
+        undefined;
     await chatStore.sendMessage({
         message,
         images: images.length > 0 ? images : undefined,
         files: files.length > 0 ? files : undefined,
-        persona_id: selectedPersonaId.value || personaStore.activePersona?.id,
-        temperature: temperature.value,
-        max_tokens: maxTokens.value,
-        knowledge_base_ids:
-            selectedKbIds.value.length > 0 ? selectedKbIds.value : undefined,
-        custom_error_message: customErrorMessage.value || undefined,
+        provider_id: effectiveProviderId,
+        persona_id: personaStore.activePersona?.id,
+        temperature: effectiveTemp,
+        max_tokens: effectiveMaxTokens,
+        knowledge_base_ids: profile?.active_knowledge_base_ids?.length
+            ? profile.active_knowledge_base_ids
+            : undefined,
+        custom_error_message: profile?.custom_error_message || undefined,
         user_id: authStore.user?.id || undefined,
     });
     scrollToBottom();
@@ -191,8 +131,8 @@ async function handleClear() {
     await chatStore.clearHistory();
 }
 
-function toggleSettings() {
-    showSettings.value = !showSettings.value;
+function handleStop() {
+    chatStore.stopGeneration();
 }
 </script>
 
@@ -243,33 +183,38 @@ function toggleSettings() {
                     <span class="badge-icon">🎭</span>
                     <span>{{ effectivePersona.name }}</span>
                 </div>
-                <div v-if="providerStore.activeProvider" class="model-badge">
+                <div v-if="effectiveProvider" class="model-badge">
                     <span class="badge-icon">🤖</span>
-                    <span>{{ providerStore.activeProvider.name }}</span>
+                    <span>{{ effectiveProvider.name }}</span>
                     <span class="badge-divider">·</span>
                     <span>{{
-                        (providerStore.activeProvider.config as any)
-                            ?.default_model
+                        (effectiveProvider.config as any)?.default_model
                     }}</span>
                 </div>
                 <div
-                    v-if="selectedKbIds.length > 0"
+                    v-if="
+                        configStore.activeConfigProfile
+                            ?.active_knowledge_base_ids?.length
+                    "
                     class="model-badge kb-badge"
                 >
                     <span class="badge-icon">📚</span>
                     <span>{{
-                        t("chat.kbBadge", { count: selectedKbIds.length })
+                        t("chat.kbBadge", {
+                            count:
+                                configStore.activeConfigProfile
+                                    ?.active_knowledge_base_ids?.length || 0,
+                        })
                     }}</span>
                 </div>
                 <div
                     class="header-actions"
-                    :class="{ 'has-badge': !!providerStore.activeProvider }"
+                    :class="{ 'has-badge': !!effectiveProvider }"
                 >
                     <button
                         class="icon-btn"
-                        :class="{ active: showSettings }"
-                        @click="toggleSettings"
                         :title="t('chat.settings') + ' ⚙️'"
+                        @click="showConfigModal = true"
                     >
                         <span class="btn-icon">⚙️</span>
                     </button>
@@ -284,230 +229,8 @@ function toggleSettings() {
             </div>
         </header>
 
-        <!-- Settings Panel - 可爱风格 -->
-        <Transition name="slide-down">
-            <div v-if="showSettings" class="settings-panel glass-subtle">
-                <div class="settings-inner">
-                    <div class="setting-item">
-                        <label class="setting-label font-cute">
-                            <span>🌡️</span>
-                            <span>{{ t("chat.temperature") }}</span>
-                        </label>
-                        <div class="setting-control">
-                            <input
-                                v-model.number="temperature"
-                                type="range"
-                                min="0"
-                                max="2"
-                                step="0.1"
-                                class="range-slider"
-                            />
-                            <div class="setting-value-badge">
-                                {{ temperature }}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label class="setting-label font-cute">
-                            <span>📊</span>
-                            <span>{{ t("chat.maxTokens") }}</span>
-                        </label>
-                        <div class="setting-control">
-                            <input
-                                v-model.number="maxTokens"
-                                type="number"
-                                min="1"
-                                max="128000"
-                                step="1"
-                                class="number-input"
-                            />
-                        </div>
-                    </div>
-                    <!-- Custom Error Message -->
-                    <div class="setting-item error-message-setting">
-                        <label class="setting-label font-cute">
-                            <span>💬</span>
-                            <span>{{ t("chat.customErrorMessage") }}</span>
-                        </label>
-                        <div class="setting-control error-message-control">
-                            <input
-                                v-model="customErrorMessage"
-                                type="text"
-                                class="error-message-input"
-                                :placeholder="
-                                    t('chat.customErrorMessagePlaceholder')
-                                "
-                            />
-                            <p class="error-message-hint">
-                                {{ t("chat.customErrorMessageHint") }}
-                            </p>
-                        </div>
-                    </div>
-                    <!-- Persona Selector -->
-                    <div class="setting-item persona-setting">
-                        <label class="setting-label font-cute">
-                            <span>🎭</span>
-                            <span>{{ t("chat.persona") }}</span>
-                        </label>
-                        <div class="setting-control persona-control">
-                            <select
-                                v-model="selectedPersonaId"
-                                class="persona-select"
-                            >
-                                <option :value="null">
-                                    {{ t("chat.personaDefault") }}
-                                </option>
-                                <option
-                                    v-for="p in personas"
-                                    :key="p.id"
-                                    :value="p.id"
-                                >
-                                    {{ p.name }}
-                                    <template v-if="p.description">
-                                        - {{ p.description }}</template
-                                    >
-                                </option>
-                            </select>
-                            <div
-                                v-if="selectedPersonaId"
-                                class="persona-preview"
-                            >
-                                <div class="persona-preview-name">
-                                    {{ effectivePersona?.name }}
-                                </div>
-                                <div class="persona-preview-prompt">
-                                    {{
-                                        (
-                                            effectivePersona?.prompt ?? ""
-                                        ).substring(0, 100) +
-                                        ((effectivePersona?.prompt ?? "")
-                                            .length > 100
-                                            ? "..."
-                                            : "")
-                                    }}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Proxy Configuration -->
-                    <div class="setting-item proxy-setting">
-                        <label class="setting-label font-cute">
-                            <span>🌐</span>
-                            <span>{{ t("chat.proxyConfig") }}</span>
-                        </label>
-                        <div class="setting-control proxy-control">
-                            <label class="proxy-toggle-label">
-                                <input
-                                    v-model="proxyConfig.enabled"
-                                    type="checkbox"
-                                    class="proxy-checkbox"
-                                    @change="saveProxyConfig"
-                                />
-                                <span class="proxy-toggle-text">{{
-                                    t("chat.proxyEnabled")
-                                }}</span>
-                                <span class="proxy-toggle-desc">{{
-                                    t("chat.proxyEnabledDesc")
-                                }}</span>
-                            </label>
-                            <template v-if="proxyConfig.enabled">
-                                <div class="proxy-field">
-                                    <label class="proxy-field-label">{{
-                                        t("chat.proxyUrl")
-                                    }}</label>
-                                    <input
-                                        v-model="proxyConfig.url"
-                                        type="text"
-                                        class="proxy-input"
-                                        :placeholder="
-                                            t('chat.proxyUrlPlaceholder')
-                                        "
-                                        @change="saveProxyConfig"
-                                    />
-                                </div>
-                                <div class="proxy-field">
-                                    <label class="proxy-field-label">{{
-                                        t("chat.proxyMode")
-                                    }}</label>
-                                    <select
-                                        v-model="proxyConfig.mode"
-                                        class="proxy-select"
-                                        @change="saveProxyConfig"
-                                    >
-                                        <option value="global">
-                                            {{ t("chat.proxyModeGlobal") }}
-                                        </option>
-                                        <option value="rules">
-                                            {{ t("chat.proxyModeRules") }}
-                                        </option>
-                                    </select>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                    <!-- Knowledge Base Selector -->
-                    <div class="setting-item kb-setting">
-                        <label class="setting-label font-cute">
-                            <span>📚</span>
-                            <span>{{ t("chat.knowledgeBases") }}</span>
-                        </label>
-                        <div class="setting-control kb-control">
-                            <div
-                                v-if="knowledgeBases.length > 0"
-                                class="kb-list"
-                            >
-                                <div class="kb-actions">
-                                    <button
-                                        class="kb-action-btn"
-                                        @click="selectAllKb"
-                                    >
-                                        {{ t("chat.selectAllKb") }}
-                                    </button>
-                                    <button
-                                        class="kb-action-btn"
-                                        @click="clearAllKb"
-                                    >
-                                        {{ t("chat.clearAllKb") }}
-                                    </button>
-                                </div>
-                                <label
-                                    v-for="kb in knowledgeBases"
-                                    :key="kb.id"
-                                    class="kb-checkbox-item"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        :checked="selectedKbIds.includes(kb.id)"
-                                        @change="toggleKbSelection(kb.id)"
-                                        class="kb-checkbox"
-                                    />
-                                    <span class="kb-name">{{ kb.name }}</span>
-                                    <span
-                                        v-if="kb.document_count > 0"
-                                        class="kb-doc-count"
-                                        >{{ kb.document_count }} docs</span
-                                    >
-                                </label>
-                            </div>
-                            <div v-else class="kb-empty">
-                                <span>{{ t("chat.noKnowledgeBases") }}</span>
-                                <router-link
-                                    to="/knowledge-base"
-                                    class="kb-link"
-                                    >{{ t("chat.goToKb") }}</router-link
-                                >
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Transition>
-
         <!-- No Provider Warning - 友好提示 -->
-        <div
-            v-if="!providerStore.activeProvider && !chatStore.loading"
-            class="warning-bar"
-        >
+        <div v-if="!hasAnyProvider && !chatStore.loading" class="warning-bar">
             <span class="warning-emoji">💡</span>
             <span>{{ t("chat.noProvider") }}</span>
             <router-link to="/providers" class="warning-link">
@@ -534,7 +257,7 @@ function toggleSettings() {
                         {{ t("chat.emptyDesc") }}
                     </p>
                     <router-link
-                        v-if="!providerStore.activeProvider"
+                        v-if="!hasAnyProvider"
                         to="/providers"
                         class="cta-button"
                     >
@@ -600,8 +323,18 @@ function toggleSettings() {
 
         <!-- Input Area -->
         <div class="input-area">
-            <ChatInput @send="handleSend" :disabled="chatStore.isThinking" />
+            <ChatInput
+                @send="handleSend"
+                @stop="handleStop"
+                :disabled="chatStore.isThinking"
+                :sending="chatStore.isStreaming"
+            />
         </div>
+
+        <!-- Chat Config Modal -->
+        <Teleport to="body">
+            <ChatConfigModal v-model="showConfigModal" ref="chatConfigModal" />
+        </Teleport>
     </div>
 </template>
 
@@ -784,426 +517,6 @@ function toggleSettings() {
     );
     border-color: var(--color-danger);
     color: var(--color-danger);
-}
-
-/* ── Settings Panel ─────────────────────────────── */
-
-.settings-panel {
-    border-bottom: 2px solid rgba(249, 168, 212, 0.3);
-    position: relative;
-    z-index: 5;
-}
-
-.settings-inner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2rem;
-    padding: 1rem 1.25rem;
-    max-width: 56rem;
-}
-
-.setting-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.setting-label {
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-weight: 600;
-}
-
-.setting-control {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.setting-value-badge {
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: var(--color-accent);
-    background: linear-gradient(
-        135deg,
-        rgba(236, 72, 153, 0.15) 0%,
-        rgba(192, 132, 252, 0.15) 100%
-    );
-    padding: 0.25rem 0.625rem;
-    border-radius: var(--radius-sm);
-    border: 2px solid var(--color-accent);
-    min-width: 2.5rem;
-    text-align: center;
-    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.1);
-}
-
-/* Range slider */
-.range-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 140px;
-    height: 6px;
-    border-radius: 3px;
-    background: linear-gradient(
-        90deg,
-        rgba(236, 72, 153, 0.2) 0%,
-        rgba(192, 132, 252, 0.2) 100%
-    );
-    outline: none;
-    cursor: pointer;
-}
-
-.range-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: linear-gradient(
-        135deg,
-        hsl(var(--primary)) 0%,
-        hsl(280 70% 60%) 100%
-    );
-    border: 2px solid hsl(var(--background));
-    box-shadow: 0 2px 8px hsl(var(--primary) / 0.4);
-    cursor: pointer;
-    transition:
-        transform 0.2s ease,
-        box-shadow 0.2s ease;
-}
-
-.range-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
-    box-shadow: 0 4px 12px hsl(var(--primary) / 0.5);
-}
-
-.range-slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: linear-gradient(
-        135deg,
-        hsl(var(--primary)) 0%,
-        hsl(280 70% 60%) 100%
-    );
-    border: 2px solid hsl(var(--background));
-    box-shadow: 0 2px 8px hsl(var(--primary) / 0.4);
-    cursor: pointer;
-}
-
-/* Number input */
-.number-input {
-    width: 6rem;
-    padding: 0.375rem 0.625rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: hsl(var(--foreground));
-    background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius-md);
-    outline: none;
-    font-variant-numeric: tabular-nums;
-    transition: all 0.2s ease;
-    box-shadow: var(--shadow-sm);
-}
-
-.number-input:focus {
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
-}
-
-/* Custom error message setting */
-.error-message-setting {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-}
-
-.error-message-control {
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.375rem;
-}
-
-.error-message-input {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.8125rem;
-    color: hsl(var(--foreground));
-    background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius-md);
-    outline: none;
-    transition: all 0.2s ease;
-    box-shadow: var(--shadow-sm);
-}
-
-.error-message-input:focus {
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
-}
-
-.error-message-hint {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    margin: 0;
-    opacity: 0.8;
-}
-
-/* ── Persona Selector ─────────────────────────── */
-
-.persona-setting {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-}
-
-.persona-control {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-}
-
-.persona-select {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    border: 1.5px solid rgba(249, 168, 212, 0.3);
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-size: 0.875rem;
-    outline: none;
-    transition: border-color 0.2s ease;
-    cursor: pointer;
-}
-
-.persona-select:focus {
-    border-color: var(--color-accent);
-}
-
-.persona-preview {
-    width: 100%;
-    padding: 0.625rem 0.75rem;
-    border-radius: 8px;
-    background: rgba(168, 85, 247, 0.08);
-    border: 1px solid rgba(168, 85, 247, 0.15);
-}
-
-.persona-preview-name {
-    font-weight: 600;
-    font-size: 0.8125rem;
-    color: var(--color-accent);
-    margin-bottom: 0.25rem;
-}
-
-.persona-preview-prompt {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    line-height: 1.4;
-    word-break: break-all;
-}
-
-/* ── Proxy Configuration ─────────────────────────── */
-
-.proxy-setting {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-}
-
-.proxy-control {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-}
-
-.proxy-toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    font-size: 0.8125rem;
-}
-
-.proxy-checkbox {
-    width: 1rem;
-    height: 1rem;
-    accent-color: hsl(var(--primary));
-    cursor: pointer;
-}
-
-.proxy-toggle-text {
-    font-weight: 600;
-    color: hsl(var(--foreground));
-}
-
-.proxy-toggle-desc {
-    color: hsl(var(--muted-foreground));
-    font-size: 0.75rem;
-}
-
-.proxy-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    width: 100%;
-}
-
-.proxy-field-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: hsl(var(--muted-foreground));
-}
-
-.proxy-input {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1.5px solid hsl(var(--border));
-    border-radius: var(--radius-sm);
-    background: hsl(var(--card));
-    color: hsl(var(--foreground));
-    font-size: 0.8125rem;
-    transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
-}
-
-.proxy-input:focus {
-    outline: none;
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
-}
-
-.proxy-select {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1.5px solid hsl(var(--border));
-    border-radius: var(--radius-sm);
-    background: hsl(var(--card));
-    color: hsl(var(--foreground));
-    font-size: 0.8125rem;
-    transition: border-color 0.2s ease;
-}
-
-.proxy-select:focus {
-    outline: none;
-    border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
-}
-
-/* ── Knowledge Base Selector ────────────────────── */
-
-.kb-setting {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-}
-
-.kb-control {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-}
-
-.kb-list {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-}
-
-.kb-actions {
-    display: flex;
-    gap: 0.375rem;
-    margin-bottom: 0.25rem;
-}
-
-.kb-action-btn {
-    padding: 0.25rem 0.625rem;
-    font-size: 0.6875rem;
-    border: 1.5px solid hsl(var(--border));
-    border-radius: var(--radius-sm);
-    background: hsl(var(--card));
-    color: hsl(var(--muted-foreground));
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.kb-action-btn:hover {
-    border-color: hsl(var(--primary));
-    color: hsl(var(--primary));
-}
-
-.kb-checkbox-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.5rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: 0.8125rem;
-    transition: background 0.2s ease;
-}
-
-.kb-checkbox-item:hover {
-    background: hsl(var(--primary) / 0.05);
-}
-
-.kb-checkbox {
-    width: 0.875rem;
-    height: 0.875rem;
-    accent-color: hsl(var(--primary));
-    cursor: pointer;
-}
-
-.kb-name {
-    flex: 1;
-    font-weight: 500;
-    color: hsl(var(--foreground));
-}
-
-.kb-doc-count {
-    font-size: 0.6875rem;
-    color: hsl(var(--muted-foreground));
-    padding: 0.125rem 0.375rem;
-    background: hsl(var(--secondary));
-    border-radius: var(--radius-sm);
-}
-
-.kb-empty {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    color: hsl(var(--muted-foreground));
-}
-
-.kb-link {
-    font-size: 0.75rem;
-    color: hsl(var(--primary));
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.kb-link:hover {
-    text-decoration: underline;
-}
-
-.kb-badge {
-    background: linear-gradient(
-        135deg,
-        hsl(var(--secondary)) 0%,
-        hsl(var(--primary) / 0.1) 100%
-    ) !important;
 }
 
 /* ── Warning Bar ─────────────────────────────────── */
@@ -1570,17 +883,6 @@ function toggleSettings() {
 
 /* ── Transitions ─────────────────────────────────── */
 
-.slide-down-enter-active,
-.slide-down-leave-active {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.slide-down-enter-from,
-.slide-down-leave-to {
-    opacity: 0;
-    transform: translateY(-12px) scale(0.95);
-}
-
 .thinking-fade-enter-active {
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1607,12 +909,6 @@ function toggleSettings() {
 
     .header-icon {
         font-size: 1.5rem;
-    }
-
-    .settings-inner {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
     }
 
     .model-badge {

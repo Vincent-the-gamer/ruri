@@ -307,6 +307,23 @@ export const useChatStore = defineStore('chat', () => {
     saveMessagesToCache(newMessages)
   }, { deep: true })
 
+  /** Stop the currently running generation */
+  async function stopGeneration() {
+    if (!sending.value && !isStreaming.value) return
+    try {
+      await api.stopChatGeneration('webui')
+    } catch {
+      // Even if the API call fails, we should still update the local state
+      // The server might have already finished or the connection might be broken
+    }
+    // Finalize any partial streaming content
+    if (streamingContent.value) {
+      finalizeStreamingMessage()
+    }
+    sending.value = false
+    isStreaming.value = false
+  }
+
   async function clearHistory() {
     loading.value = true
     error.value = null
@@ -333,6 +350,7 @@ export const useChatStore = defineStore('chat', () => {
     fetchHistory,
     syncWithDatabase,
     sendMessage,
+    stopGeneration,
     clearHistory,
   }
 })

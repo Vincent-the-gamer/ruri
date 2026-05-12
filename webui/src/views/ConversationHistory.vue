@@ -1190,7 +1190,7 @@ onMounted(() => {
     position: fixed;
     inset: 0;
     background: hsl(var(--foreground) / 0.4);
-    z-index: 40;
+    z-index: 100;
     transition: opacity 0.3s ease;
 }
 
@@ -1213,7 +1213,7 @@ onMounted(() => {
     width: min(560px, 90vw);
     background: hsl(var(--background));
     border-left: 1px solid hsl(var(--border));
-    z-index: 50;
+    z-index: 101;
     display: flex;
     flex-direction: column;
     box-shadow: -8px 0 24px hsl(var(--foreground) / 0.1);

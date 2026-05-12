@@ -135,6 +135,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/chat/history",
             get(get_chat_history).delete(clear_chat_history),
         )
+        // Chat stop
+        .route("/api/chat/stop", post(stop_chat_generation))
         // Agent status
         .route("/api/agent/status", get(get_status))
         // Personas
@@ -945,6 +947,7 @@ async fn send_chat_message(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
             req.persona_id.as_deref(),
+            req.provider_id.as_deref(),
         )
         .await;
     let mut agent =
@@ -1268,6 +1271,7 @@ async fn stream_chat_message(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
             req.persona_id.as_deref(),
+            req.provider_id.as_deref(),
         )
         .await;
     let mut agent =
@@ -1611,6 +1615,29 @@ async fn get_message_count_from_db(state: &AppState) -> usize {
         }
     }
     0
+}
+
+// ─── Chat Stop Handler ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct StopChatRequest {
+    pub session_id: Option<String>,
+}
+
+async fn stop_chat_generation(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<StopChatRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let session_key = req.session_id.unwrap_or_else(|| "webui".to_string());
+    let mut tasks = state.running_agent_tasks.write().await;
+    if let Some(cancel_token) = tasks.remove(&session_key) {
+        cancel_token.cancel();
+        tracing::info!(session_id = %session_key, "Chat generation stopped via /api/chat/stop");
+        Ok(Json(json!({ "stopped": true, "session_id": session_key })))
+    } else {
+        tracing::debug!(session_id = %session_key, "No running task found for /api/chat/stop");
+        Ok(Json(json!({ "stopped": false, "session_id": session_key })))
+    }
 }
 
 // ─── Agent Status Handler ────────────────────────────────────────
@@ -3206,7 +3233,7 @@ async fn create_platform(
 ) -> Response {
     // Validate the platform type
     match req.platform_type.as_str() {
-        "dingtalk" | "discord" | "weixin_oc" => {}
+        "dingtalk" | "discord" | "weixin_oc" | "onebot12" => {}
         other => {
             return (
                 StatusCode::BAD_REQUEST,

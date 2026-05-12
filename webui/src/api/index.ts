@@ -243,6 +243,11 @@ export async function clearChatHistory(): Promise<void> {
   await client.delete('/api/chat/history')
 }
 
+export async function stopChatGeneration(sessionId?: string): Promise<{ stopped: boolean; session_id: string }> {
+  const res = await client.post('/api/chat/stop', { session_id: sessionId })
+  return res.data
+}
+
 // ─── ACP ──────────────────────────────────────────────────────────
 
 export async function getAcpConfig(): Promise<AcpConfig> {

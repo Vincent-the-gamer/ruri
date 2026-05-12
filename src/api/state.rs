@@ -1046,23 +1046,88 @@ impl AppState {
     }
 
     /// Build a fully configured Agent with user context for computer use capabilities.
+    ///
+    /// If `provider_id` is provided, it takes priority over the global active provider.
+    /// This allows the chat interface and config profiles to select specific providers.
     pub async fn build_agent_with_context(
         &self,
         user_id: Option<&str>,
         session_id: Option<&str>,
         persona_id: Option<&str>,
+        provider_id: Option<&str>,
     ) -> Result<Agent, String> {
         let providers = self.providers.read().await;
-        let active_id = self.active_provider_id.read().await;
+        let global_active_id = self.active_provider_id.read().await;
 
-        let active_id = active_id.as_ref().ok_or("No active provider configured")?;
+        // Resolve the provider to use:
+        // 1. Explicit provider_id from request (e.g., chat config modal selection)
+        // 2. Active config profile's provider_id
+        // 3. Global active provider (backward compat)
+        let resolved_id = if let Some(pid) = provider_id {
+            if !pid.is_empty() && providers.contains_key(pid) {
+                Some(pid.to_string())
+            } else {
+                None
+            }
+        } else {
+            // Check the active config profile's provider_id
+            let profiles = self.config_profiles.read().await;
+            if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+                if let Some(ref pid) = profile.provider_id {
+                    if !pid.is_empty() && providers.contains_key(pid.as_str()) {
+                        Some(pid.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        .or_else(|| global_active_id.clone());
+
+        let active_id = resolved_id.ok_or("No active provider configured")?;
 
         let stored = providers
-            .get(active_id)
+            .get(&active_id)
             .ok_or("Active provider not found")?;
 
-        let provider = Self::build_provider(stored)?;
+        let mut provider = Self::build_provider(stored)?;
+        let stored_config_json = stored.config_json.clone();
         drop(providers);
+
+        // Apply proxy config from the active config profile
+        {
+            let profiles = self.config_profiles.read().await;
+            if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+                if profile.proxy_config.is_configured() {
+                    // Determine if we should proxy based on the provider's base URL
+                    let base_url = stored_config_json
+                        .get("base_url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let host = url::Url::parse(base_url)
+                        .ok()
+                        .and_then(|u| u.host_str().map(|h| h.to_string()))
+                        .unwrap_or_default();
+
+                    if profile.proxy_config.should_proxy(&host) {
+                        provider.set_proxy(
+                            &profile.proxy_config.url,
+                            profile.proxy_config.username.as_deref(),
+                            profile.proxy_config.password.as_deref(),
+                        );
+                        tracing::info!(
+                            proxy_url = %profile.proxy_config.url,
+                            host = %host,
+                            "Applied proxy configuration to provider"
+                        );
+                    }
+                }
+            }
+        }
 
         // Get custom_error_message from the active config profile
         let custom_error_message = {

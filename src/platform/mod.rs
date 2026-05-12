@@ -30,6 +30,7 @@
 pub mod dingtalk;
 pub mod discord;
 pub mod manager;
+pub mod onebot12;
 pub mod trait_def;
 pub mod types;
 pub mod weixin_oc;

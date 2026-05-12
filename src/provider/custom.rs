@@ -366,4 +366,16 @@ impl Provider for CustomProvider {
     fn supports_multimodal(&self) -> bool {
         self.config.supports_multimodal
     }
+
+    fn set_proxy(&mut self, proxy_url: &str, username: Option<&str>, password: Option<&str>) {
+        if let Ok(mut proxy) = reqwest::Proxy::all(proxy_url) {
+            if let (Some(u), Some(p)) = (username, password) {
+                proxy = proxy.basic_auth(u, p);
+            }
+            self.client = reqwest::Client::builder()
+                .proxy(proxy)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+        }
+    }
 }

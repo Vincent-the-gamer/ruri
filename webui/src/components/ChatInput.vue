@@ -5,10 +5,12 @@ import type { AttachedFile } from "../types";
 
 const props = defineProps<{
     disabled?: boolean;
+    sending?: boolean;
 }>();
 
 const emit = defineEmits<{
     send: [message: string, images: string[], files: AttachedFile[]];
+    stop: [];
 }>();
 
 const { t } = useI18n();
@@ -495,8 +497,24 @@ onUnmounted(() => {
                         </button>
                     </div>
 
-                    <!-- Send button -->
+                    <!-- Stop / Send button -->
                     <button
+                        v-if="sending"
+                        @click="emit('stop')"
+                        class="send-btn stop-btn"
+                        type="button"
+                        :title="t('chat.stop')"
+                    >
+                        <svg
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            class="stop-icon"
+                        >
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                        </svg>
+                    </button>
+                    <button
+                        v-else
                         @click="handleSend"
                         :disabled="
                             !inputText.trim() &&
@@ -877,6 +895,30 @@ onUnmounted(() => {
 
 .send-btn.disabled .send-icon {
     color: hsl(var(--muted-foreground));
+}
+
+.stop-btn {
+    background: linear-gradient(
+        135deg,
+        hsl(0 72% 51%) 0%,
+        hsl(0 60% 40%) 100%
+    ) !important;
+    box-shadow: 0 2px 8px hsl(0 72% 51% / 0.3) !important;
+}
+
+.stop-btn:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px hsl(0 72% 51% / 0.4) !important;
+}
+
+.stop-btn:active {
+    transform: translateY(0) scale(0.95) !important;
+}
+
+.stop-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    color: white;
 }
 
 /* Hidden file input */

@@ -838,7 +838,7 @@ const formValid = computed(() => {
         <Teleport to="body">
             <div
                 v-if="showModal"
-                class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                class="fixed inset-0 z-[100] flex items-center justify-center p-4"
             >
                 <!-- Overlay -->
                 <div

@@ -112,6 +112,7 @@ const router = createRouter({
       component: () => import('../views/Configs.vue'),
       meta: { requiresAuth: true },
     },
+
     {
       path: '/conversation-history',
       name: 'ConversationHistory',

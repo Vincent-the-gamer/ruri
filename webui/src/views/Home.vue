@@ -420,6 +420,9 @@ const goToDashboard = () => {
 
 .divider {
     color: hsl(var(--border));
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
 }
 
 .tagline {

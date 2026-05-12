@@ -35,7 +35,7 @@ onMounted(() => {
 
 <template>
     <div
-        class="app-container h-screen flex flex-col bg-background font-sans-rounded"
+        class="app-container h-screen flex flex-col overflow-hidden bg-background font-sans-rounded"
     >
         <!-- Floating orbs background animation -->
         <div class="bg-orbs">
@@ -72,14 +72,14 @@ onMounted(() => {
         </header>
 
         <!-- Content Area (always rendered for SPA routing) -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 min-h-0 overflow-hidden">
             <!-- Sidebar and Main Content (only shown when logged in) -->
             <template v-if="showAppLayout">
                 <!-- Sidebar - Left Navigation -->
                 <Sidebar />
 
                 <!-- Main Content -->
-                <main class="flex-1 overflow-y-auto scroll-hover">
+                <main class="flex-1 min-h-0 overflow-y-auto scroll-hover">
                     <div class="max-w-[1440px] mx-auto w-full p-6">
                         <router-view v-slot="{ Component }">
                             <transition name="fade" mode="out-in">

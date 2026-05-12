@@ -474,7 +474,7 @@ export interface ApiResponse<T = unknown> {
 
 // ─── Platform Types ──────────────────────────────────────────
 
-export type PlatformType = 'dingtalk' | 'discord' | 'weixin_oc'
+export type PlatformType = 'dingtalk' | 'discord' | 'weixin_oc' | 'onebot12'
 
 export type PlatformStatus = 'running' | 'stopped' | 'pending' | 'error'
 
@@ -497,7 +497,30 @@ export interface WeixinOcPlatformConfig {
   proxy_url?: string
 }
 
-export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig | WeixinOcPlatformConfig
+export interface OneBot12PlatformConfig {
+  platform: string
+  self_user_id: string
+  access_token?: string
+  http?: {
+    host?: string
+    port?: number
+    event_enabled?: boolean
+    event_buffer_size?: number
+  }
+  http_webhook?: {
+    url: string
+  }
+  ws?: {
+    host?: string
+    port?: number
+  }
+  ws_reverse?: {
+    url: string
+    reconnect_interval?: number
+  }
+}
+
+export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig | WeixinOcPlatformConfig | OneBot12PlatformConfig
 
 export interface PlatformInstance {
   id: string
@@ -521,6 +544,27 @@ export interface CreatePlatformRequest {
   base_url?: string
   cdn_base_url?: string
   proxy_url?: string
+  // OneBot12 fields
+  platform?: string
+  self_user_id?: string
+  access_token?: string
+  http?: {
+    host?: string
+    port?: number
+    event_enabled?: boolean
+    event_buffer_size?: number
+  }
+  http_webhook?: {
+    url: string
+  }
+  ws?: {
+    host?: string
+    port?: number
+  }
+  ws_reverse?: {
+    url: string
+    reconnect_interval?: number
+  }
 }
 
 export interface UpdatePlatformRequest {
@@ -538,6 +582,27 @@ export interface UpdatePlatformRequest {
   base_url?: string
   cdn_base_url?: string
   proxy_url?: string
+  // OneBot12 fields
+  platform?: string
+  self_user_id?: string
+  access_token?: string
+  http?: {
+    host?: string
+    port?: number
+    event_enabled?: boolean
+    event_buffer_size?: number
+  }
+  http_webhook?: {
+    url: string
+  }
+  ws?: {
+    host?: string
+    port?: number
+  }
+  ws_reverse?: {
+    url: string
+    reconnect_interval?: number
+  }
 }
 
 // ─── Proxy Config Types ──────────────────────────────────────────

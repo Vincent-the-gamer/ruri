@@ -33,6 +33,23 @@ const formData = reactive({
     base_url: "https://ilinkai.weixin.qq.com",
     cdn_base_url: "https://novac2c.cdn.weixin.qq.com/c2c",
     weixin_proxy_url: "",
+    // OneBot12 fields
+    ob12_platform: "",
+    ob12_self_user_id: "",
+    ob12_access_token: "",
+    ob12_http_enabled: false,
+    ob12_http_host: "0.0.0.0",
+    ob12_http_port: 6700,
+    ob12_http_event_enabled: false,
+    ob12_http_event_buffer_size: 0,
+    ob12_http_webhook_enabled: false,
+    ob12_http_webhook_url: "",
+    ob12_ws_enabled: false,
+    ob12_ws_host: "0.0.0.0",
+    ob12_ws_port: 6701,
+    ob12_ws_reverse_enabled: false,
+    ob12_ws_reverse_url: "",
+    ob12_ws_reverse_reconnect_interval: 3000,
 });
 
 // ─── WeChat QR Login State ─────────────────────────────────────────
@@ -74,6 +91,23 @@ function resetForm() {
     formData.base_url = "https://ilinkai.weixin.qq.com";
     formData.cdn_base_url = "https://novac2c.cdn.weixin.qq.com/c2c";
     formData.weixin_proxy_url = "";
+    // OneBot12 fields
+    formData.ob12_platform = "";
+    formData.ob12_self_user_id = "";
+    formData.ob12_access_token = "";
+    formData.ob12_http_enabled = false;
+    formData.ob12_http_host = "0.0.0.0";
+    formData.ob12_http_port = 6700;
+    formData.ob12_http_event_enabled = false;
+    formData.ob12_http_event_buffer_size = 0;
+    formData.ob12_http_webhook_enabled = false;
+    formData.ob12_http_webhook_url = "";
+    formData.ob12_ws_enabled = false;
+    formData.ob12_ws_host = "0.0.0.0";
+    formData.ob12_ws_port = 6701;
+    formData.ob12_ws_reverse_enabled = false;
+    formData.ob12_ws_reverse_url = "";
+    formData.ob12_ws_reverse_reconnect_interval = 3000;
     showAdvancedWeixin.value = false;
 }
 
@@ -109,6 +143,50 @@ function openEdit(instance: PlatformInstance) {
             (config.cdn_base_url as string) ||
             "https://novac2c.cdn.weixin.qq.com/c2c";
         formData.weixin_proxy_url = (config.proxy_url as string) || "";
+    } else if (instance.platform_type === "onebot12") {
+        formData.ob12_platform = (config.platform as string) || "";
+        formData.ob12_self_user_id = (config.self_user_id as string) || "";
+        formData.ob12_access_token = (config.access_token as string) || "";
+        const http = config.http as Record<string, unknown> | undefined;
+        if (http) {
+            formData.ob12_http_enabled = true;
+            formData.ob12_http_host = (http.host as string) || "0.0.0.0";
+            formData.ob12_http_port = (http.port as number) || 6700;
+            formData.ob12_http_event_enabled =
+                (http.event_enabled as boolean) || false;
+            formData.ob12_http_event_buffer_size =
+                (http.event_buffer_size as number) || 0;
+        } else {
+            formData.ob12_http_enabled = false;
+        }
+        const httpWebhook = config.http_webhook as
+            | Record<string, unknown>
+            | undefined;
+        if (httpWebhook) {
+            formData.ob12_http_webhook_enabled = true;
+            formData.ob12_http_webhook_url = (httpWebhook.url as string) || "";
+        } else {
+            formData.ob12_http_webhook_enabled = false;
+        }
+        const ws = config.ws as Record<string, unknown> | undefined;
+        if (ws) {
+            formData.ob12_ws_enabled = true;
+            formData.ob12_ws_host = (ws.host as string) || "0.0.0.0";
+            formData.ob12_ws_port = (ws.port as number) || 6701;
+        } else {
+            formData.ob12_ws_enabled = false;
+        }
+        const wsReverse = config.ws_reverse as
+            | Record<string, unknown>
+            | undefined;
+        if (wsReverse) {
+            formData.ob12_ws_reverse_enabled = true;
+            formData.ob12_ws_reverse_url = (wsReverse.url as string) || "";
+            formData.ob12_ws_reverse_reconnect_interval =
+                (wsReverse.reconnect_interval as number) || 3000;
+        } else {
+            formData.ob12_ws_reverse_enabled = false;
+        }
     }
     showForm.value = true;
 }
@@ -145,6 +223,46 @@ function buildPlatformConfig(): Record<string, unknown> {
         config.cdn_base_url = formData.cdn_base_url;
         if (formData.weixin_proxy_url.trim()) {
             config.proxy_url = formData.weixin_proxy_url;
+        }
+        return config;
+    } else if (formData.platform_type === "onebot12") {
+        const config: Record<string, unknown> = {
+            platform: formData.ob12_platform,
+            self_user_id: formData.ob12_self_user_id,
+        };
+        if (formData.ob12_access_token.trim()) {
+            config.access_token = formData.ob12_access_token;
+        }
+        if (formData.ob12_http_enabled) {
+            config.http = {
+                host: formData.ob12_http_host,
+                port: formData.ob12_http_port,
+                event_enabled: formData.ob12_http_event_enabled,
+                event_buffer_size: formData.ob12_http_event_buffer_size,
+            };
+        }
+        if (
+            formData.ob12_http_webhook_enabled &&
+            formData.ob12_http_webhook_url.trim()
+        ) {
+            config.http_webhook = {
+                url: formData.ob12_http_webhook_url,
+            };
+        }
+        if (formData.ob12_ws_enabled) {
+            config.ws = {
+                host: formData.ob12_ws_host,
+                port: formData.ob12_ws_port,
+            };
+        }
+        if (
+            formData.ob12_ws_reverse_enabled &&
+            formData.ob12_ws_reverse_url.trim()
+        ) {
+            config.ws_reverse = {
+                url: formData.ob12_ws_reverse_url,
+                reconnect_interval: formData.ob12_ws_reverse_reconnect_interval,
+            };
         }
         return config;
     }
@@ -211,6 +329,8 @@ function getPlatformLabel(type: PlatformType): string {
             return t("platformConfig.types.discord");
         case "weixin_oc":
             return t("platformConfig.types.weixinOc");
+        case "onebot12":
+            return t("platformConfig.types.onebot12");
         default:
             return type;
     }
@@ -224,6 +344,8 @@ function getPlatformIcon(type: PlatformType): string {
             return "🎮";
         case "weixin_oc":
             return "📱";
+        case "onebot12":
+            return "🔌";
         default:
             return "🔗";
     }
@@ -241,21 +363,6 @@ function getStatusClass(status: PlatformStatus): string {
             return "status-badge--pending";
         default:
             return "status-badge--stopped";
-    }
-}
-
-function getStatusLabel(status: PlatformStatus): string {
-    switch (status) {
-        case "running":
-            return "● Running";
-        case "stopped":
-            return "● Stopped";
-        case "error":
-            return "● Error";
-        case "pending":
-            return "● Pending";
-        default:
-            return status;
     }
 }
 
@@ -602,7 +709,10 @@ onUnmounted(() => {
                                             : instance.platform_type ===
                                                 "weixin_oc"
                                               ? "📱"
-                                              : "🔑"
+                                              : instance.platform_type ===
+                                                  "onebot12"
+                                                ? "🔌"
+                                                : "🔑"
                                     }}
                                 </span>
                                 <span class="summary-text">
@@ -663,6 +773,27 @@ onUnmounted(() => {
                                                   t(
                                                       "platformConfig.weixinOcPendingLogin",
                                                   )
+                                        }}
+                                    </template>
+                                    <template
+                                        v-else-if="
+                                            instance.platform_type ===
+                                            'onebot12'
+                                        "
+                                    >
+                                        {{
+                                            (instance.config as any).platform
+                                                ? (instance.config as any)
+                                                      .platform
+                                                : "—"
+                                        }}
+                                        /
+                                        {{
+                                            (instance.config as any)
+                                                .self_user_id
+                                                ? (instance.config as any)
+                                                      .self_user_id
+                                                : "—"
                                         }}
                                     </template>
                                     <template v-else>—</template>
@@ -827,6 +958,9 @@ onUnmounted(() => {
                                 </option>
                                 <option value="weixin_oc">
                                     {{ t("platformConfig.types.weixinOc") }}
+                                </option>
+                                <option value="onebot12">
+                                    {{ t("platformConfig.types.onebot12") }}
                                 </option>
                             </select>
                         </div>
@@ -1073,6 +1207,266 @@ onUnmounted(() => {
                             </template>
                         </template>
 
+                        <!-- OneBot12 Config -->
+                        <template v-if="formData.platform_type === 'onebot12'">
+                            <div class="form-section-title">
+                                {{ t("platformConfig.onebot12Config") }}
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("platformConfig.onebot12Platform")
+                                }}</label>
+                                <input
+                                    v-model="formData.ob12_platform"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="
+                                        t(
+                                            'platformConfig.onebot12PlatformPlaceholder',
+                                        )
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.onebot12PlatformHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("platformConfig.onebot12SelfUserId")
+                                }}</label>
+                                <input
+                                    v-model="formData.ob12_self_user_id"
+                                    type="text"
+                                    class="form-input"
+                                    :placeholder="
+                                        t(
+                                            'platformConfig.onebot12SelfUserIdPlaceholder',
+                                        )
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.onebot12SelfUserIdHint")
+                                }}</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">{{
+                                    t("platformConfig.onebot12AccessToken")
+                                }}</label>
+                                <input
+                                    v-model="formData.ob12_access_token"
+                                    type="password"
+                                    class="form-input"
+                                    :placeholder="
+                                        t(
+                                            'platformConfig.onebot12AccessTokenPlaceholder',
+                                        )
+                                    "
+                                />
+                                <span class="form-hint">{{
+                                    t("platformConfig.onebot12AccessTokenHint")
+                                }}</span>
+                            </div>
+
+                            <!-- HTTP Server -->
+                            <div class="form-group">
+                                <label
+                                    class="form-label flex items-center gap-2"
+                                >
+                                    <input
+                                        v-model="formData.ob12_http_enabled"
+                                        type="checkbox"
+                                        class="form-checkbox"
+                                    />
+                                    {{ t("platformConfig.onebot12Http") }}
+                                </label>
+                            </div>
+                            <template v-if="formData.ob12_http_enabled">
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t("platformConfig.onebot12HttpHost")
+                                    }}</label>
+                                    <input
+                                        v-model="formData.ob12_http_host"
+                                        type="text"
+                                        class="form-input"
+                                        placeholder="0.0.0.0"
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t("platformConfig.onebot12HttpPort")
+                                    }}</label>
+                                    <input
+                                        v-model.number="formData.ob12_http_port"
+                                        type="number"
+                                        class="form-input"
+                                        placeholder="6700"
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label
+                                        class="form-label flex items-center gap-2"
+                                    >
+                                        <input
+                                            v-model="
+                                                formData.ob12_http_event_enabled
+                                            "
+                                            type="checkbox"
+                                            class="form-checkbox"
+                                        />
+                                        {{
+                                            t(
+                                                "platformConfig.onebot12HttpEventEnabled",
+                                            )
+                                        }}
+                                    </label>
+                                    <span class="form-hint">{{
+                                        t(
+                                            "platformConfig.onebot12HttpEventEnabledHint",
+                                        )
+                                    }}</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t(
+                                            "platformConfig.onebot12HttpEventBufferSize",
+                                        )
+                                    }}</label>
+                                    <input
+                                        v-model.number="
+                                            formData.ob12_http_event_buffer_size
+                                        "
+                                        type="number"
+                                        class="form-input"
+                                        placeholder="0"
+                                    />
+                                </div>
+                            </template>
+
+                            <!-- HTTP Webhook -->
+                            <div class="form-group">
+                                <label
+                                    class="form-label flex items-center gap-2"
+                                >
+                                    <input
+                                        v-model="
+                                            formData.ob12_http_webhook_enabled
+                                        "
+                                        type="checkbox"
+                                        class="form-checkbox"
+                                    />
+                                    {{
+                                        t("platformConfig.onebot12HttpWebhook")
+                                    }}
+                                </label>
+                            </div>
+                            <template v-if="formData.ob12_http_webhook_enabled">
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t(
+                                            "platformConfig.onebot12HttpWebhookUrl",
+                                        )
+                                    }}</label>
+                                    <input
+                                        v-model="formData.ob12_http_webhook_url"
+                                        type="text"
+                                        class="form-input"
+                                        :placeholder="
+                                            t(
+                                                'platformConfig.onebot12HttpWebhookUrlPlaceholder',
+                                            )
+                                        "
+                                    />
+                                </div>
+                            </template>
+
+                            <!-- Forward WebSocket -->
+                            <div class="form-group">
+                                <label
+                                    class="form-label flex items-center gap-2"
+                                >
+                                    <input
+                                        v-model="formData.ob12_ws_enabled"
+                                        type="checkbox"
+                                        class="form-checkbox"
+                                    />
+                                    {{ t("platformConfig.onebot12Ws") }}
+                                </label>
+                            </div>
+                            <template v-if="formData.ob12_ws_enabled">
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t("platformConfig.onebot12WsHost")
+                                    }}</label>
+                                    <input
+                                        v-model="formData.ob12_ws_host"
+                                        type="text"
+                                        class="form-input"
+                                        placeholder="0.0.0.0"
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t("platformConfig.onebot12WsPort")
+                                    }}</label>
+                                    <input
+                                        v-model.number="formData.ob12_ws_port"
+                                        type="number"
+                                        class="form-input"
+                                        placeholder="6701"
+                                    />
+                                </div>
+                            </template>
+
+                            <!-- Reverse WebSocket -->
+                            <div class="form-group">
+                                <label
+                                    class="form-label flex items-center gap-2"
+                                >
+                                    <input
+                                        v-model="
+                                            formData.ob12_ws_reverse_enabled
+                                        "
+                                        type="checkbox"
+                                        class="form-checkbox"
+                                    />
+                                    {{ t("platformConfig.onebot12WsReverse") }}
+                                </label>
+                            </div>
+                            <template v-if="formData.ob12_ws_reverse_enabled">
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t("platformConfig.onebot12WsReverseUrl")
+                                    }}</label>
+                                    <input
+                                        v-model="formData.ob12_ws_reverse_url"
+                                        type="text"
+                                        class="form-input"
+                                        :placeholder="
+                                            t(
+                                                'platformConfig.onebot12WsReverseUrlPlaceholder',
+                                            )
+                                        "
+                                    />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">{{
+                                        t(
+                                            "platformConfig.onebot12WsReverseReconnectInterval",
+                                        )
+                                    }}</label>
+                                    <input
+                                        v-model.number="
+                                            formData.ob12_ws_reverse_reconnect_interval
+                                        "
+                                        type="number"
+                                        class="form-input"
+                                        placeholder="3000"
+                                    />
+                                </div>
+                            </template>
+                        </template>
+
                         <!-- Enable toggle -->
                     </div>
                     <div class="modal-footer">
@@ -1088,7 +1482,10 @@ onUnmounted(() => {
                                     (!formData.client_id.trim() ||
                                         !formData.client_secret.trim())) ||
                                 (formData.platform_type === 'discord' &&
-                                    !formData.token.trim())
+                                    !formData.token.trim()) ||
+                                (formData.platform_type === 'onebot12' &&
+                                    (!formData.ob12_platform.trim() ||
+                                        !formData.ob12_self_user_id.trim()))
                             "
                         >
                             {{ t("platformConfig.save") }}

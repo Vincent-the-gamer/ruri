@@ -24,11 +24,11 @@
 - [x] Chat - Personal WeChat(Wechat ClawBot)
 - [x] Sandbox - AIO Sandbox (https://github.com/agent-infra/sandbox)
 - [x] Chat History - Conversation management with filtering and search
+- [ ] Chat - OneBot V12（A standardized bot application interface）
 
 ### Planned in the future
 
 - Sub Agent
-- Chat - OneBot V11（A standardized bot application interface）
 - Chat - Matrix
 - Chat - VoceChat
 - Chat - QQ
@@ -88,4 +88,6 @@ Config example in Zed:
 
 ## License
 
-[MIT License](./LICENSE) © 2026-PRESENT Vincent-the-gamer
+[GPLv3 License](./COPYING)
+
+Copyright (C) 2026-PRESENT Vincent-the-gamer <https://github.com/Vincent-the-gamer>
