@@ -23,6 +23,9 @@ const providerStore = useProviderStore();
 const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
+// ── Provider Selection ──
+const selectedProviderId = ref<string | null>(null);
+
 // ── Persona Selection ──
 const selectedPersonaId = ref<string | null>(null);
 const personas = computed(() => personaStore.personas);
@@ -184,6 +187,7 @@ async function handleSave() {
 
     try {
         await configStore.updateConfigProfile(activeProfileId, {
+            provider_id: selectedProviderId.value,
             persona_id: selectedPersonaId.value,
             custom_error_message: customErrorMessage.value || null,
             active_knowledge_base_ids: selectedKbIds.value,
@@ -207,6 +211,8 @@ watch(
     () => configStore.activeConfigProfile,
     (profile) => {
         if (profile) {
+            // Provider
+            selectedProviderId.value = profile.provider_id || null;
             // Persona
             selectedPersonaId.value = profile.persona_id || null;
             // Custom error message
@@ -245,7 +251,7 @@ watch([temperature, maxTokens], () => {
     // but if we wanted to persist we could call debouncedSave() here
 });
 
-watch([selectedPersonaId, customErrorMessage], () => {
+watch([selectedProviderId, selectedPersonaId, customErrorMessage], () => {
     debouncedSave();
 });
 
@@ -392,7 +398,58 @@ onMounted(async () => {
             </div>
         </section>
 
-        <!-- Section 2: Persona Selection -->
+        <!-- Section 2: Model Provider Selection -->
+        <section class="config-section">
+            <h2 class="section-title">
+                <span class="section-icon">🤖</span>
+                {{ t("chatConfig.modelProvider", "Model Provider") }}
+            </h2>
+            <p class="section-desc">
+                {{
+                    t(
+                        "chatConfig.modelProviderDesc",
+                        "Select which configured model provider to use for this chat. The provider from your active configuration profile is selected by default.",
+                    )
+                }}
+            </p>
+
+            <div class="form-field">
+                <select v-model="selectedProviderId" class="select-input">
+                    <option :value="null">
+                        {{
+                            t(
+                                "chatConfig.providerDefault",
+                                "Use profile default",
+                            )
+                        }}
+                    </option>
+                    <option
+                        v-for="provider in providerStore.providers"
+                        :key="provider.id"
+                        :value="provider.id"
+                    >
+                        {{ provider.name }} ({{
+                            (provider.config as any).default_model
+                        }})
+                    </option>
+                </select>
+            </div>
+
+            <div
+                v-if="providerStore.providers.length === 0"
+                class="empty-hint"
+                style="margin-top: 0.5rem"
+            >
+                {{
+                    t(
+                        "chatConfig.noProvidersHint",
+                        "No providers configured yet. Add one in the Providers page first.",
+                    )
+                }}
+            </div>
+        </section>
+
+        <!-- Section 3: Persona Selection -->
         <section class="config-section">
             <h2 class="section-title">
                 <span class="section-icon">🎭</span>

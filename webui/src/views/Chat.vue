@@ -114,13 +114,20 @@ async function handleSend(
         images: images.length > 0 ? images : undefined,
         files: files.length > 0 ? files : undefined,
         provider_id: effectiveProviderId,
-        persona_id: personaStore.activePersona?.id,
+        persona_id:
+            chatConfigModal.value?.selectedPersonaId ??
+            personaStore.activePersona?.id,
         temperature: effectiveTemp,
         max_tokens: effectiveMaxTokens,
-        knowledge_base_ids: profile?.active_knowledge_base_ids?.length
-            ? profile.active_knowledge_base_ids
-            : undefined,
-        custom_error_message: profile?.custom_error_message || undefined,
+        knowledge_base_ids: chatConfigModal.value?.selectedKbIds?.length
+            ? chatConfigModal.value.selectedKbIds
+            : profile?.active_knowledge_base_ids?.length
+              ? profile.active_knowledge_base_ids
+              : undefined,
+        custom_error_message:
+            chatConfigModal.value?.customErrorMessage ||
+            profile?.custom_error_message ||
+            undefined,
         user_id: authStore.user?.id || undefined,
     });
     scrollToBottom();

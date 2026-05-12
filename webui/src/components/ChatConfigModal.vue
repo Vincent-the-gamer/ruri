@@ -303,7 +303,10 @@ defineExpose({
     temperature,
     maxTokens,
     selectedProviderId,
+    selectedPersonaId,
     activeProviderForChat,
+    customErrorMessage,
+    selectedKbIds,
 });
 </script>
 
