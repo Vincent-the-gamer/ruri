@@ -36,6 +36,17 @@ Before installing Ruri, make sure you have:
 3. **Add Ruri to your PATH** so you can run it from anywhere (or navigate to the folder and run it directly)
 4. **Start the server** by running `ruri` in your terminal
 
+```bash
+# Show help
+ruri -h
+# Basic run
+ruri
+# Default port is 3000
+ruri --port 8080
+# Remote access, expose the server to the internet
+ruri --remote
+```
+
 That's it! The server starts along with the Web UI automatically.
 
 ## First Launch

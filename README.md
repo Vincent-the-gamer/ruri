@@ -44,12 +44,13 @@
 3. Run `ruri`
 
 ```bash
-# help
+# Show help
 ruri -h
 
-# run
 ruri
+# Default port is 3000
 ruri --port 8080
+# Remote access, expose the server to the internet
 ruri --remote
 ```
 

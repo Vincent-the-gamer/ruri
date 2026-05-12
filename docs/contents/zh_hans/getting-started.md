@@ -36,7 +36,15 @@ lastUpdated: true
 在终端中运行：
 
 ```bash
+# 查看帮助
+ruri -h
+
+# 默认端口： 3000
 ruri
+# 指定端口
+ruri --port 8080
+# 远程访问，将端口暴露在局域网
+ruri --remote
 ```
 
 这将同时启动后端服务和 Web UI。

@@ -17,14 +17,14 @@
     "dep": "taze major"
   },
   "devDependencies": {
-    "@antfu/eslint-config": "^8.2.0",
+    "@antfu/eslint-config": "^9.0.0",
     "@shikijs/vitepress-twoslash": "^4.0.2",
-    "@types/node": "^25.6.2",
+    "@types/node": "^25.7.0",
     "eslint": "^10.3.0",
     "eslint-plugin-format": "^2.0.1",
     "taze": "^19.11.0",
     "unocss": "66.4.1",
-    "vite": "^8.0.11",
+    "vite": "^8.0.12",
     "vitepress": "^2.0.0-alpha.17",
     "vitepress-theme-teek": "^1.5.7"
   }

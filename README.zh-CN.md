@@ -44,12 +44,14 @@
 3. 运行 `ruri`
 
 ```bash
-# help
+# 查看帮助
 ruri -h
 
-# run
+# 默认端口： 3000
 ruri
+# 指定端口
 ruri --port 8080
+# 远程访问，将端口暴露在局域网
 ruri --remote
 ```
 
