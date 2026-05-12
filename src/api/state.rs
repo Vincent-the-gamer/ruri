@@ -55,6 +55,46 @@ pub struct PersistedPersona {
     pub prompt: String,
 }
 
+/// Embedded persona configuration that belongs to a specific Config Profile.
+/// This is independent from global personas - each profile has its own copy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedPersona {
+    /// The display name of the persona
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+}
+
+/// Embedded provider configuration that belongs to a specific Config Profile.
+/// This is independent from global providers - each profile has its own copy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedProvider {
+    /// Unique identifier for this provider
+    pub id: String,
+    /// Display name
+    pub name: String,
+    /// Provider type (e.g., "openai", "anthropic", "gemini", "custom")
+    pub provider_type: String,
+    /// Provider configuration as JSON
+    pub config_json: serde_json::Value,
+}
+
+/// Embedded skill configuration that belongs to a specific Config Profile.
+/// This is independent from global skills - each profile has its own copy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedSkill {
+    /// Skill name
+    pub name: String,
+    /// Skill description
+    pub description: String,
+    /// Skill type (e.g., "system_prompt", "memory", "context_prefix", "skill")
+    pub skill_type: String,
+    /// Skill configuration as JSON
+    pub config: serde_json::Value,
+}
+
 /// Config profile persisted to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedConfigProfile {
@@ -66,10 +106,31 @@ pub struct PersistedConfigProfile {
     pub is_active: bool,
     pub created_at: String,
     pub updated_at: String,
+    /// Legacy field: references a global provider by ID.
+    /// New profiles should use `embedded_providers` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// Legacy field: references a global persona by ID.
+    /// New profiles should use `embedded_persona` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persona_id: Option<String>,
+    /// Embedded persona configuration - independent copy for this profile.
+    /// Takes priority over persona_id if both are set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedded_persona: Option<EmbeddedPersona>,
+    /// Embedded provider configurations - independent copies for this profile.
+    /// Takes priority over provider_id if both are set.
+    #[serde(default)]
+    pub embedded_providers: Vec<EmbeddedProvider>,
+    /// Active embedded provider name within this profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_embedded_provider: Option<String>,
+    /// Embedded skill configurations - independent copies for this profile.
+    #[serde(default)]
+    pub embedded_skills: Vec<EmbeddedSkill>,
+    /// Active embedded skill names within this profile.
+    #[serde(default)]
+    pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     pub acp_enabled: bool,
@@ -120,6 +181,70 @@ pub struct PersistedConfig {
     pub config_profiles: HashMap<String, PersistedConfigProfile>,
 }
 
+// ─── Debug Session Config (WebUI chat debug settings) ────────────────
+
+/// Debug session configuration - persisted independently for WebUI chat debugging.
+/// This is completely separate from Config Profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DebugSessionConfig {
+    /// The persona configuration for debug/chat sessions
+    pub persona: Option<EmbeddedPersona>,
+    /// Embedded provider configurations for debug sessions
+    #[serde(default)]
+    pub providers: Vec<EmbeddedProvider>,
+    /// Active embedded provider name for debug sessions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider: Option<String>,
+    /// Legacy: Provider ID override for debug sessions (references global provider)
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    /// Temperature override
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// Max tokens override
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+    /// Custom error message
+    #[serde(default)]
+    pub custom_error_message: Option<String>,
+    /// Active knowledge base IDs
+    #[serde(default)]
+    pub knowledge_base_ids: Vec<String>,
+    /// Embedded skill configurations for debug sessions
+    #[serde(default)]
+    pub skills: Vec<EmbeddedSkill>,
+    /// Active embedded skill names for debug sessions
+    #[serde(default)]
+    pub active_skill_names: Vec<String>,
+}
+
+// ─── Internal Helper Types ───────────────────────────────────────
+
+/// Resolved configuration context for building an agent.
+/// This bundles all the embedded configuration needed from a single source
+/// (Debug Session, Config Profile, or fallback to global).
+#[derive(Debug, Clone)]
+struct ResolvedConfigContext {
+    /// Source identifier for logging (e.g., "debug_session", "profile_xxx")
+    source: String,
+    /// Embedded provider configurations
+    embedded_providers: Vec<EmbeddedProvider>,
+    /// Name or ID of the active embedded provider
+    active_embedded_provider: Option<String>,
+    /// Embedded persona configuration
+    embedded_persona: Option<EmbeddedPersona>,
+    /// Embedded skill configurations
+    embedded_skills: Vec<EmbeddedSkill>,
+    /// Active embedded skill names
+    active_embedded_skill_names: Vec<String>,
+    /// Custom error message
+    custom_error_message: Option<String>,
+    /// Knowledge base IDs to attach
+    knowledge_base_ids: Vec<String>,
+    /// Proxy configuration
+    proxy_config: crate::types::ProxyConfig,
+}
+
 // ─── In-Memory State Types ───────────────────────────────────────
 
 /// Information about a stored config profile.
@@ -132,8 +257,20 @@ pub struct StoredConfigProfile {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Legacy field: references a global provider by ID
     pub provider_id: Option<String>,
+    /// Legacy field: references a global persona by ID
     pub persona_id: Option<String>,
+    /// Embedded persona - independent copy for this profile
+    pub embedded_persona: Option<EmbeddedPersona>,
+    /// Embedded providers - independent copies for this profile
+    pub embedded_providers: Vec<EmbeddedProvider>,
+    /// Active embedded provider name within this profile
+    pub active_embedded_provider: Option<String>,
+    /// Embedded skills - independent copies for this profile
+    pub embedded_skills: Vec<EmbeddedSkill>,
+    /// Active embedded skill names within this profile
+    pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     pub acp_enabled: bool,
@@ -274,6 +411,9 @@ pub struct AppState {
     /// Knowledge base service (initialized after AppState creation).
     pub knowledge_base_service:
         std::sync::Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
+    /// Debug session configuration (WebUI chat debug settings).
+    /// Persisted separately from config profiles.
+    pub debug_session: RwLock<DebugSessionConfig>,
 }
 
 impl AppState {
@@ -383,6 +523,11 @@ impl AppState {
                                 updated_at,
                                 provider_id: p.provider_id,
                                 persona_id: p.persona_id,
+                                embedded_persona: p.embedded_persona,
+                                embedded_providers: p.embedded_providers,
+                                active_embedded_provider: p.active_embedded_provider,
+                                embedded_skills: p.embedded_skills,
+                                active_embedded_skill_names: p.active_embedded_skill_names,
                                 web_search_enabled: p.web_search_enabled,
                                 computer_use_enabled: p.computer_use_enabled,
                                 acp_enabled: p.acp_enabled,
@@ -465,6 +610,7 @@ impl AppState {
                 std::collections::HashMap::new(),
             )),
             knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+            debug_session: RwLock::new(DebugSessionConfig::default()),
         }
     }
 
@@ -559,6 +705,56 @@ impl AppState {
 
         tracing::debug!("Platforms config saved to {}", path.display());
         Ok(())
+    }
+
+    // ─── Debug Session Persistence ────────────────────────────
+
+    /// Path to the debug session config file.
+    fn debug_session_path(&self) -> PathBuf {
+        self.config_path.with_file_name("debug_session.json")
+    }
+
+    /// Load debug session config from file.
+    pub async fn load_debug_session(&self) -> DebugSessionConfig {
+        let path = self.debug_session_path();
+        match tokio::fs::read_to_string(&path).await {
+            Ok(content) => match serde_json::from_str::<DebugSessionConfig>(&content) {
+                Ok(config) => {
+                    tracing::debug!("Loaded debug session config from {}", path.display());
+                    config
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse debug session config: {}", e);
+                    DebugSessionConfig::default()
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => DebugSessionConfig::default(),
+            Err(e) => {
+                tracing::warn!("Failed to read debug session config: {}", e);
+                DebugSessionConfig::default()
+            }
+        }
+    }
+
+    /// Save debug session config to file.
+    pub async fn save_debug_session(&self) {
+        let config = self.debug_session.read().await;
+        let path = self.debug_session_path();
+        ensure_parent_dir(&path).await.ok();
+
+        let content = match serde_json::to_string_pretty(&*config) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to serialize debug session config: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = tokio::fs::write(&path, content).await {
+            tracing::error!("Failed to write debug session config: {}", e);
+        } else {
+            tracing::debug!("Debug session config saved to {}", path.display());
+        }
     }
 
     /// Synchronize running platform adapters with the currently active config profile.
@@ -852,6 +1048,11 @@ impl AppState {
                         updated_at: p.updated_at.to_rfc3339().to_string(),
                         provider_id: p.provider_id.clone(),
                         persona_id: p.persona_id.clone(),
+                        embedded_persona: p.embedded_persona.clone(),
+                        embedded_providers: p.embedded_providers.clone(),
+                        active_embedded_provider: p.active_embedded_provider.clone(),
+                        embedded_skills: p.embedded_skills.clone(),
+                        active_embedded_skill_names: p.active_embedded_skill_names.clone(),
                         web_search_enabled: p.web_search_enabled,
                         computer_use_enabled: p.computer_use_enabled,
                         acp_enabled: p.acp_enabled,
@@ -1065,10 +1266,259 @@ impl AppState {
         result
     }
 
+    /// Build a Provider instance from an embedded provider configuration.
+    /// This is used for Config Profiles and Debug Sessions that have their own provider copies.
+    pub fn build_provider_from_embedded(
+        embedded: &EmbeddedProvider,
+    ) -> Result<Box<dyn Provider>, String> {
+        let config = &embedded.config_json;
+
+        match embedded.provider_type.as_str() {
+            "openai" => {
+                let base_url = config["base_url"].as_str().unwrap_or("").to_string();
+                let api_key = config["api_key"].as_str().map(|s| s.to_string());
+                let default_model = config["default_model"]
+                    .as_str()
+                    .unwrap_or("gpt-4o")
+                    .to_string();
+                let supports_multimodal = config
+                    .get("supports_multimodal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                Ok(Box::new(
+                    crate::provider::openai::OpenAIProvider::new(base_url, api_key, default_model)
+                        .with_multimodal_support(supports_multimodal),
+                ))
+            }
+            "anthropic" => {
+                let base_url = config["base_url"].as_str().unwrap_or("").to_string();
+                let api_key = config["api_key"].as_str().unwrap_or("").to_string();
+                let default_model = config["default_model"]
+                    .as_str()
+                    .unwrap_or("claude-sonnet-4-20250514")
+                    .to_string();
+
+                Ok(Box::new(
+                    crate::provider::anthropic::AnthropicProvider::new(api_key, default_model)
+                        .with_base_url(base_url),
+                ))
+            }
+            "gemini" => {
+                let base_url = config["base_url"]
+                    .as_str()
+                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta")
+                    .to_string();
+                let api_key = config["api_key"].as_str().unwrap_or("").to_string();
+                let default_model = config["default_model"]
+                    .as_str()
+                    .unwrap_or("gemini-2.0-flash")
+                    .to_string();
+                let supports_multimodal = config
+                    .get("supports_multimodal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                Ok(Box::new(
+                    crate::provider::gemini::GeminiProvider::new(base_url, api_key, default_model)
+                        .with_multimodal_support(supports_multimodal),
+                ))
+            }
+            "custom" => {
+                let api_key = config
+                    .get("api_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let mut config_value = config.clone();
+                if let Some(obj) = config_value.as_object_mut() {
+                    obj.remove("api_key");
+                    obj.remove("type");
+                }
+
+                let custom_config: crate::provider::custom::CustomProviderConfig =
+                    serde_json::from_value(config_value)
+                        .map_err(|e| format!("Invalid custom provider config: {}", e))?;
+
+                Ok(Box::new(crate::provider::custom::CustomProvider::new(
+                    custom_config,
+                    api_key,
+                )))
+            }
+            other => Err(format!("Unknown provider type: {}", other)),
+        }
+    }
+
+    /// Build skill instances from a list of embedded skills.
+    /// This is used for Config Profiles and Debug Sessions that have their own skill copies.
+    pub fn build_skills_from_embedded(
+        embedded_skills: &[EmbeddedSkill],
+        filter_names: Option<&[String]>,
+    ) -> Vec<Arc<dyn Skill>> {
+        let mut result = Vec::new();
+        for skill in embedded_skills.iter() {
+            // If filter_names is provided, only include skills whose name is in the list
+            if let Some(names) = filter_names
+                && !names.contains(&skill.name)
+            {
+                continue;
+            }
+            match skill.skill_type.as_str() {
+                "system_prompt" => {
+                    let prompt = skill.config["prompt"].as_str().unwrap_or("").to_string();
+                    result.push(Arc::new(SystemPromptSkill::new(prompt)) as Arc<dyn Skill>);
+                }
+                "memory" => {
+                    let max = skill.config["max_messages"].as_u64().unwrap_or(50) as usize;
+                    result.push(Arc::new(MemorySkill::new(max)) as Arc<dyn Skill>);
+                }
+                "context_prefix" => {
+                    let prefix = skill.config["prefix"].as_str().unwrap_or("").to_string();
+                    result.push(Arc::new(ContextPrefixSkill::new(prefix)) as Arc<dyn Skill>);
+                }
+                "skill" => {
+                    let name = skill.name.clone();
+                    let description = skill.description.clone();
+
+                    let has_content = skill.config["content"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_shell = skill.config["shell"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_hooks = skill.config.get("hooks").is_some();
+                    let has_when_to_use = skill.config["when_to_use"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_arguments = skill.config.get("arguments").is_some()
+                        || skill.config["argument_hint"]
+                            .as_str()
+                            .is_some_and(|s| !s.is_empty());
+                    let has_allowed_tools = skill.config.get("allowed_tools").is_some();
+                    let has_context = skill.config["context"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty());
+                    let has_paths = skill.config.get("paths").is_some();
+
+                    if has_content
+                        || has_shell
+                        || has_hooks
+                        || has_when_to_use
+                        || has_arguments
+                        || has_allowed_tools
+                        || has_context
+                        || has_paths
+                    {
+                        result.push(Arc::new(SkillPackageSkill::from_config(
+                            name.clone(),
+                            description.clone(),
+                            &skill.config,
+                        )) as Arc<dyn Skill>);
+                        tracing::info!(
+                            skill_name = %name,
+                            "Loaded embedded skill package"
+                        );
+                    } else {
+                        tracing::warn!(
+                            skill_name = %skill.name,
+                            "Embedded skill has no content or executable features, skipping"
+                        );
+                    }
+                }
+                _ => {
+                    tracing::warn!(
+                        skill_name = %skill.name,
+                        skill_type = %skill.skill_type,
+                        "Unknown embedded skill type, ignoring"
+                    );
+                }
+            }
+        }
+        result
+    }
+
     /// Build a fully configured Agent with user context for computer use capabilities.
     ///
-    /// If `provider_id` is provided, it takes priority over the global active provider.
-    /// This allows the chat interface and config profiles to select specific providers.
+    /// Priority order for configuration:
+    /// 1. If `use_debug_session` is true, use the Debug Session's embedded configuration.
+    /// 2. If `profile_id` is provided, use that specific Config Profile's embedded configuration.
+    /// 3. Otherwise, use the active Config Profile's embedded configuration.
+    /// 4. Fall back to global configuration (backward compatibility).
+    ///
+    /// If `provider_id` is explicitly provided, it overrides the resolved provider.
+    /// If `persona_id` is explicitly provided, it overrides the resolved persona.
+    /// Helper: Resolve the effective configuration context.
+    /// Priority: DebugSession > specific profile_id > active profile > global fallback.
+    async fn resolve_config_context(
+        &self,
+        use_debug_session: bool,
+        profile_id: Option<&str>,
+    ) -> Option<ResolvedConfigContext> {
+        // 1. Debug session takes highest priority when requested
+        if use_debug_session {
+            let debug = self.debug_session.read().await;
+            if !debug.providers.is_empty() {
+                return Some(ResolvedConfigContext {
+                    source: "debug_session".to_string(),
+                    embedded_providers: debug.providers.clone(),
+                    active_embedded_provider: debug.active_provider.clone(),
+                    embedded_persona: debug.persona.clone(),
+                    embedded_skills: debug.skills.clone(),
+                    active_embedded_skill_names: debug.active_skill_names.clone(),
+                    custom_error_message: debug.custom_error_message.clone(),
+                    knowledge_base_ids: debug.knowledge_base_ids.clone(),
+                    proxy_config: crate::types::ProxyConfig::default(),
+                });
+            }
+        }
+
+        let profiles = self.config_profiles.read().await;
+
+        // 2. Specific profile by ID
+        if let Some(pid) = profile_id {
+            if let Some(profile) = profiles.get(pid) {
+                if !profile.embedded_providers.is_empty() {
+                    return Some(ResolvedConfigContext {
+                        source: format!("profile_{}", pid),
+                        embedded_providers: profile.embedded_providers.clone(),
+                        active_embedded_provider: profile.active_embedded_provider.clone(),
+                        embedded_persona: profile.embedded_persona.clone(),
+                        embedded_skills: profile.embedded_skills.clone(),
+                        active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
+                        custom_error_message: profile.custom_error_message.clone(),
+                        knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
+                        proxy_config: profile.proxy_config.clone(),
+                    });
+                }
+                // Profile exists but has no embedded providers - will fall back to global
+                tracing::info!(profile_id = %pid, "Profile found but has no embedded providers, falling back to global");
+            }
+        }
+
+        // 3. Active config profile
+        if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+            if !profile.embedded_providers.is_empty() {
+                return Some(ResolvedConfigContext {
+                    source: format!("active_profile_{}", profile.id),
+                    embedded_providers: profile.embedded_providers.clone(),
+                    active_embedded_provider: profile.active_embedded_provider.clone(),
+                    embedded_persona: profile.embedded_persona.clone(),
+                    embedded_skills: profile.embedded_skills.clone(),
+                    active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
+                    custom_error_message: profile.custom_error_message.clone(),
+                    knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
+                    proxy_config: profile.proxy_config.clone(),
+                });
+            }
+            tracing::info!(profile_id = %profile.id, "Active profile has no embedded providers, falling back to global");
+        }
+
+        drop(profiles);
+
+        // 4. No embedded config found - return None to trigger global fallback
+        None
+    }
+
     pub async fn build_agent_with_context(
         &self,
         user_id: Option<&str>,
@@ -1076,87 +1526,138 @@ impl AppState {
         persona_id: Option<&str>,
         provider_id: Option<&str>,
     ) -> Result<Agent, String> {
-        let providers = self.providers.read().await;
-        let global_active_id = self.active_provider_id.read().await;
+        self.build_agent_with_context_extended(
+            user_id,
+            session_id,
+            persona_id,
+            provider_id,
+            false, // use_debug_session
+            None,  // profile_id
+        )
+        .await
+    }
 
-        // Resolve the provider to use:
-        // 1. Explicit provider_id from request (e.g., chat config modal selection)
-        // 2. Active config profile's provider_id
-        // 3. Global active provider (backward compat)
-        let resolved_id = if let Some(pid) = provider_id {
-            if !pid.is_empty() && providers.contains_key(pid) {
-                Some(pid.to_string())
+    /// Extended version that supports debug session and specific profile selection.
+    pub async fn build_agent_with_context_extended(
+        &self,
+        user_id: Option<&str>,
+        session_id: Option<&str>,
+        persona_id: Option<&str>,
+        provider_id: Option<&str>,
+        use_debug_session: bool,
+        profile_id: Option<&str>,
+    ) -> Result<Agent, String> {
+        // Try to resolve embedded configuration context
+        let context = self
+            .resolve_config_context(use_debug_session, profile_id)
+            .await;
+
+        let (mut provider, provider_config_json, custom_error_message, proxy_config, kb_ids) =
+            if let Some(ctx) = &context {
+                // ── Use embedded configuration ──
+                tracing::info!(source = %ctx.source, "Using embedded configuration context");
+
+                // Resolve the active embedded provider
+                let active_provider_name = ctx.active_embedded_provider.clone();
+                let embedded_provider = if let Some(ref name) = active_provider_name {
+                    ctx.embedded_providers
+                        .iter()
+                        .find(|p| p.name == *name || p.id == *name)
+                } else if !ctx.embedded_providers.is_empty() {
+                    ctx.embedded_providers.first()
+                } else {
+                    None
+                };
+
+                let (provider, config_json) = if let Some(ep) = embedded_provider {
+                    let built = Self::build_provider_from_embedded(ep)?;
+                    (built, ep.config_json.clone())
+                } else {
+                    return Err(
+                        "No embedded provider available in configuration context".to_string()
+                    );
+                };
+
+                (
+                    provider,
+                    config_json,
+                    ctx.custom_error_message.clone(),
+                    ctx.proxy_config.clone(),
+                    ctx.knowledge_base_ids.clone(),
+                )
             } else {
-                None
-            }
-        } else {
-            // Check the active config profile's provider_id
-            let profiles = self.config_profiles.read().await;
-            if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
-                if let Some(ref pid) = profile.provider_id {
-                    if !pid.is_empty() && providers.contains_key(pid.as_str()) {
-                        Some(pid.clone())
+                // ── Fall back to global configuration (backward compatibility) ──
+                tracing::info!("No embedded config found, using global configuration");
+
+                let providers = self.providers.read().await;
+                let global_active_id = self.active_provider_id.read().await;
+
+                let resolved_id = if let Some(pid) = provider_id {
+                    if !pid.is_empty() && providers.contains_key(pid) {
+                        Some(pid.to_string())
                     } else {
                         None
                     }
                 } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        .or_else(|| global_active_id.clone());
+                    let profiles = self.config_profiles.read().await;
+                    let from_profile = profiles
+                        .values()
+                        .find(|p| p.is_active && p.enable)
+                        .and_then(|p| p.provider_id.clone())
+                        .filter(|pid| !pid.is_empty() && providers.contains_key(pid.as_str()));
+                    drop(profiles);
+                    from_profile.or_else(|| global_active_id.clone())
+                };
 
-        let active_id = resolved_id.ok_or("No active provider configured")?;
+                let active_id = resolved_id.ok_or("No active provider configured")?;
+                let stored = providers
+                    .get(&active_id)
+                    .ok_or("Active provider not found")?;
+                let provider = Self::build_provider(stored)?;
+                let config_json = stored.config_json.clone();
+                drop(providers);
 
-        let stored = providers
-            .get(&active_id)
-            .ok_or("Active provider not found")?;
-
-        let mut provider = Self::build_provider(stored)?;
-        let stored_config_json = stored.config_json.clone();
-        drop(providers);
-
-        // Apply proxy config from the active config profile
-        {
-            let profiles = self.config_profiles.read().await;
-            if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
-                if profile.proxy_config.is_configured() {
-                    // Determine if we should proxy based on the provider's base URL
-                    let base_url = stored_config_json
-                        .get("base_url")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let host = url::Url::parse(base_url)
-                        .ok()
-                        .and_then(|u| u.host_str().map(|h| h.to_string()))
-                        .unwrap_or_default();
-
-                    if profile.proxy_config.should_proxy(&host) {
-                        provider.set_proxy(
-                            &profile.proxy_config.url,
-                            profile.proxy_config.username.as_deref(),
-                            profile.proxy_config.password.as_deref(),
-                        );
-                        tracing::info!(
-                            proxy_url = %profile.proxy_config.url,
-                            host = %host,
-                            "Applied proxy configuration to provider"
-                        );
+                // Get proxy and custom error from active profile
+                let (proxy_cfg, custom_err, kb_ids) = {
+                    let profiles = self.config_profiles.read().await;
+                    if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+                        (
+                            profile.proxy_config.clone(),
+                            profile.custom_error_message.clone(),
+                            profile.active_knowledge_base_ids.clone(),
+                        )
+                    } else {
+                        (crate::types::ProxyConfig::default(), None, Vec::new())
                     }
-                }
+                };
+
+                (provider, config_json, custom_err, proxy_cfg, kb_ids)
+            };
+
+        // Apply proxy config if configured
+        if proxy_config.is_configured() {
+            let base_url = provider_config_json
+                .get("base_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let host = url::Url::parse(base_url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_string()))
+                .unwrap_or_default();
+
+            if proxy_config.should_proxy(&host) {
+                provider.set_proxy(
+                    &proxy_config.url,
+                    proxy_config.username.as_deref(),
+                    proxy_config.password.as_deref(),
+                );
+                tracing::info!(
+                    proxy_url = %proxy_config.url,
+                    host = %host,
+                    "Applied proxy configuration to provider"
+                );
             }
         }
-
-        // Get custom_error_message from the active config profile
-        let custom_error_message = {
-            let profiles = self.config_profiles.read().await;
-            profiles
-                .values()
-                .find(|p| p.is_active && p.enable)
-                .and_then(|p| p.custom_error_message.clone())
-        };
 
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -1165,55 +1666,91 @@ impl AppState {
 
         let mut agent = Agent::with_config(provider, config);
 
-        // Re-add skills
-        let skills = self.skills.read().await;
-        let skill_instances = Self::build_skills(&skills, None);
-        let num_skills = skill_instances.len();
-        drop(skills);
-        for skill in skill_instances {
-            tracing::info!("Adding skill: {}", skill.name());
-            agent.add_skill(skill);
-        }
-        tracing::info!("Successfully added {} skills to agent", num_skills);
-
-        // Inject persona system prompt if configured
-        {
-            // First, try to get persona_id from the request
-            let resolved_persona_id = if let Some(pid) = persona_id {
-                Some(pid.to_string())
-            } else {
-                // Fall back to the active config profile's persona_id
-                let profiles = self.config_profiles.read().await;
-                profiles
-                    .values()
-                    .find(|p| p.is_active && p.enable)
-                    .and_then(|p| p.persona_id.clone())
-            };
-
-            let personas = self.personas.read().await;
-            let persona_to_use = if let Some(pid) = &resolved_persona_id {
-                personas.get(pid)
+        // ── Build skills from embedded or global ──
+        let skill_instances = if let Some(ctx) = &context {
+            let filter_names: Option<&[String]> = if !ctx.active_embedded_skill_names.is_empty() {
+                Some(ctx.active_embedded_skill_names.as_slice())
             } else {
                 None
             };
+            Self::build_skills_from_embedded(&ctx.embedded_skills, filter_names)
+        } else {
+            let skills = self.skills.read().await;
+            let instances = Self::build_skills(&skills, None);
+            drop(skills);
+            instances
+        };
 
-            if let Some(p) = persona_to_use {
-                if !p.prompt.is_empty() {
-                    tracing::info!(
-                        persona_id = %p.id,
-                        persona_name = %p.name,
-                        "Injecting persona system prompt"
-                    );
-                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                }
-            } else if let Some(pid) = resolved_persona_id {
-                tracing::warn!(
-                    persona_id = %pid,
-                    "Requested persona not found"
-                );
-            }
-            drop(personas);
+        let num_skills = skill_instances.len();
+        for skill in &skill_instances {
+            tracing::info!("Adding skill: {}", skill.name());
+            agent.add_skill(skill.clone());
         }
+        tracing::info!("Successfully added {} skills to agent", num_skills);
+
+        // ── Inject persona system prompt ──
+        // Priority: explicit persona_id > embedded persona > global persona lookup
+        let persona_injected = if let Some(pid) = persona_id {
+            // Explicit persona_id provided - look up in global personas
+            let personas = self.personas.read().await;
+            if let Some(p) = personas.get(pid) {
+                if !p.prompt.is_empty() {
+                    tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting explicit persona system prompt");
+                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                    drop(personas);
+                    true
+                } else {
+                    drop(personas);
+                    false
+                }
+            } else {
+                tracing::warn!(persona_id = %pid, "Requested persona not found");
+                drop(personas);
+                false
+            }
+        } else if let Some(ctx) = &context {
+            // Use embedded persona if available
+            if let Some(ref persona) = ctx.embedded_persona {
+                if !persona.prompt.is_empty() {
+                    tracing::info!(persona_name = %persona.name, "Injecting embedded persona system prompt");
+                    agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
+                    true
+                } else {
+                    false
+                }
+            } else {
+                // Fall back to global persona lookup via active profile's persona_id
+                let profiles = self.config_profiles.read().await;
+                let persona_id_from_profile = profiles
+                    .values()
+                    .find(|p| p.is_active && p.enable)
+                    .and_then(|p| p.persona_id.clone());
+                drop(profiles);
+
+                if let Some(pid) = persona_id_from_profile {
+                    let personas = self.personas.read().await;
+                    if let Some(p) = personas.get(&pid) {
+                        if !p.prompt.is_empty() {
+                            tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting profile-linked persona system prompt");
+                            agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                            drop(personas);
+                            true
+                        } else {
+                            drop(personas);
+                            false
+                        }
+                    } else {
+                        drop(personas);
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        let _ = persona_injected;
 
         // Check computer use configuration and register tools accordingly
         let computer_use_config = self.computer_use_config.read().await;
@@ -1360,24 +1897,15 @@ impl AppState {
             );
         }
 
-        // Add Knowledge Base skill if configured in the active profile
-        {
-            let profiles = self.config_profiles.read().await;
-            let active_profile = profiles.values().find(|p| p.is_active && p.enable);
-            if let Some(profile) = active_profile {
-                if !profile.active_knowledge_base_ids.is_empty() {
-                    let kb_ids = profile.active_knowledge_base_ids.clone();
-                    drop(profiles);
-
-                    let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
-                        self.knowledge_base_service.clone(),
-                        kb_ids,
-                        5, // top_k
-                    );
-                    agent.add_skill(std::sync::Arc::new(kb_skill));
-                    tracing::info!("KnowledgeBaseSkill added to agent");
-                }
-            }
+        // Add Knowledge Base skill if configured (from embedded context or resolved config)
+        if !kb_ids.is_empty() {
+            let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
+                self.knowledge_base_service.clone(),
+                kb_ids,
+                5, // top_k
+            );
+            agent.add_skill(std::sync::Arc::new(kb_skill));
+            tracing::info!("KnowledgeBaseSkill added to agent");
         }
 
         // Load chat history from database if conversation exists

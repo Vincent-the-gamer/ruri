@@ -950,3 +950,148 @@ impl From<crate::knowledge::SearchResult> for SearchResultDto {
         }
     }
 }
+
+// ─── Debug Session Models ───────────────────────────────────────
+
+/// DTO for embedded persona in debug session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedPersonaDto {
+    pub name: String,
+    pub description: String,
+    pub prompt: String,
+}
+
+/// DTO for embedded provider in debug session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedProviderDto {
+    pub id: String,
+    pub name: String,
+    pub provider_type: String,
+    pub config: ProviderConfigDto,
+}
+
+/// DTO for embedded skill in debug session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedSkillDto {
+    pub name: String,
+    pub description: String,
+    pub skill_type: String,
+    pub config: serde_json::Value,
+}
+
+/// Response DTO for debug session configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugSessionDto {
+    pub persona: Option<EmbeddedPersonaDto>,
+    #[serde(default)]
+    pub providers: Vec<EmbeddedProviderDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider: Option<String>,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub custom_error_message: Option<String>,
+    #[serde(default)]
+    pub knowledge_base_ids: Vec<String>,
+    #[serde(default)]
+    pub skills: Vec<EmbeddedSkillDto>,
+    #[serde(default)]
+    pub active_skill_names: Vec<String>,
+}
+
+/// Request DTO for updating debug session configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDebugSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona: Option<EmbeddedPersonaDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<EmbeddedProviderDto>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<Option<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<Option<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub knowledge_base_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<EmbeddedSkillDto>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_skill_names: Option<Vec<String>>,
+}
+
+impl From<&crate::api::state::EmbeddedPersona> for EmbeddedPersonaDto {
+    fn from(p: &crate::api::state::EmbeddedPersona) -> Self {
+        Self {
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+        }
+    }
+}
+
+impl From<&EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
+    fn from(dto: &EmbeddedPersonaDto) -> Self {
+        Self {
+            name: dto.name.clone(),
+            description: dto.description.clone(),
+            prompt: dto.prompt.clone(),
+        }
+    }
+}
+
+impl From<&crate::api::state::EmbeddedProvider> for EmbeddedProviderDto {
+    fn from(p: &crate::api::state::EmbeddedProvider) -> Self {
+        Self {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            provider_type: p.provider_type.clone(),
+            config: serde_json::from_value(p.config_json.clone()).unwrap_or_else(|_| {
+                // Fallback to a basic OpenAI config if deserialization fails
+                ProviderConfigDto::Openai(OpenAIProviderConfigDto {
+                    base_url: String::new(),
+                    api_key: String::new(),
+                    default_model: String::new(),
+                    supports_multimodal: true,
+                })
+            }),
+        }
+    }
+}
+
+impl From<&EmbeddedProviderDto> for crate::api::state::EmbeddedProvider {
+    fn from(dto: &EmbeddedProviderDto) -> Self {
+        Self {
+            id: dto.id.clone(),
+            name: dto.name.clone(),
+            provider_type: dto.provider_type.clone(),
+            config_json: serde_json::to_value(&dto.config).unwrap_or(serde_json::Value::Null),
+        }
+    }
+}
+
+impl From<&crate::api::state::EmbeddedSkill> for EmbeddedSkillDto {
+    fn from(s: &crate::api::state::EmbeddedSkill) -> Self {
+        Self {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            skill_type: s.skill_type.clone(),
+            config: s.config.clone(),
+        }
+    }
+}
+
+impl From<&EmbeddedSkillDto> for crate::api::state::EmbeddedSkill {
+    fn from(dto: &EmbeddedSkillDto) -> Self {
+        Self {
+            name: dto.name.clone(),
+            description: dto.description.clone(),
+            skill_type: dto.skill_type.clone(),
+            config: dto.config.clone(),
+        }
+    }
+}

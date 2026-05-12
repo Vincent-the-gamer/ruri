@@ -383,16 +383,28 @@ pub struct StreamUsage {
 }
 
 impl MessageContent {
-    pub fn as_text(&self) -> Option<&str> {
+    /// 提取所有文本部分并合并为单个字符串。
+    /// 如果没有找到文本部分，则返回 None。
+    pub fn as_text_full(&self) -> Option<String> {
         match self {
-            MessageContent::Text(t) => Some(t),
-            MessageContent::Parts(parts) => parts.iter().find_map(|p| {
-                if p.part_type == ContentPartType::Text {
-                    p.text.as_deref()
-                } else {
+            MessageContent::Text(t) => Some(t.clone()),
+            MessageContent::Parts(parts) => {
+                let texts: Vec<String> = parts
+                    .iter()
+                    .filter_map(|p| {
+                        if p.part_type == ContentPartType::Text {
+                            p.text.clone()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if texts.is_empty() {
                     None
+                } else {
+                    Some(texts.join("\n"))
                 }
-            }),
+            }
         }
     }
 }

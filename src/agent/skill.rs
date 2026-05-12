@@ -570,7 +570,7 @@ impl Skill for SkillPackageSkill {
             if let Some(last) = messages.last_mut() {
                 if last.role == crate::types::MessageRole::User {
                     if let Some(ref content) = last.content {
-                        let text = content.as_text().unwrap_or("");
+                        let text = content.as_text_full().unwrap_or_default();
                         let new_content = format!(
                             "[Context from skill '{}': {}]\n\n{}",
                             self.name, context, text
@@ -587,7 +587,7 @@ impl Skill for SkillPackageSkill {
             if let Some(last) = messages.last_mut() {
                 if last.role == crate::types::MessageRole::User {
                     if let Some(ref content) = last.content {
-                        let text = content.as_text().unwrap_or("");
+                        let text = content.as_text_full().unwrap_or_default();
                         // Only inject on the first user message (don't repeat)
                         if !text.contains("[Shell Output from skill") {
                             let new_content = format!(

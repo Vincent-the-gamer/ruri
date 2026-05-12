@@ -79,7 +79,7 @@ pub trait Provider: Send + Sync {
                     // Extract content from the first choice
                     if let Some(choice) = response.choices.first() {
                         if let Some(content) = &choice.message.content {
-                            let text = content.as_text().unwrap_or("").to_string();
+                            let text = content.as_text_full().unwrap_or_default();
                             if !text.is_empty() {
                                 yield Ok(StreamEvent::ContentDelta { delta: text });
                             }

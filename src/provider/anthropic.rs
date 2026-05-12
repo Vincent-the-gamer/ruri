@@ -57,7 +57,7 @@ impl AnthropicProvider {
             if msg.role == MessageRole::System {
                 system_parts.push(json!({
                     "type": "text",
-                    "text": msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or(""),
+                    "text": msg.content.as_ref().and_then(|c| c.as_text_full()).unwrap_or_default(),
                 }));
             } else {
                 messages.push(self.convert_message(msg));
@@ -170,7 +170,7 @@ impl AnthropicProvider {
                 "content": [{
                     "type": "tool_result",
                     "tool_use_id": msg.tool_call_id,
-                    "content": msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or(""),
+                    "content": msg.content.as_ref().and_then(|c| c.as_text_full()).unwrap_or_default(),
                 }]
             });
         }
@@ -182,7 +182,11 @@ impl AnthropicProvider {
             let mut content: Vec<serde_json::Value> = Vec::new();
 
             // Text content first
-            let text = msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or("");
+            let text = msg
+                .content
+                .as_ref()
+                .and_then(|c| c.as_text_full())
+                .unwrap_or_default();
             if !text.is_empty() {
                 content.push(json!({
                     "type": "text",

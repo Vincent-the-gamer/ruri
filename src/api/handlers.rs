@@ -253,6 +253,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/knowledge-bases/{kb_id}/search",
             post(search_knowledge_base),
         )
+        // Debug session (WebUI chat independent configuration)
+        .route(
+            "/api/debug-session",
+            get(get_debug_session).put(update_debug_session),
+        )
         // Apply authentication middleware to all protected routes
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -941,13 +946,15 @@ async fn send_chat_message(
     }
 
     // ── Agent processing ─────────────────────────────────────────
-    // Build agent from current state with user context
+    // Build agent using Debug Session configuration (WebUI chat is independent)
     let agent_result = state
-        .build_agent_with_context(
+        .build_agent_with_context_extended(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
             req.persona_id.as_deref(),
             req.provider_id.as_deref(),
+            true, // use_debug_session: true - WebUI chat uses its own config
+            None, // profile_id: None - let debug session resolve itself
         )
         .await;
     let mut agent =
@@ -1158,9 +1165,8 @@ async fn send_chat_message(
         .message
         .content
         .as_ref()
-        .and_then(|c| c.as_text())
-        .unwrap_or("")
-        .to_string();
+        .and_then(|c| c.as_text_full())
+        .unwrap_or_default();
 
     // Add assistant message to conversation database
     let conv_db = state.conversation_db.read().await;
@@ -1266,12 +1272,15 @@ async fn stream_chat_message(
     }
 
     // ── Agent processing ─────────────────────────────────────────
+    // Build agent using Debug Session configuration (WebUI chat is independent)
     let agent_result = state
-        .build_agent_with_context(
+        .build_agent_with_context_extended(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
             req.persona_id.as_deref(),
             req.provider_id.as_deref(),
+            true, // use_debug_session: true - WebUI chat uses its own config
+            None, // profile_id: None - let debug session resolve itself
         )
         .await;
     let mut agent =
@@ -2201,6 +2210,11 @@ async fn create_config_profile(
         updated_at: now,
         provider_id: req.provider_id.clone(),
         persona_id: req.persona_id.clone(),
+        embedded_persona: None,
+        embedded_providers: Vec::new(),
+        active_embedded_provider: None,
+        embedded_skills: Vec::new(),
+        active_embedded_skill_names: Vec::new(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
         acp_enabled: req.acp_enabled,
@@ -4560,4 +4574,97 @@ async fn search_knowledge_base(
     Ok(Json(
         results.into_iter().map(SearchResultDto::from).collect(),
     ))
+}
+
+// ─── Debug Session Handlers ─────────────────────────────────────
+
+/// Get the current debug session configuration
+async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSessionDto> {
+    let session = state.debug_session.read().await;
+
+    let dto = DebugSessionDto {
+        persona: session.persona.as_ref().map(Into::into),
+        providers: session.providers.iter().map(Into::into).collect(),
+        active_provider: session.active_provider.clone(),
+        temperature: session.temperature,
+        max_tokens: session.max_tokens,
+        custom_error_message: session.custom_error_message.clone(),
+        knowledge_base_ids: session.knowledge_base_ids.clone(),
+        skills: session.skills.iter().map(Into::into).collect(),
+        active_skill_names: session.active_skill_names.clone(),
+    };
+
+    Json(dto)
+}
+
+/// Update the debug session configuration
+async fn update_debug_session(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateDebugSessionRequest>,
+) -> Result<Json<DebugSessionDto>, (StatusCode, Json<Value>)> {
+    let mut session = state.debug_session.write().await;
+
+    if let Some(persona) = req.persona {
+        session.persona = Some(crate::api::state::EmbeddedPersona::from(&persona));
+    }
+    if let Some(providers) = req.providers {
+        session.providers = providers
+            .iter()
+            .map(|p| crate::api::state::EmbeddedProvider::from(p))
+            .collect();
+    }
+    if let Some(active_provider) = req.active_provider {
+        session.active_provider = active_provider;
+    }
+    if let Some(temperature) = req.temperature {
+        session.temperature = temperature;
+    }
+    if let Some(max_tokens) = req.max_tokens {
+        session.max_tokens = max_tokens;
+    }
+    if let Some(custom_error_message) = req.custom_error_message {
+        session.custom_error_message = custom_error_message;
+    }
+    if let Some(knowledge_base_ids) = req.knowledge_base_ids {
+        session.knowledge_base_ids = knowledge_base_ids;
+    }
+    if let Some(skills) = req.skills {
+        session.skills = skills
+            .iter()
+            .map(|s| crate::api::state::EmbeddedSkill::from(s))
+            .collect();
+    }
+    if let Some(active_skill_names) = req.active_skill_names {
+        session.active_skill_names = active_skill_names;
+    }
+
+    // Save debug session to file
+    state.save_debug_session().await;
+
+    tracing::info!("Debug session configuration updated");
+
+    let dto = DebugSessionDto {
+        persona: session
+            .persona
+            .as_ref()
+            .map(|p| EmbeddedPersonaDto::from(p)),
+        providers: session
+            .providers
+            .iter()
+            .map(|p| EmbeddedProviderDto::from(p))
+            .collect(),
+        active_provider: session.active_provider.clone(),
+        temperature: session.temperature,
+        max_tokens: session.max_tokens,
+        custom_error_message: session.custom_error_message.clone(),
+        knowledge_base_ids: session.knowledge_base_ids.clone(),
+        skills: session
+            .skills
+            .iter()
+            .map(|s| EmbeddedSkillDto::from(s))
+            .collect(),
+        active_skill_names: session.active_skill_names.clone(),
+    };
+
+    Ok(Json(dto))
 }

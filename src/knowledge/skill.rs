@@ -120,7 +120,7 @@ impl Skill for KnowledgeBaseSkill {
                 .find(|m| m.role == crate::types::MessageRole::User)
             {
                 if let Some(ref content) = last.content {
-                    let original = content.as_text().unwrap_or("");
+                    let original = content.as_text_full().unwrap_or_default();
                     let new_content = format!("{}\n\nUser query: {}", context, original);
                     last.content = Some(MessageContent::Text(new_content));
                 }

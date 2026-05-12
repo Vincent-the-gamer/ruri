@@ -163,6 +163,13 @@ async fn main() -> anyhow::Result<()> {
     // Load platform configs into state for API access
     state.load_platforms_config().await;
 
+    // Load debug session configuration (WebUI chat independent settings)
+    {
+        let debug_config = state.load_debug_session().await;
+        *state.debug_session.write().await = debug_config;
+        tracing::info!("Debug session configuration loaded");
+    }
+
     // ── Initialize unified database (ruri.db) ────────────────────────
     let db_path = db::database_path();
 
@@ -444,12 +451,14 @@ async fn main() -> anyhow::Result<()> {
 
                                     match result {
                                         Ok(response) => {
-                                            if let Some(content) = response
+                                            // 使用 as_text_full() 合并所有文本部分，避免只取第一个文本的缺陷
+                                            let content = response
                                                 .choices
                                                 .first()
                                                 .and_then(|c| c.message.content.as_ref())
-                                                .and_then(|c| c.as_text())
-                                            {
+                                                .and_then(|c| c.as_text_full());
+
+                                            if let Some(content) = content {
                                                 tracing::info!(
                                                     response_len = content.len(),
                                                     "Agent replied to platform message"
@@ -463,7 +472,7 @@ async fn main() -> anyhow::Result<()> {
                                                             .add_message(conversation::models::AddMessageRequest {
                                                                 conversation_id: conv_id.clone(),
                                                                 role: "assistant".to_string(),
-                                                                content: content.to_string(),
+                                                                content: content.clone(),
                                                             })
                                                             .await
                                                         {
@@ -482,7 +491,7 @@ async fn main() -> anyhow::Result<()> {
                                                         &msg.platform_id,
                                                         msg.message_type,
                                                         &msg.session_id,
-                                                        content,
+                                                        &content,
                                                     )
                                                     .await
                                                 {
@@ -491,6 +500,21 @@ async fn main() -> anyhow::Result<()> {
                                                         "Failed to send reply to platform"
                                                     );
                                                 }
+                                            } else {
+                                                // 大模型返回了空回复，通知用户而不是静默失败
+                                                tracing::warn!(
+                                                    session_id = %msg.session_id,
+                                                    "Agent returned empty response for platform message"
+                                                );
+                                                let pm = platform_manager_ref.read().await;
+                                                let _ = pm
+                                                    .send_text_to_platform(
+                                                        &msg.platform_id,
+                                                        msg.message_type,
+                                                        &msg.session_id,
+                                                        "（AI 未返回有效回复，请重试）",
+                                                    )
+                                                    .await;
                                             }
                                         }
                                         Err(e) => {

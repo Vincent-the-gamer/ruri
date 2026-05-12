@@ -414,9 +414,8 @@ async fn handle_session_prompt(
                 .choices
                 .first()
                 .and_then(|c| c.message.content.as_ref())
-                .and_then(|c| c.as_text())
-                .unwrap_or("")
-                .to_string();
+                .and_then(|c| c.as_text_full())
+                .unwrap_or_default();
 
             // Determine stop reason from the model's finish_reason
             let stop_reason = response

@@ -80,7 +80,11 @@ impl GeminiProvider {
         for msg in &request.messages {
             if msg.role == MessageRole::System {
                 // System messages go into systemInstruction
-                let text = msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or("");
+                let text = msg
+                    .content
+                    .as_ref()
+                    .and_then(|c| c.as_text_full())
+                    .unwrap_or_default();
                 system_instruction_parts.push(json!({
                     "text": text,
                 }));
@@ -206,12 +210,16 @@ impl GeminiProvider {
         // Handle tool result messages
         if msg.role == MessageRole::Tool {
             let tool_call_id = msg.tool_call_id.as_deref().unwrap_or("");
-            let result_text = msg.content.as_ref().and_then(|c| c.as_text()).unwrap_or("");
+            let result_text = msg
+                .content
+                .as_ref()
+                .and_then(|c| c.as_text_full())
+                .unwrap_or_default();
 
             // Try to parse the result text as JSON; if it fails, wrap it in a
             // simple object so Gemini gets a valid `response` value.
             let response_value: serde_json::Value =
-                serde_json::from_str(result_text).unwrap_or(json!({
+                serde_json::from_str(&result_text).unwrap_or(json!({
                     "result": result_text,
                 }));
 
@@ -233,7 +241,7 @@ impl GeminiProvider {
 
                 // Text content first (if any)
                 if let Some(ref content) = msg.content {
-                    let text = content.as_text().unwrap_or("");
+                    let text = content.as_text_full().unwrap_or_default();
                     if !text.is_empty() {
                         parts.push(json!({
                             "text": text,
