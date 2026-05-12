@@ -223,6 +223,10 @@ export default {
     description: 'Configure chat behavior, model parameters, and proxy settings',
     modelParams: 'Model Parameters',
     modelParamsDesc: 'Adjust model creativity and response length',
+    modelProvider: 'Model Provider',
+    modelProviderDesc: 'Select which configured model provider to use for this chat. The provider from your active configuration profile is selected by default.',
+    providerDefault: 'Use profile default',
+    noProvidersHint: 'No providers configured yet. Add one in the Providers page first.',
     temperature: 'Temperature',
     maxTokens: 'Max Tokens',
     maxTokensHint: 'Range: 1 – 128000',
@@ -293,6 +297,7 @@ export default {
     type: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
+      gemini: 'Gemini',
       custom: 'Custom',
       other: 'Other',
     },

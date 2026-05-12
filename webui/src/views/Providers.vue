@@ -62,6 +62,8 @@ const providerTypeLabel = (type: string) => {
             return t("providers.type.openai");
         case "anthropic":
             return t("providers.type.anthropic");
+        case "gemini":
+            return t("providers.type.gemini");
         case "custom":
             return t("providers.type.custom");
         default:
@@ -816,6 +818,10 @@ function maskApiKey(key: string): string {
     border-color: rgba(168, 85, 247, 0.25);
 }
 
+.card-icon--gemini {
+    background: linear-gradient(135deg, #4285f4, #ea4335);
+}
+
 .card-icon--custom {
     background: linear-gradient(
         135deg,
@@ -840,6 +846,10 @@ function maskApiKey(key: string): string {
 .type-dot--anthropic {
     background-color: var(--color-accent);
     box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+.type-dot--gemini {
+    background: #4285f4;
 }
 
 .type-dot--custom {

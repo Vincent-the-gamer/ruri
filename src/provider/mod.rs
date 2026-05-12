@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod custom;
+pub mod gemini;
 pub mod openai;
 
 use crate::types::{ChatRequest, ChatResponse, StreamEvent};

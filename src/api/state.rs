@@ -922,6 +922,26 @@ impl AppState {
                         .with_base_url(base_url),
                 ))
             }
+            "gemini" => {
+                let base_url = config["base_url"]
+                    .as_str()
+                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta")
+                    .to_string();
+                let api_key = config["api_key"].as_str().unwrap_or("").to_string();
+                let default_model = config["default_model"]
+                    .as_str()
+                    .unwrap_or("gemini-2.0-flash")
+                    .to_string();
+                let supports_multimodal = config
+                    .get("supports_multimodal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                Ok(Box::new(
+                    crate::provider::gemini::GeminiProvider::new(base_url, api_key, default_model)
+                        .with_multimodal_support(supports_multimodal),
+                ))
+            }
             "custom" => {
                 // Extract api_key from the DTO before deserializing to CustomProviderConfig
                 let api_key = config

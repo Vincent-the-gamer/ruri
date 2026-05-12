@@ -10,7 +10,7 @@
 
 ## Features
 
-- [x] Model Provider - Anthropic Compatible, OpenAI Compatible, Custom
+- [x] Model Provider - Anthropic Compatible, OpenAI Compatible, Gemini API, Custom
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search
@@ -24,7 +24,7 @@
 - [x] Chat - Personal WeChat(Wechat ClawBot)
 - [x] Sandbox - AIO Sandbox (https://github.com/agent-infra/sandbox)
 - [x] Chat History - Conversation management with filtering and search
-- [ ] Chat - OneBot V12（A standardized bot application interface）
+- [x] Chat - OneBot V12（A standardized bot application interface）
 
 ### Planned in the future
 

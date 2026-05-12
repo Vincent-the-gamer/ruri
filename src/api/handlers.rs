@@ -1654,6 +1654,9 @@ async fn get_status(State(state): State<Arc<AppState>>) -> Json<AgentStatusDto> 
                 "anthropic" => p.config_json["default_model"]
                     .as_str()
                     .unwrap_or("claude-sonnet-4-20250514"),
+                "gemini" => p.config_json["default_model"]
+                    .as_str()
+                    .unwrap_or("gemini-2.0-flash"),
                 "custom" => p.config_json["default_model"].as_str().unwrap_or("default"),
                 _ => "unknown",
             };
@@ -1700,6 +1703,9 @@ async fn get_acp_config(State(state): State<Arc<AppState>>) -> Json<AcpConfigDto
                 "anthropic" => p.config_json["default_model"]
                     .as_str()
                     .unwrap_or("claude-sonnet-4-20250514"),
+                "gemini" => p.config_json["default_model"]
+                    .as_str()
+                    .unwrap_or("gemini-2.0-flash"),
                 _ => p.config_json["default_model"].as_str().unwrap_or("default"),
             };
             AcpProviderOptionDto {
@@ -1769,6 +1775,9 @@ async fn update_acp_config(
                 "anthropic" => p.config_json["default_model"]
                     .as_str()
                     .unwrap_or("claude-sonnet-4-20250514"),
+                "gemini" => p.config_json["default_model"]
+                    .as_str()
+                    .unwrap_or("gemini-2.0-flash"),
                 _ => p.config_json["default_model"].as_str().unwrap_or("default"),
             };
             AcpProviderOptionDto {

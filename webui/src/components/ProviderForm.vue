@@ -6,6 +6,7 @@ import type {
     ProviderConfig,
     OpenAIProviderConfig,
     AnthropicProviderConfig,
+    GeminiProviderConfig,
     CustomProviderConfig,
     Provider,
 } from "../types";
@@ -56,6 +57,17 @@ const anthropicConfig = reactive<AnthropicProviderConfig>({
         : {}),
 });
 
+const geminiConfig = reactive<GeminiProviderConfig>({
+    type: "gemini",
+    base_url: "https://generativelanguage.googleapis.com/v1beta",
+    api_key: "",
+    default_model: "gemini-2.0-flash",
+    supports_multimodal: true,
+    ...(props.provider?.provider_type === "gemini"
+        ? (props.provider.config as GeminiProviderConfig)
+        : {}),
+});
+
 const customConfig = reactive<CustomProviderConfig>({
     type: "custom",
     base_url: "http://localhost:11434",
@@ -98,6 +110,9 @@ function handleSave() {
             break;
         case "anthropic":
             config = { ...anthropicConfig };
+            break;
+        case "gemini":
+            config = { ...geminiConfig };
             break;
         case "custom":
             try {
@@ -172,6 +187,7 @@ function handleSave() {
                                 v-for="typeItem in [
                                     'openai',
                                     'anthropic',
+                                    'gemini',
                                     'custom',
                                 ] as ProviderType[]"
                                 :key="typeItem"
@@ -212,6 +228,20 @@ function handleSave() {
                                     />
                                 </svg>
                                 <svg
+                                    v-if="typeItem === 'gemini'"
+                                    class="type-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <polygon
+                                        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                                    />
+                                </svg>
+                                <svg
                                     v-if="typeItem === 'custom'"
                                     class="type-icon"
                                     viewBox="0 0 24 24"
@@ -231,7 +261,9 @@ function handleSave() {
                                         ? t("providers.type.openai")
                                         : typeItem === "anthropic"
                                           ? t("providers.type.anthropic")
-                                          : t("providers.type.custom")
+                                          : typeItem === "gemini"
+                                            ? t("providers.type.gemini")
+                                            : t("providers.type.custom")
                                 }}
                             </button>
                         </div>
@@ -444,6 +476,105 @@ function handleSave() {
                                     :class="{
                                         'toggle-thumb-active':
                                             anthropicConfig.supports_multimodal,
+                                    }"
+                                ></span>
+                            </button>
+                        </div>
+                    </template>
+
+                    <!-- Gemini Config -->
+                    <template v-if="providerType === 'gemini'">
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.baseUrl")
+                            }}</label>
+                            <input
+                                v-model="geminiConfig.base_url"
+                                type="text"
+                                class="form-input"
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.apiKey")
+                            }}</label>
+                            <div class="input-with-action">
+                                <input
+                                    v-model="geminiConfig.api_key"
+                                    :type="showApiKey ? 'text' : 'password'"
+                                    :placeholder="
+                                        t('providers.form.apiKeyPlaceholder')
+                                    "
+                                    class="form-input"
+                                />
+                                <button
+                                    @click="showApiKey = !showApiKey"
+                                    class="btn-eye"
+                                >
+                                    <svg
+                                        v-if="showApiKey"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                                        />
+                                        <line x1="1" y1="1" x2="23" y2="23" />
+                                    </svg>
+                                    <svg
+                                        v-else
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                                        />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.defaultModel")
+                            }}</label>
+                            <input
+                                v-model="geminiConfig.default_model"
+                                type="text"
+                                :placeholder="
+                                    t('providers.form.defaultModelPlaceholder')
+                                "
+                                class="form-input"
+                            />
+                        </div>
+                        <div class="toggle-row">
+                            <label class="form-label">{{
+                                t("providers.form.supportsMultimodal")
+                            }}</label>
+                            <button
+                                @click="
+                                    geminiConfig.supports_multimodal =
+                                        !geminiConfig.supports_multimodal
+                                "
+                                class="toggle"
+                                :class="{
+                                    'toggle-active':
+                                        geminiConfig.supports_multimodal,
+                                }"
+                            >
+                                <span
+                                    class="toggle-thumb"
+                                    :class="{
+                                        'toggle-thumb-active':
+                                            geminiConfig.supports_multimodal,
                                     }"
                                 ></span>
                             </button>

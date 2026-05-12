@@ -10,6 +10,7 @@ use crate::types;
 pub enum ProviderConfigDto {
     Openai(OpenAIProviderConfigDto),
     Anthropic(AnthropicProviderConfigDto),
+    Gemini(GeminiProviderConfigDto),
     Custom(Box<CustomProviderConfigDto>),
 }
 
@@ -23,6 +24,18 @@ pub struct OpenAIProviderConfigDto {
     /// Defaults to `true` for the standard OpenAI API. Set to `false` when
     /// using a self-hosted server (e.g., llama.cpp) that hasn't been started
     /// with the `--multimodal` flag.
+    #[serde(default = "default_true")]
+    pub supports_multimodal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiProviderConfigDto {
+    pub base_url: String,
+    pub api_key: String,
+    pub default_model: String,
+    /// Whether this provider's backend supports multimodal (image) content.
+    ///
+    /// Defaults to `true` because Gemini's API always supports images.
     #[serde(default = "default_true")]
     pub supports_multimodal: bool,
 }

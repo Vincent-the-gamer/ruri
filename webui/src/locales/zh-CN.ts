@@ -190,6 +190,10 @@ export default {
     description: '配置对话行为、模型参数和代理设置',
     modelParams: '模型参数',
     modelParamsDesc: '调整模型回复的创造性和长度限制',
+    modelProvider: '模型供应商',
+    modelProviderDesc: '选择当前对话使用的模型供应商。默认使用活跃配置文件中的供应商。',
+    providerDefault: '使用配置文件默认',
+    noProvidersHint: '暂未配置任何供应商，请先在供应商页面添加。',
     temperature: '温度',
     maxTokens: '最大 Token',
     maxTokensHint: '范围：1 – 128000',
@@ -260,6 +264,7 @@ export default {
     type: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
+      gemini: 'Gemini',
       custom: '自定义',
       other: '其他',
     },

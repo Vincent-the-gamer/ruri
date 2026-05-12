@@ -17,6 +17,14 @@ export interface AnthropicProviderConfig {
   supports_multimodal?: boolean
 }
 
+export interface GeminiProviderConfig {
+  type: 'gemini'
+  base_url: string
+  api_key: string
+  default_model: string
+  supports_multimodal?: boolean
+}
+
 export interface CustomProviderConfig {
   type: 'custom'
   base_url: string
@@ -36,9 +44,9 @@ export interface CustomProviderConfig {
   supports_multimodal?: boolean
 }
 
-export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | CustomProviderConfig
+export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | GeminiProviderConfig | CustomProviderConfig
 
-export type ProviderType = 'openai' | 'anthropic' | 'custom'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom'
 
 export interface Provider {
   id: string

@@ -10,7 +10,7 @@
 
 ## 特性
 
-- [x] 模型提供商 - Anthropic兼容, OpenAI兼容, 自定义
+- [x] 模型提供商 - Anthropic兼容, OpenAI兼容, Gemini API, 自定义
 - [x] 工具调用
 - [x] 技能
 - [x] 网页搜索
@@ -24,7 +24,7 @@
 - [x] 聊天平台 - 个人微信(微信ClawBot插件)
 - [x] 沙盒 - AIO Sandbox (https://github.com/agent-infra/sandbox)
 - [x] 聊天记录 - 对话管理与筛选搜索
-- [ ] 聊天平台 - OneBot V12（一个自定义聊天机器人标准）
+- [x] 聊天平台 - OneBot V12（一个自定义聊天机器人标准）
 
 ### 未来计划
 

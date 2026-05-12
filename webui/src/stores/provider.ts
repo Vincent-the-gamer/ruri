@@ -116,6 +116,14 @@ export const useProviderStore = defineStore('provider', () => {
           api_version: '2023-06-01',
           supports_multimodal: true,
         }
+      case 'gemini':
+        return {
+          type: 'gemini',
+          base_url: 'https://generativelanguage.googleapis.com/v1beta',
+          api_key: '',
+          default_model: 'gemini-2.0-flash',
+          supports_multimodal: true,
+        }
       case 'custom':
         return {
           type: 'custom',

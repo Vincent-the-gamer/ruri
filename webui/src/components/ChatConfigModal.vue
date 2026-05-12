@@ -204,17 +204,9 @@ function getRuleTypeColor(type: string): string {
 }
 
 // ── Save State ──
-const saveSuccess = ref(false);
-const saveError = ref<string | null>(null);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearMessages() {
-    saveSuccess.value = false;
-    saveError.value = null;
-}
-
 function debouncedSave() {
-    clearMessages();
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         handleSave();
@@ -233,16 +225,8 @@ async function handleSave() {
             active_knowledge_base_ids: selectedKbIds.value,
             proxy_config: { ...proxyConfig },
         });
-        saveSuccess.value = true;
-        setTimeout(() => {
-            saveSuccess.value = false;
-        }, 2000);
-    } catch (e: unknown) {
-        saveError.value =
-            e instanceof Error ? e.message : t("chatConfig.saveFailed");
-        setTimeout(() => {
-            saveError.value = null;
-        }, 3000);
+    } catch {
+        // Auto-save errors are silently ignored
     }
 }
 
@@ -1064,52 +1048,6 @@ defineExpose({
                             </div>
                         </Transition>
                     </section>
-                </div>
-                <!-- Footer -->
-                <div class="modal-footer">
-                    <div class="footer-status">
-                        <Transition name="status-fade">
-                            <span
-                                v-if="saveSuccess"
-                                class="status-text status-success"
-                            >
-                                <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <path
-                                        d="M22 11.08V12a10 10 0 1 1-5.93-9.14"
-                                    />
-                                    <polyline points="22 4 12 14.01 9 11.01" />
-                                </svg>
-                                {{ t("chatConfig.saved") }}
-                            </span>
-                            <span
-                                v-else-if="saveError"
-                                class="status-text status-error"
-                            >
-                                {{ saveError }}
-                            </span>
-                        </Transition>
-                    </div>
-                    <div class="footer-actions">
-                        <button class="btn btn-secondary" @click="close">
-                            {{ t("common.close", "Close") }}
-                        </button>
-                        <button
-                            class="btn btn-primary"
-                            :disabled="!configStore.activeProfileId"
-                            @click="handleSave"
-                        >
-                            {{ t("common.save", "Save") }}
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -1937,97 +1875,6 @@ defineExpose({
 
 .learn-more-link:hover {
     text-decoration: underline;
-}
-
-/* ── Modal Footer ── */
-.modal-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.5rem;
-    border-top: 1px solid hsl(var(--border) / 0.2);
-    flex-shrink: 0;
-}
-
-.footer-status {
-    flex: 1;
-    min-width: 0;
-}
-
-.status-text {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    font-weight: 500;
-}
-
-.status-success {
-    color: hsl(142 76% 36%);
-}
-
-.status-error {
-    color: hsl(var(--destructive));
-}
-
-.status-fade-enter-active {
-    transition: opacity 0.2s ease-out;
-}
-
-.status-fade-leave-active {
-    transition: opacity 0.15s ease-in;
-}
-
-.status-fade-enter-from,
-.status-fade-leave-to {
-    opacity: 0;
-}
-
-.footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    flex-shrink: 0;
-}
-
-.btn-secondary {
-    background: hsl(var(--secondary));
-    color: hsl(var(--foreground));
-    border: 1px solid hsl(var(--border) / 0.4);
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius-md, 0.5rem);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-secondary:hover:not(:disabled) {
-    background: hsl(var(--secondary) / 0.8);
-    border-color: hsl(var(--border));
-}
-
-.btn-primary {
-    background: var(--color-accent, hsl(var(--primary)));
-    color: var(--color-primary-foreground, hsl(var(--primary-foreground)));
-    border: 1px solid transparent;
-    padding: 0.5rem 1.25rem;
-    border-radius: var(--radius-md, 0.5rem);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-primary:hover:not(:disabled) {
-    opacity: 0.9;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
-}
-
-.btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 /* ── Responsive ── */
