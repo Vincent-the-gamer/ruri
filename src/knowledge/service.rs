@@ -386,8 +386,12 @@ impl KnowledgeBaseService {
         let mut all_results: Vec<SearchResult> = Vec::new();
         let mut seen_chunk_ids: HashSet<String> = HashSet::new();
 
+        // Fetch more results per knowledge base to ensure coverage across all KBs
+        // Use top_k * 2 per KB so we don't lose relevant content when merging
+        let per_kb_limit = top_k * 2;
+
         for kb_id in knowledge_base_ids {
-            match self.search(kb_id, query, top_k).await {
+            match self.search(kb_id, query, per_kb_limit).await {
                 Ok(results) => {
                     for result in results {
                         if seen_chunk_ids.insert(result.chunk.id.clone()) {
@@ -412,8 +416,9 @@ impl KnowledgeBaseService {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Truncate to top_k overall
-        all_results.truncate(top_k);
+        // Truncate to a reasonable overall limit (top_k * 2) to provide more context
+        // while still avoiding overwhelming the model with too much content
+        all_results.truncate(top_k * 2);
 
         if all_results.is_empty() {
             return Ok(String::new());

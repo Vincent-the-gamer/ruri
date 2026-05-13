@@ -176,11 +176,14 @@ impl AcpSession {
         if !active_knowledge_base_ids.is_empty() {
             let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
                 knowledge_base_service,
-                active_knowledge_base_ids,
-                5, // top_k
+                active_knowledge_base_ids.clone(),
+                20, // top_k - increased to retrieve more context across all knowledge bases
             );
             agent.add_skill(Arc::new(kb_skill));
-            tracing::info!("KnowledgeBaseSkill added to ACP agent");
+            tracing::info!(
+                kb_count = active_knowledge_base_ids.len(),
+                "KnowledgeBaseSkill added to ACP agent"
+            );
         }
 
         Self {

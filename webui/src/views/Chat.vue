@@ -8,6 +8,7 @@ import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import { useAuthStore } from "../stores/auth";
 import { useDebugSessionStore } from "../stores/debugSession";
+import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import type { AttachedFile } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
@@ -21,6 +22,7 @@ const personaStore = usePersonaStore();
 const configStore = useConfigStore();
 const authStore = useAuthStore();
 const debugSessionStore = useDebugSessionStore();
+const kbStore = useKnowledgeBaseStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
 const showConfigModal = ref(false);
@@ -64,14 +66,16 @@ onMounted(async () => {
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
+        kbStore.fetchKnowledgeBases(),
     ]);
     scrollToBottom();
 });
 
 // When activated from keep-alive cache, gently sync with database
 // (does NOT show loading state, does NOT replace if streaming)
-onActivated(() => {
+onActivated(async () => {
     chatStore.syncWithDatabase();
+    await kbStore.fetchKnowledgeBases();
     scrollToBottom();
 });
 

@@ -970,19 +970,10 @@ async fn send_chat_message(
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
 
-    // Add Knowledge Base skill if knowledge_base_ids are specified in the request
-    if !req.knowledge_base_ids.is_empty() {
-        let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
-            state.knowledge_base_service.clone(),
-            req.knowledge_base_ids.clone(),
-            5, // top_k
-        );
-        agent.add_skill(std::sync::Arc::new(kb_skill));
-        tracing::info!(
-            kb_count = req.knowledge_base_ids.len(),
-            "KnowledgeBaseSkill added to agent from chat request"
-        );
-    }
+    // Knowledge Base skill is already loaded from the debug session context
+    // via build_agent_with_context_extended. Do not add another one here to
+    // ensure strict context isolation — the WebUI chat uses whatever knowledge
+    // bases the debug session configuration has selected.
 
     // Apply Function Calling parameters from the request
     if req.tool_choice.is_some() {
@@ -1306,15 +1297,10 @@ async fn stream_chat_message(
     let mut agent =
         agent_result.map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
 
-    // Add Knowledge Base skill if knowledge_base_ids are specified
-    if !req.knowledge_base_ids.is_empty() {
-        let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
-            state.knowledge_base_service.clone(),
-            req.knowledge_base_ids.clone(),
-            5,
-        );
-        agent.add_skill(std::sync::Arc::new(kb_skill));
-    }
+    // Knowledge Base skill is already loaded from the debug session context
+    // via build_agent_with_context_extended. Do not add another one here to
+    // ensure strict context isolation — the WebUI chat uses whatever knowledge
+    // bases the debug session configuration has selected.
 
     // Apply Function Calling parameters
     if req.tool_choice.is_some() {
@@ -1758,6 +1744,7 @@ async fn get_acp_config(State(state): State<Arc<AppState>>) -> Json<AcpConfigDto
     Json(AcpConfigDto {
         active_provider_id: acp_config.active_provider_id.clone(),
         active_skill_names: acp_config.active_skill_names.clone(),
+        active_knowledge_base_ids: acp_config.active_knowledge_base_ids.clone(),
         available_providers,
         available_skills,
     })
@@ -1791,6 +1778,10 @@ async fn update_acp_config(
 
     if let Some(active_skill_names) = req.active_skill_names {
         acp_config.active_skill_names = active_skill_names;
+    }
+
+    if let Some(active_knowledge_base_ids) = req.active_knowledge_base_ids {
+        acp_config.active_knowledge_base_ids = active_knowledge_base_ids;
     }
 
     let providers = state.providers.read().await;
@@ -1830,6 +1821,7 @@ async fn update_acp_config(
     let dto = AcpConfigDto {
         active_provider_id: acp_config.active_provider_id.clone(),
         active_skill_names: acp_config.active_skill_names.clone(),
+        active_knowledge_base_ids: acp_config.active_knowledge_base_ids.clone(),
         available_providers,
         available_skills,
     };
@@ -2157,7 +2149,6 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             persona_id: p.persona_id.clone(),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
-            acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
@@ -2190,7 +2181,6 @@ async fn get_config_profile(
             persona_id: p.persona_id.clone(),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
-            acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
@@ -2236,7 +2226,6 @@ async fn create_config_profile(
         active_embedded_skill_names: Vec::new(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
-        acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names.clone(),
         active_knowledge_base_ids: req.active_knowledge_base_ids.clone(),
         proxy_config: req.proxy_config.clone(),
@@ -2292,7 +2281,6 @@ async fn create_config_profile(
         persona_id: req.persona_id,
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
-        acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names,
         active_knowledge_base_ids: req.active_knowledge_base_ids,
         proxy_config: req.proxy_config,
@@ -2378,9 +2366,6 @@ async fn update_config_profile(
         if let Some(computer_use_enabled) = req.computer_use_enabled {
             profile.computer_use_enabled = computer_use_enabled;
         }
-        if let Some(acp_enabled) = req.acp_enabled {
-            profile.acp_enabled = acp_enabled;
-        }
         if let Some(active_skill_names) = req.active_skill_names {
             profile.active_skill_names = active_skill_names;
         }
@@ -2422,7 +2407,6 @@ async fn update_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
-            acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
@@ -2556,7 +2540,6 @@ async fn activate_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
-            acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
@@ -2642,7 +2625,6 @@ async fn deactivate_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
-            acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),

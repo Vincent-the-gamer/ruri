@@ -369,9 +369,7 @@ function getPersonaName(personaId: string | null): string {
                                         class="tag"
                                         >Computer</span
                                     >
-                                    <span v-if="config.acp_enabled" class="tag"
-                                        >ACP</span
-                                    >
+
                                     <span
                                         v-if="
                                             config.command_prefix &&

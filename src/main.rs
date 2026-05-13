@@ -364,16 +364,26 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     // ── Agent processing ─────────────────────────────
-                    // Build an agent and process the incoming message
-                    match state_for_platform
-                        .build_agent_with_context(
+                    // Build an agent using the config profile that owns this platform.
+                    // Each platform instance is bound to exactly one config profile,
+                    // so we resolve the profile by platform_id to ensure full context
+                    // isolation (provider, persona, skills, knowledge bases, proxy, etc.).
+                    let profile_id = state_for_platform
+                        .find_profile_by_platform_id(&msg.platform_id)
+                        .await;
+
+                    let agent_result = state_for_platform
+                        .build_agent_with_context_extended(
                             Some(&msg.sender.user_id),
                             Some(&msg.session_id),
                             None,
                             None,
+                            false, // use_debug_session: false — platform messages use profile config
+                            profile_id.as_deref(),
                         )
-                        .await
-                    {
+                        .await;
+
+                    match agent_result {
                         Ok(mut agent) => {
                             // Register a cancellation token for this session so /stop can cancel it
                             let cancel_token = tokio_util::sync::CancellationToken::new();

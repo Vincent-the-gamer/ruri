@@ -2,17 +2,20 @@
 import { onMounted, ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAcpStore } from "../stores/acp";
+import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 
 const { t } = useI18n();
 const acpStore = useAcpStore();
+const kbStore = useKnowledgeBaseStore();
 
 const selectedProviderId = ref<string | null>(null);
 const selectedSkillNames = ref<string[]>([]);
+const selectedKbIds = ref<string[]>([]);
 const saveSuccess = ref(false);
 const saveError = ref<string | null>(null);
 
 onMounted(async () => {
-    await acpStore.fetchConfig();
+    await Promise.all([acpStore.fetchConfig(), kbStore.fetchKnowledgeBases()]);
     syncFromStore();
 });
 
@@ -20,6 +23,9 @@ function syncFromStore() {
     if (acpStore.config) {
         selectedProviderId.value = acpStore.config.active_provider_id;
         selectedSkillNames.value = [...acpStore.config.active_skill_names];
+        selectedKbIds.value = [
+            ...(acpStore.config.active_knowledge_base_ids || []),
+        ];
     }
 }
 
@@ -47,12 +53,27 @@ function clearMessages() {
     saveError.value = null;
 }
 
+function toggleKb(id: string) {
+    const idx = selectedKbIds.value.indexOf(id);
+    if (idx === -1) {
+        selectedKbIds.value.push(id);
+    } else {
+        selectedKbIds.value.splice(idx, 1);
+    }
+    clearMessages();
+}
+
+function isKbSelected(id: string): boolean {
+    return selectedKbIds.value.includes(id);
+}
+
 async function handleSave() {
     clearMessages();
     try {
         await acpStore.updateConfig({
             active_provider_id: selectedProviderId.value,
             active_skill_names: selectedSkillNames.value,
+            active_knowledge_base_ids: selectedKbIds.value,
         });
         saveSuccess.value = true;
         setTimeout(() => {
@@ -81,7 +102,9 @@ const hasChanges = computed(() => {
     return (
         selectedProviderId.value !== acpStore.config.active_provider_id ||
         JSON.stringify(selectedSkillNames.value) !==
-            JSON.stringify(acpStore.config.active_skill_names)
+            JSON.stringify(acpStore.config.active_skill_names) ||
+        JSON.stringify(selectedKbIds.value) !==
+            JSON.stringify(acpStore.config.active_knowledge_base_ids || [])
     );
 });
 </script>
@@ -245,6 +268,78 @@ const hasChanges = computed(() => {
                             @click="toggleSkill(skill.name)"
                             role="switch"
                             :aria-checked="isSkillSelected(skill.name)"
+                        >
+                            <span class="toggle-thumb"></span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Knowledge Base Section -->
+            <section class="config-section">
+                <h2 class="section-title">
+                    {{ t("acpConfig.knowledgeBases", "Knowledge Bases") }}
+                </h2>
+                <p class="section-desc">
+                    {{
+                        t(
+                            "acpConfig.selectKnowledgeBases",
+                            "Select knowledge bases to enable in ACP mode",
+                        )
+                    }}
+                </p>
+
+                <div
+                    v-if="kbStore.knowledgeBases.length === 0"
+                    class="empty-section"
+                >
+                    <p class="empty-section-text">
+                        {{
+                            t(
+                                "acpConfig.noKnowledgeBases",
+                                "No knowledge bases configured",
+                            )
+                        }}
+                    </p>
+                    <p class="empty-section-hint">
+                        {{
+                            t(
+                                "acpConfig.addKnowledgeBaseHint",
+                                "Go to Knowledge Base page to create one",
+                            )
+                        }}
+                    </p>
+                </div>
+
+                <div v-else class="skill-list">
+                    <div
+                        v-for="kb in kbStore.knowledgeBases"
+                        :key="kb.id"
+                        class="skill-option"
+                        :class="{
+                            'skill-option--selected': isKbSelected(kb.id),
+                        }"
+                    >
+                        <div class="skill-info">
+                            <div class="skill-name">{{ kb.name }}</div>
+                            <div class="skill-desc">
+                                {{
+                                    kb.description ||
+                                    t(
+                                        "acpConfig.noDescription",
+                                        "No description",
+                                    )
+                                }}
+                            </div>
+                        </div>
+                        <button
+                            class="toggle"
+                            :class="{
+                                'toggle--on': isKbSelected(kb.id),
+                            }"
+                            @click="toggleKb(kb.id)"
+                            role="switch"
+                            :aria-checked="isKbSelected(kb.id)"
                         >
                             <span class="toggle-thumb"></span>
                         </button>

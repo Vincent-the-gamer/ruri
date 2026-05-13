@@ -201,17 +201,12 @@ impl RuriAgentState {
         let web_search_config = provider_factory.get_web_search_config();
 
         // Extract computer_use_config and active_knowledge_base_ids from persisted config
+        // Knowledge base IDs now come from AcpConfig (ACP-specific configuration)
         let (computer_use_config, active_knowledge_base_ids) = provider_factory
             .config
             .as_ref()
             .map(|c| {
-                let kb_ids = c
-                    .config_profiles
-                    .values()
-                    .filter(|p| p.is_active && p.enable)
-                    .next()
-                    .map(|p| p.active_knowledge_base_ids.clone())
-                    .unwrap_or_default();
+                let kb_ids = c.acp_config.active_knowledge_base_ids.clone();
                 (c.computer_use_config.clone(), kb_ids)
             })
             .unwrap_or_default();

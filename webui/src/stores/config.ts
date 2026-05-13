@@ -149,7 +149,7 @@ export const useConfigStore = defineStore('config', () => {
   const activePersonaId = computed(() => activeConfigProfile.value?.persona_id || null)
   const webSearchEnabled = computed(() => activeConfigProfile.value?.web_search_enabled ?? false)
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
-  const acpEnabled = computed(() => activeConfigProfile.value?.acp_enabled ?? false)
+
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
   const commandPrefix = computed(() => activeConfigProfile.value?.command_prefix ?? '/')
   const enabledCommands = computed(() => activeConfigProfile.value?.enabled_commands ?? [])
@@ -173,7 +173,6 @@ export const useConfigStore = defineStore('config', () => {
     activePersonaId,
     webSearchEnabled,
     computerUseEnabled,
-    acpEnabled,
     activeSkillNames,
     commandPrefix,
     enabledCommands,

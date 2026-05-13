@@ -153,7 +153,6 @@ pub struct PersistedConfigProfile {
     pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
-    pub acp_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
@@ -188,6 +187,9 @@ pub struct AcpConfig {
     pub active_provider_id: Option<String>,
     /// Skill names to enable in ACP mode.
     pub active_skill_names: Vec<String>,
+    /// Knowledge base IDs to enable in ACP mode.
+    #[serde(default)]
+    pub active_knowledge_base_ids: Vec<String>,
 }
 
 /// The top-level persisted config file format.
@@ -319,7 +321,6 @@ pub struct StoredConfigProfile {
     pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
-    pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
     pub active_knowledge_base_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
@@ -580,7 +581,6 @@ impl AppState {
                                 active_embedded_skill_names: p.active_embedded_skill_names,
                                 web_search_enabled: p.web_search_enabled,
                                 computer_use_enabled: p.computer_use_enabled,
-                                acp_enabled: p.acp_enabled,
                                 active_skill_names: p.active_skill_names,
                                 active_knowledge_base_ids: p.active_knowledge_base_ids,
                                 proxy_config: p.proxy_config,
@@ -831,7 +831,6 @@ impl AppState {
                         active_embedded_skill_names: p.active_embedded_skill_names,
                         web_search_enabled: p.web_search_enabled,
                         computer_use_enabled: p.computer_use_enabled,
-                        acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names,
                         active_knowledge_base_ids: p.active_knowledge_base_ids,
                         proxy_config: p.proxy_config,
@@ -1379,7 +1378,6 @@ impl AppState {
                         active_embedded_skill_names: p.active_embedded_skill_names.clone(),
                         web_search_enabled: p.web_search_enabled,
                         computer_use_enabled: p.computer_use_enabled,
-                        acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names.clone(),
                         active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
@@ -1857,22 +1855,15 @@ impl AppState {
         None
     }
 
-    pub async fn build_agent_with_context(
-        &self,
-        user_id: Option<&str>,
-        session_id: Option<&str>,
-        persona_id: Option<&str>,
-        provider_id: Option<&str>,
-    ) -> Result<Agent, String> {
-        self.build_agent_with_context_extended(
-            user_id,
-            session_id,
-            persona_id,
-            provider_id,
-            false, // use_debug_session
-            None,  // profile_id
-        )
-        .await
+    /// Find the config profile that owns a given platform instance ID.
+    /// Returns `None` if no profile claims this platform.
+    pub async fn find_profile_by_platform_id(&self, platform_id: &str) -> Option<String> {
+        let profiles = self.config_profiles.read().await;
+        profiles
+            .iter()
+            .filter(|(_, p)| p.is_active && p.enable)
+            .find(|(_, p)| p.platform_ids.contains(&platform_id.to_string()))
+            .map(|(id, _)| id.clone())
     }
 
     /// Extended version that supports debug session and specific profile selection.

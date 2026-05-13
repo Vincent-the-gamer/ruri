@@ -53,7 +53,6 @@ const formData = ref<{
     custom_error_message: string;
     web_search_enabled: boolean;
     computer_use_enabled: boolean;
-    acp_enabled: boolean;
     active_skill_names: string[];
     active_knowledge_base_ids: string[];
     platform_ids: string[];
@@ -80,7 +79,6 @@ const formData = ref<{
     custom_error_message: "",
     web_search_enabled: false,
     computer_use_enabled: false,
-    acp_enabled: false,
     active_skill_names: [],
     active_knowledge_base_ids: [],
     platform_ids: [],
@@ -115,7 +113,6 @@ watch(
                 custom_error_message: newConfig.custom_error_message || "",
                 web_search_enabled: newConfig.web_search_enabled ?? false,
                 computer_use_enabled: newConfig.computer_use_enabled ?? false,
-                acp_enabled: newConfig.acp_enabled ?? false,
                 active_skill_names: [...(newConfig.active_skill_names || [])],
                 active_knowledge_base_ids: [
                     ...(newConfig.active_knowledge_base_ids || []),
@@ -151,7 +148,6 @@ watch(
                 custom_error_message: "",
                 web_search_enabled: false,
                 computer_use_enabled: false,
-                acp_enabled: false,
                 active_skill_names: [],
                 active_knowledge_base_ids: [],
                 platform_ids: [],
@@ -388,17 +384,20 @@ function isPlatformRunning(id: string) {
 }
 
 function isPlatformUsedByOtherProfile(id: string): boolean {
-    if (!props.config) return false;
     const usedIds = configStore.usedPlatformIds;
-    if (formData.value.platform_ids.includes(id)) return false;
+    // When editing an existing config, exclude its own platforms from conflict check
+    if (props.config && formData.value.platform_ids.includes(id)) return false;
+    // When creating a new config, check if any profile already uses this platform
     return usedIds.has(id);
 }
 
 function getPlatformUsedByProfileName(id: string): string | null {
     if (isPlatformUsedByOtherProfile(id)) {
+        // When creating new config, find any profile using this platform
+        // When editing, exclude the current config from the search
         const profile = configStore.configProfiles.find(
             (p) =>
-                p.id !== props.config?.id &&
+                (!props.config || p.id !== props.config.id) &&
                 (p.platform_ids || []).includes(id),
         );
         return profile?.name || null;
@@ -629,34 +628,6 @@ function handleSubmit() {
                                 :class="{
                                     'toggle-thumb-active':
                                         formData.computer_use_enabled,
-                                }"
-                            ></span>
-                        </button>
-                    </div>
-
-                    <div class="toggle-row">
-                        <div class="toggle-info">
-                            <span class="toggle-text">{{
-                                t("config.form.acp")
-                            }}</span>
-                            <span class="toggle-description">{{
-                                t("config.form.acpDesc")
-                            }}</span>
-                        </div>
-                        <button
-                            type="button"
-                            class="toggle-switch"
-                            :class="{
-                                'toggle-switch-active': formData.acp_enabled,
-                            }"
-                            @click="
-                                formData.acp_enabled = !formData.acp_enabled
-                            "
-                        >
-                            <span
-                                class="toggle-thumb"
-                                :class="{
-                                    'toggle-thumb-active': formData.acp_enabled,
                                 }"
                             ></span>
                         </button>

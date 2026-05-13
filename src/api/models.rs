@@ -304,6 +304,8 @@ pub struct AcpConfigDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_provider_id: Option<String>,
     pub active_skill_names: Vec<String>,
+    #[serde(default)]
+    pub active_knowledge_base_ids: Vec<String>,
     pub available_providers: Vec<AcpProviderOptionDto>,
     pub available_skills: Vec<AcpSkillOptionDto>,
 }
@@ -314,6 +316,8 @@ pub struct UpdateAcpConfigRequest {
     pub active_provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_knowledge_base_ids: Option<Vec<String>>,
 }
 
 // ─── Persona Models ──────────────────────────────────────────────
@@ -533,7 +537,6 @@ pub struct ConfigProfileDto {
     pub persona_id: Option<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
-    pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
@@ -568,7 +571,6 @@ pub struct CreateConfigProfileRequest {
     pub persona_id: Option<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
-    pub acp_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
@@ -606,8 +608,6 @@ pub struct UpdateConfigProfileRequest {
     pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub acp_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

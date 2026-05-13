@@ -244,6 +244,7 @@ export interface AcpSkillOption {
 export interface AcpConfig {
   active_provider_id: string | null
   active_skill_names: string[]
+  active_knowledge_base_ids: string[]
   available_providers: AcpProviderOption[]
   available_skills: AcpSkillOption[]
 }
@@ -251,6 +252,7 @@ export interface AcpConfig {
 export interface UpdateAcpConfigRequest {
   active_provider_id: string | null
   active_skill_names: string[]
+  active_knowledge_base_ids?: string[]
 }
 
 // ─── Log Types ────────────────────────────────────────────────────────
@@ -361,7 +363,6 @@ export interface ConfigProfile {
   persona_id: string | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
-  acp_enabled: boolean
   // 技能配置
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
@@ -387,7 +388,6 @@ export interface CreateConfigProfileRequest {
   persona_id: string | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
-  acp_enabled: boolean
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
   command_prefix: string
@@ -406,7 +406,6 @@ export interface UpdateConfigProfileRequest {
   persona_id?: string | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
-  acp_enabled?: boolean
   active_skill_names?: string[]
   active_knowledge_base_ids?: string[]
   command_prefix?: string
