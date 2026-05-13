@@ -219,17 +219,17 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── Initialize chat platform adapters ────────────────────────
-    // Only start adapters that are listed in the active config profile's
-    // `active_platform_ids`. Platform configs are already loaded into
+    // Only start adapters that are enabled in the platform config.
+    // Platform configs are already loaded into
     // `state.platform_configs` by `load_platforms_config()` above.
     {
-        state.sync_platforms_with_active_profile().await;
+        state.sync_platforms().await;
 
         let pm = state.platform_manager.read().await;
         if !pm.is_empty() {
-            tracing::info!("Active platform adapters: {}", pm.len());
+            tracing::info!("Enabled platform adapters: {}", pm.len());
         } else {
-            tracing::info!("No platform adapters configured in active profile");
+            tracing::info!("No platform adapters enabled");
         }
     }
 
@@ -546,8 +546,8 @@ async fn main() -> anyhow::Result<()> {
                                                 state_for_platform.config_profiles.read().await;
                                             profiles
                                                 .values()
-                                                .find(|p| p.is_active && p.enable)
-                                                .and_then(|p| p.custom_error_message.clone())
+                                                .filter(|p| p.is_active && p.enable)
+                                                .find_map(|p| p.custom_error_message.clone())
                                                 .unwrap_or_else(|| e.to_string())
                                         };
                                         let pm = platform_manager_ref.read().await;
@@ -570,8 +570,8 @@ async fn main() -> anyhow::Result<()> {
                                 let profiles = state_for_platform.config_profiles.read().await;
                                 profiles
                                     .values()
-                                    .find(|p| p.is_active && p.enable)
-                                    .and_then(|p| p.custom_error_message.clone())
+                                    .filter(|p| p.is_active && p.enable)
+                                    .find_map(|p| p.custom_error_message.clone())
                                     .unwrap_or_else(|| e.to_string())
                             };
                             let pm = platform_manager_ref.read().await;
@@ -660,11 +660,100 @@ async fn main() -> anyhow::Result<()> {
                         // Reload platform configs into memory
                         state_for_watcher.load_platforms_config().await;
 
-                        // Sync adapters with the active profile (only
-                        // start/stop those that differ)
-                        state_for_watcher.sync_platforms_with_active_profile().await;
+                        // Sync adapters with their enable state
+                        state_for_watcher.sync_platforms().await;
 
                         tracing::info!("Platforms hot-reloaded successfully");
+
+                        last_modified = Some(current);
+                    }
+                    (_, Some(current)) => {
+                        // Update last_modified even if no change detected
+                        last_modified = Some(current);
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    // ── Watch config.json for changes (hot-reload) ─────────────
+    {
+        let state_for_watcher = state.clone();
+        let config_path = state.config_path.clone();
+
+        tokio::spawn(async move {
+            // Use a simple polling approach for file watching
+            // Check every 5 seconds for file modification time changes
+            let mut last_modified: Option<std::time::SystemTime> = None;
+
+            // Initialize with the current modification time
+            if let Ok(metadata) = std::fs::metadata(&config_path) {
+                last_modified = metadata.modified().ok();
+            }
+
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                let current_modified = std::fs::metadata(&config_path)
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+
+                match (last_modified, current_modified) {
+                    (Some(last), Some(current)) if current > last => {
+                        tracing::info!("Detected change in config.json, reloading...");
+
+                        match state_for_watcher.reload_config_from_file().await {
+                            Ok(()) => {
+                                // Sync platforms with their enable state
+                                state_for_watcher.sync_platforms().await;
+
+                                // Update command dispatcher state - merge from all active profiles
+                                {
+                                    let profiles = state_for_watcher.config_profiles.read().await;
+                                    let active_profiles: Vec<_> = profiles
+                                        .values()
+                                        .filter(|p| p.is_active && p.enable)
+                                        .collect();
+                                    if !active_profiles.is_empty() {
+                                        let mut merged_enabled_commands: Vec<String> = Vec::new();
+                                        let mut merged_command_admin_required:
+                                            std::collections::HashMap<String, bool> =
+                                            std::collections::HashMap::new();
+                                        let effective_prefix =
+                                            active_profiles[0].command_prefix.clone();
+
+                                        for profile in &active_profiles {
+                                            for cmd in &profile.enabled_commands {
+                                                if !merged_enabled_commands.contains(cmd) {
+                                                    merged_enabled_commands.push(cmd.clone());
+                                                }
+                                            }
+                                            for (cmd, admin_req) in &profile.command_admin_required
+                                            {
+                                                merged_command_admin_required
+                                                    .insert(cmd.clone(), *admin_req);
+                                            }
+                                        }
+
+                                        let mut dispatcher =
+                                            state_for_watcher.command_dispatcher.write().await;
+                                        dispatcher.set_prefix(effective_prefix);
+                                        dispatcher.set_enabled_commands(merged_enabled_commands);
+                                        drop(dispatcher);
+                                        let mut computer_use_config =
+                                            state_for_watcher.computer_use_config.write().await;
+                                        computer_use_config.command_admin_required =
+                                            merged_command_admin_required;
+                                    }
+                                }
+
+                                tracing::info!("Config hot-reloaded successfully");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to reload config: {}", e);
+                            }
+                        }
 
                         last_modified = Some(current);
                     }

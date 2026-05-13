@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
+import { useConfigStore } from "../stores/config";
+import { getBuiltinCommands } from "../api";
 import {
     type ProxyRuleType,
     type ProxyMode,
     ProxyRuleTypeLabels,
     type ConfigProfile,
     type ProxyRule,
+    type BuiltinCommand,
 } from "../types";
 
 interface Props {
@@ -35,6 +38,7 @@ const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
+const configStore = useConfigStore();
 const kbStore = useKnowledgeBaseStore();
 
 const formData = ref<{
@@ -44,13 +48,15 @@ const formData = ref<{
     provider_id: string | null;
     persona_id: string | null;
     command_prefix: string;
+    enabled_commands: string[];
+    command_admin_required: Record<string, boolean>;
     custom_error_message: string;
     web_search_enabled: boolean;
     computer_use_enabled: boolean;
     acp_enabled: boolean;
     active_skill_names: string[];
-    active_platform_ids: string[];
     active_knowledge_base_ids: string[];
+    platform_ids: string[];
     proxy_config: {
         enabled: boolean;
         url: string;
@@ -69,13 +75,15 @@ const formData = ref<{
     provider_id: null,
     persona_id: null,
     command_prefix: "",
+    enabled_commands: [],
+    command_admin_required: {},
     custom_error_message: "",
     web_search_enabled: false,
     computer_use_enabled: false,
     acp_enabled: false,
     active_skill_names: [],
-    active_platform_ids: [],
     active_knowledge_base_ids: [],
+    platform_ids: [],
     proxy_config: {
         enabled: false,
         url: "",
@@ -100,15 +108,19 @@ watch(
                 provider_id: newConfig.provider_id || null,
                 persona_id: newConfig.persona_id || null,
                 command_prefix: newConfig.command_prefix || "",
+                enabled_commands: [...(newConfig.enabled_commands || [])],
+                command_admin_required: {
+                    ...(newConfig.command_admin_required || {}),
+                },
                 custom_error_message: newConfig.custom_error_message || "",
                 web_search_enabled: newConfig.web_search_enabled ?? false,
                 computer_use_enabled: newConfig.computer_use_enabled ?? false,
                 acp_enabled: newConfig.acp_enabled ?? false,
                 active_skill_names: [...(newConfig.active_skill_names || [])],
-                active_platform_ids: [...(newConfig.active_platform_ids || [])],
                 active_knowledge_base_ids: [
                     ...(newConfig.active_knowledge_base_ids || []),
                 ],
+                platform_ids: [...(newConfig.platform_ids || [])],
                 proxy_config: {
                     enabled: newConfig.proxy_config?.enabled ?? false,
                     url: newConfig.proxy_config?.url || "",
@@ -134,13 +146,15 @@ watch(
                 provider_id: null,
                 persona_id: null,
                 command_prefix: "",
+                enabled_commands: [],
+                command_admin_required: {},
                 custom_error_message: "",
                 web_search_enabled: false,
                 computer_use_enabled: false,
                 acp_enabled: false,
                 active_skill_names: [],
-                active_platform_ids: [],
                 active_knowledge_base_ids: [],
+                platform_ids: [],
                 proxy_config: {
                     enabled: false,
                     url: "",
@@ -157,6 +171,74 @@ watch(
     },
     { immediate: true },
 );
+
+// Built-in commands for the command configuration section
+const builtinCommands = ref<BuiltinCommand[]>([]);
+const commandsLoading = ref(false);
+
+onMounted(async () => {
+    commandsLoading.value = true;
+    try {
+        builtinCommands.value = await getBuiltinCommands();
+    } catch {
+        // Silently fail - commands are not critical for form rendering
+    } finally {
+        commandsLoading.value = false;
+    }
+});
+
+const visibleCommands = computed(() =>
+    builtinCommands.value.filter((c) => !c.hidden),
+);
+
+function isCommandEnabled(name: string): boolean {
+    return formData.value.enabled_commands.includes(name);
+}
+
+function toggleCommand(name: string) {
+    const index = formData.value.enabled_commands.indexOf(name);
+    if (index >= 0) {
+        formData.value.enabled_commands.splice(index, 1);
+    } else {
+        formData.value.enabled_commands.push(name);
+    }
+}
+
+const allCommandsSelected = computed(
+    () =>
+        visibleCommands.value.length > 0 &&
+        formData.value.enabled_commands.length === visibleCommands.value.length,
+);
+const noCommandsSelected = computed(
+    () => formData.value.enabled_commands.length === 0,
+);
+
+function selectAllCommands() {
+    formData.value.enabled_commands = visibleCommands.value.map((c) => c.name);
+}
+
+function deselectAllCommands() {
+    formData.value.enabled_commands = [];
+}
+
+function toggleCommandAdmin(cmd: BuiltinCommand) {
+    if (formData.value.command_admin_required[cmd.name] === undefined) {
+        // First click: set to opposite of default
+        formData.value.command_admin_required[cmd.name] =
+            !cmd.default_require_admin;
+    } else {
+        // Already overridden, toggle
+        formData.value.command_admin_required[cmd.name] =
+            !formData.value.command_admin_required[cmd.name];
+    }
+}
+
+function getEffectiveAdminRequired(cmd: BuiltinCommand): boolean {
+    return (
+        formData.value.command_admin_required[cmd.name] ??
+        cmd.default_require_admin
+    );
+}
 
 const isEdit = computed(() => !!props.config);
 
@@ -253,17 +335,34 @@ function isSkillActive(name: string) {
     return formData.value.active_skill_names.includes(name);
 }
 
+const allSkillsSelected = computed(
+    () =>
+        skillStore.skills.length > 0 &&
+        formData.value.active_skill_names.length === skillStore.skills.length,
+);
+const noSkillsSelected = computed(
+    () => formData.value.active_skill_names.length === 0,
+);
+
+function selectAllSkills() {
+    formData.value.active_skill_names = skillStore.skills.map((s) => s.name);
+}
+
+function deselectAllSkills() {
+    formData.value.active_skill_names = [];
+}
+
 function togglePlatform(id: string) {
-    const index = formData.value.active_platform_ids.indexOf(id);
+    const index = formData.value.platform_ids.indexOf(id);
     if (index >= 0) {
-        formData.value.active_platform_ids.splice(index, 1);
+        formData.value.platform_ids.splice(index, 1);
     } else {
-        formData.value.active_platform_ids.push(id);
+        formData.value.platform_ids.push(id);
     }
 }
 
 function isPlatformActive(id: string) {
-    return formData.value.active_platform_ids.includes(id);
+    return formData.value.platform_ids.includes(id);
 }
 
 function toggleKb(id: string) {
@@ -286,6 +385,25 @@ function getPlatformStatus(id: string) {
 
 function isPlatformRunning(id: string) {
     return getPlatformStatus(id) === "running";
+}
+
+function isPlatformUsedByOtherProfile(id: string): boolean {
+    if (!props.config) return false;
+    const usedIds = configStore.usedPlatformIds;
+    if (formData.value.platform_ids.includes(id)) return false;
+    return usedIds.has(id);
+}
+
+function getPlatformUsedByProfileName(id: string): string | null {
+    if (isPlatformUsedByOtherProfile(id)) {
+        const profile = configStore.configProfiles.find(
+            (p) =>
+                p.id !== props.config?.id &&
+                (p.platform_ids || []).includes(id),
+        );
+        return profile?.name || null;
+    }
+    return null;
 }
 
 const restartingPlatformId = ref<string | null>(null);
@@ -339,17 +457,6 @@ function handleSubmit() {
                             class="form-input"
                             :placeholder="t('config.form.namePlaceholder')"
                             required
-                        />
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">{{
-                            t("config.form.commandPrefix")
-                        }}</label>
-                        <input
-                            v-model="formData.command_prefix"
-                            type="text"
-                            class="form-input"
-                            :placeholder="'/'"
                         />
                     </div>
                     <div class="form-group">
@@ -457,9 +564,6 @@ function handleSubmit() {
                         </select>
                     </div>
                 </div>
-                <p class="form-hint">
-                    {{ t("config.form.commandPrefixDesc") }}
-                </p>
             </div>
 
             <!-- Capabilities -->
@@ -560,9 +664,137 @@ function handleSubmit() {
                 </div>
             </div>
 
+            <!-- Commands -->
+            <div class="form-section">
+                <h3 class="section-title">
+                    {{ t("config.form.commands") }}
+                </h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">{{
+                            t("config.form.commandPrefix")
+                        }}</label>
+                        <input
+                            v-model="formData.command_prefix"
+                            type="text"
+                            class="form-input"
+                            :placeholder="'/'"
+                        />
+                        <p class="form-hint">
+                            {{ t("config.form.commandPrefixHint") }}
+                        </p>
+                    </div>
+                </div>
+                <div
+                    v-if="visibleCommands.length > 0"
+                    class="kb-actions"
+                    style="margin-top: 0.75rem"
+                >
+                    <button
+                        class="btn btn-sm btn-outline"
+                        @click="selectAllCommands"
+                        :disabled="allCommandsSelected"
+                    >
+                        {{ t("config.form.selectAllCommands") }}
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline"
+                        @click="deselectAllCommands"
+                        :disabled="noCommandsSelected"
+                    >
+                        {{ t("config.form.deselectAllCommands") }}
+                    </button>
+                </div>
+                <div
+                    v-if="commandsLoading"
+                    class="no-items"
+                    style="margin-top: 0.75rem"
+                >
+                    {{ t("config.form.loadingCommands") }}
+                </div>
+                <div
+                    v-else-if="visibleCommands.length === 0"
+                    class="no-items"
+                    style="margin-top: 0.75rem"
+                >
+                    {{ t("config.form.noCommands") }}
+                </div>
+                <div v-else class="items-grid" style="margin-top: 0.75rem">
+                    <div
+                        v-for="cmd in visibleCommands"
+                        :key="cmd.name"
+                        class="item-card"
+                        :class="{ active: isCommandEnabled(cmd.name) }"
+                        @click="toggleCommand(cmd.name)"
+                    >
+                        <span class="item-name">
+                            <span class="cmd-name"
+                                >{{ formData.command_prefix || "/"
+                                }}{{ cmd.name }}</span
+                            >
+                            <span class="cmd-desc">{{ cmd.description }}</span>
+                        </span>
+                        <span class="cmd-right">
+                            <button
+                                v-if="isCommandEnabled(cmd.name)"
+                                class="admin-toggle-btn"
+                                :class="{
+                                    'admin-toggle-btn--admin':
+                                        getEffectiveAdminRequired(cmd),
+                                    'admin-toggle-btn--open':
+                                        !getEffectiveAdminRequired(cmd),
+                                }"
+                                @click.stop="toggleCommandAdmin(cmd)"
+                                :title="
+                                    getEffectiveAdminRequired(cmd)
+                                        ? t('config.form.requireAdmin')
+                                        : t('config.form.openToAll')
+                                "
+                            >
+                                {{
+                                    getEffectiveAdminRequired(cmd) ? "🔒" : "🌐"
+                                }}
+                            </button>
+                            <span class="item-checkbox">
+                                <svg
+                                    v-if="isCommandEnabled(cmd.name)"
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="3"
+                                >
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            </span>
+                        </span>
+                    </div>
+                </div>
+                <p class="form-hint" style="margin-top: 0.5rem">
+                    {{ t("config.form.commandsHint") }}
+                </p>
+            </div>
+
             <!-- Skills -->
             <div class="form-section">
                 <h3 class="section-title">{{ t("config.form.skills") }}</h3>
+                <div v-if="skillStore.skills.length > 0" class="kb-actions">
+                    <button
+                        class="btn btn-sm btn-outline"
+                        @click="selectAllSkills"
+                        :disabled="allSkillsSelected"
+                    >
+                        {{ t("config.form.selectAllSkills") }}
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline"
+                        @click="deselectAllSkills"
+                        :disabled="noSkillsSelected"
+                    >
+                        {{ t("config.form.deselectAllSkills") }}
+                    </button>
+                </div>
                 <div v-if="skillStore.skills.length === 0" class="no-items">
                     {{ t("config.form.noSkillsAvailable") }}
                 </div>
@@ -610,8 +842,16 @@ function handleSubmit() {
                         :class="[
                             'item-card',
                             { active: isPlatformActive(platform.id) },
+                            {
+                                disabled: isPlatformUsedByOtherProfile(
+                                    platform.id,
+                                ),
+                            },
                         ]"
-                        @click="togglePlatform(platform.id)"
+                        @click="
+                            !isPlatformUsedByOtherProfile(platform.id) &&
+                            togglePlatform(platform.id)
+                        "
                     >
                         <span class="platform-info">
                             <span
@@ -635,6 +875,17 @@ function handleSubmit() {
                                     platform.platform_type
                                 }})</span
                             >
+                            <span
+                                v-if="getPlatformUsedByProfileName(platform.id)"
+                                class="platform-used-badge"
+                                :title="
+                                    t('config.form.platformUsedBy') +
+                                    ' ' +
+                                    getPlatformUsedByProfileName(platform.id)
+                                "
+                            >
+                                🔒
+                            </span>
                         </span>
                         <span class="platform-actions">
                             <button
@@ -1479,6 +1730,12 @@ function handleSubmit() {
 }
 
 /* Items grid (skills, platforms, KB) */
+.kb-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
 .no-items {
     padding: 1.5rem;
     text-align: center;
@@ -1518,6 +1775,21 @@ function handleSubmit() {
     background: hsl(var(--primary) / 0.08);
 }
 
+.item-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.item-card.disabled:hover {
+    transform: none;
+}
+
+.platform-used-badge {
+    font-size: 0.7rem;
+    color: var(--text-tertiary, #888);
+    margin-left: 0.25rem;
+}
+
 .item-name {
     font-weight: 500;
     color: hsl(var(--foreground));
@@ -1525,6 +1797,8 @@ function handleSubmit() {
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .item-checkbox {
@@ -1604,6 +1878,60 @@ function handleSubmit() {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Command card specific styles */
+.cmd-right {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+}
+
+.cmd-name {
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.8125rem;
+}
+
+.cmd-desc {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    display: block;
+    margin-top: 0.125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.admin-toggle-btn--admin {
+    background: hsl(38 92% 50% / 0.15);
+}
+
+.admin-toggle-btn--admin:hover {
+    background: hsl(38 92% 50% / 0.25);
+}
+
+.admin-toggle-btn--open {
+    background: hsl(142 76% 36% / 0.12);
+}
+
+.admin-toggle-btn--open:hover {
+    background: hsl(142 76% 36% / 0.2);
 }
 
 /* Footer with aligned buttons */

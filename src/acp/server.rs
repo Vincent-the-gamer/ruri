@@ -208,7 +208,8 @@ impl RuriAgentState {
                 let kb_ids = c
                     .config_profiles
                     .values()
-                    .find(|p| p.is_active && p.enable)
+                    .filter(|p| p.is_active && p.enable)
+                    .next()
                     .map(|p| p.active_knowledge_base_ids.clone())
                     .unwrap_or_default();
                 (c.computer_use_config.clone(), kb_ids)
@@ -687,8 +688,8 @@ impl ProviderFactory {
         let active_profile_persona_id = config
             .config_profiles
             .values()
-            .find(|p| p.is_active && p.enable)
-            .and_then(|p| p.persona_id.clone());
+            .filter(|p| p.is_active && p.enable)
+            .find_map(|p| p.persona_id.clone());
 
         if let Some(persona_id) = active_profile_persona_id {
             if let Some(persona) = config.personas.get(&persona_id) {

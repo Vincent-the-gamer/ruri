@@ -6,6 +6,7 @@ import { usePersonaStore } from "../stores/persona";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useProviderStore } from "../stores/provider";
 import { useDebugSessionStore } from "../stores/debugSession";
+import { useSkillStore } from "../stores/skill";
 import { ProxyRuleTypeLabels } from "../types";
 import type {
     ProxyConfig,
@@ -39,6 +40,7 @@ const personaStore = usePersonaStore();
 const kbStore = useKnowledgeBaseStore();
 const providerStore = useProviderStore();
 const debugSessionStore = useDebugSessionStore();
+const skillStore = useSkillStore();
 
 // ── Model Provider Selection ──
 const selectedProviderId = ref<string | null>(null);
@@ -96,6 +98,36 @@ function selectAllKb() {
 
 function clearAllKb() {
     selectedKbIds.value = [];
+    debouncedSave();
+}
+
+// ── Skill Selection ──
+const selectedSkillNames = ref<string[]>([]);
+const skills = computed(() => skillStore.skills);
+const allSkillsSelected = computed(
+    () =>
+        skills.value.length > 0 &&
+        selectedSkillNames.value.length === skills.value.length,
+);
+const noSkillsSelected = computed(() => selectedSkillNames.value.length === 0);
+
+function toggleSkillSelection(skillName: string) {
+    const idx = selectedSkillNames.value.indexOf(skillName);
+    if (idx === -1) {
+        selectedSkillNames.value.push(skillName);
+    } else {
+        selectedSkillNames.value.splice(idx, 1);
+    }
+    debouncedSave();
+}
+
+function selectAllSkills() {
+    selectedSkillNames.value = skills.value.map((s) => s.name);
+    debouncedSave();
+}
+
+function clearAllSkills() {
+    selectedSkillNames.value = [];
     debouncedSave();
 }
 
@@ -229,6 +261,7 @@ async function handleSave() {
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
             knowledge_base_ids: selectedKbIds.value,
+            active_skill_names: selectedSkillNames.value,
             provider_id: selectedProviderId.value,
         });
     } catch {
@@ -256,6 +289,7 @@ watch(
             maxTokens.value = session.max_tokens ?? 4096;
             customErrorMessage.value = session.custom_error_message || "";
             selectedKbIds.value = [...(session.knowledge_base_ids || [])];
+            selectedSkillNames.value = [...(session.active_skill_names || [])];
         }
     },
     { immediate: true },
@@ -317,6 +351,7 @@ onMounted(async () => {
         configStore.fetchConfigProfiles(),
         personaStore.fetchPersonas(),
         kbStore.fetchKnowledgeBases(),
+        skillStore.fetchSkills(),
         providerStore.fetchProviders(),
     ]);
 });
@@ -675,6 +710,91 @@ defineExpose({
                                 class="learn-more-link"
                             >
                                 {{ t("chatConfig.goToKb") }}
+                            </router-link>
+                        </div>
+                    </section>
+
+                    <!-- Section: Skills -->
+                    <section class="config-section">
+                        <h2 class="section-title">
+                            <span class="section-icon">⚡</span>
+                            {{ t("chatConfig.skills") }}
+                        </h2>
+                        <p class="section-desc">
+                            {{
+                                t(
+                                    "chatConfig.skillsDesc",
+                                    "Select skills to enable for this conversation",
+                                )
+                            }}
+                        </p>
+
+                        <div v-if="skills.length > 0" class="kb-actions">
+                            <button
+                                class="btn btn-sm btn-outline"
+                                @click="selectAllSkills"
+                                :disabled="allSkillsSelected"
+                            >
+                                {{ t("chatConfig.selectAllSkills") }}
+                            </button>
+                            <button
+                                class="btn btn-sm btn-outline"
+                                @click="clearAllSkills"
+                                :disabled="noSkillsSelected"
+                            >
+                                {{ t("chatConfig.clearAllSkills") }}
+                            </button>
+                        </div>
+
+                        <div v-if="skills.length > 0" class="kb-grid">
+                            <div
+                                v-for="skill in skills"
+                                :key="skill.name"
+                                class="kb-card"
+                                :class="{
+                                    'kb-card--selected':
+                                        selectedSkillNames.includes(skill.name),
+                                }"
+                                @click="toggleSkillSelection(skill.name)"
+                            >
+                                <div class="kb-card-header">
+                                    <span class="kb-card-name">{{
+                                        skill.name
+                                    }}</span>
+                                    <span class="kb-card-check">
+                                        <svg
+                                            v-if="
+                                                selectedSkillNames.includes(
+                                                    skill.name,
+                                                )
+                                            "
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="3"
+                                        >
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                    </span>
+                                </div>
+                                <p
+                                    v-if="skill.description"
+                                    class="kb-card-desc"
+                                >
+                                    {{ skill.description }}
+                                </p>
+                                <div class="kb-card-meta">
+                                    <span>{{ skill.skill_type }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-else class="empty-state">
+                            <p>{{ t("chatConfig.noSkills") }}</p>
+                            <router-link to="/skills" class="learn-more-link">
+                                {{ t("chatConfig.goToSkills") }}
                             </router-link>
                         </div>
                     </section>

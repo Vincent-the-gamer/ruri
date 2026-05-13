@@ -536,17 +536,24 @@ pub struct ConfigProfileDto {
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
     #[serde(default)]
-    pub active_platform_ids: Vec<String>,
-    #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
+    /// List of enabled built-in command names for this profile.
+    #[serde(default)]
+    pub enabled_commands: Vec<String>,
+    /// Per-command admin requirement overrides for this profile.
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
+    /// Platform instance IDs that this profile is associated with.
+    #[serde(default)]
+    pub platform_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -565,17 +572,22 @@ pub struct CreateConfigProfileRequest {
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
-    pub active_platform_ids: Vec<String>,
-    #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
+    #[serde(default)]
+    pub enabled_commands: Vec<String>,
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
+    /// Platform instance IDs that this profile is associated with.
+    #[serde(default)]
+    pub platform_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -599,17 +611,21 @@ pub struct UpdateConfigProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_platform_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub active_knowledge_base_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_config: Option<crate::types::ProxyConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_admin_required: Option<HashMap<String, bool>>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<Option<String>>,
+    /// Platform instance IDs that this profile is associated with.
+    #[serde(default)]
+    pub platform_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -733,6 +749,7 @@ pub struct UpdateMcpServerRequest {
 pub struct PlatformInstanceDto {
     pub id: String,
     pub platform_type: String,
+    pub enable: bool,
     pub config: serde_json::Value,
     pub status: String,
 }
@@ -742,6 +759,8 @@ pub struct CreatePlatformRequest {
     pub id: String,
     #[serde(rename = "type")]
     pub platform_type: String,
+    #[serde(default = "default_true")]
+    pub enable: bool,
     #[serde(flatten)]
     pub config: serde_json::Value,
 }
@@ -751,6 +770,8 @@ pub struct UpdatePlatformRequest {
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub platform_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable: Option<bool>,
     #[serde(flatten)]
     pub config: Option<serde_json::Value>,
 }

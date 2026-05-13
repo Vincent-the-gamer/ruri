@@ -111,6 +111,7 @@ pub trait Command: Send + Sync {
 pub struct CommandDispatcher {
     commands: HashMap<String, Arc<dyn Command>>,
     prefix: String,
+    enabled_commands: Vec<String>,
 }
 
 impl CommandDispatcher {
@@ -119,6 +120,7 @@ impl CommandDispatcher {
         Self {
             commands: HashMap::new(),
             prefix: DEFAULT_PREFIX.to_string(),
+            enabled_commands: Vec::new(),
         }
     }
 
@@ -139,6 +141,16 @@ impl CommandDispatcher {
     /// Update the command prefix.
     pub fn set_prefix(&mut self, prefix: String) {
         self.prefix = prefix;
+    }
+
+    /// Update the list of enabled commands.
+    pub fn set_enabled_commands(&mut self, commands: Vec<String>) {
+        self.enabled_commands = commands;
+    }
+
+    /// Check if a command is enabled.
+    pub fn is_command_enabled(&self, command_name: &str) -> bool {
+        self.enabled_commands.contains(&command_name.to_string())
     }
 
     /// Check if a message is a command (starts with the prefix).
@@ -188,6 +200,17 @@ impl CommandDispatcher {
                 return None;
             }
         };
+
+        // Check if this command is enabled
+        if !self.is_command_enabled(cmd_name) {
+            tracing::info!(
+                command = %cmd_name,
+                user_id = %ctx.user_id,
+                session_id = %ctx.session_id,
+                "Command disabled, ignoring"
+            );
+            return None;
+        }
 
         // Check admin permission: use per-command override from config,
         // falling back to the command's default `require_admin()`.
@@ -261,19 +284,16 @@ impl CommandDispatcher {
         cmds
     }
 
-    /// Check whether a command with the given name is registered.
-    pub fn has_command(&self, name: &str) -> bool {
-        self.commands.contains_key(name)
-    }
-
     /// List all registered commands as serializable info structs.
     ///
-    /// `command_admin_required` comes from `ComputerUseConfig` and provides
+    /// `command_admin_required` comes from the active config profile and provides
     /// runtime overrides for the per-command admin requirement.
+    /// `enabled_commands` determines which commands are enabled.
     pub fn list_commands_info(
         &self,
         prefix: &str,
         command_admin_required: &std::collections::HashMap<String, bool>,
+        enabled_commands: &[String],
     ) -> Vec<BuiltinCommandInfo> {
         let mut cmds: Vec<_> = self
             .commands
@@ -291,6 +311,7 @@ impl CommandDispatcher {
                     require_admin: effective,
                     default_require_admin: default,
                     hidden: c.hidden(),
+                    enabled: enabled_commands.contains(&c.name().to_string()),
                 }
             })
             .collect();
@@ -315,6 +336,8 @@ pub struct BuiltinCommandInfo {
     pub default_require_admin: bool,
     /// Whether this command should be hidden from listings.
     pub hidden: bool,
+    /// Whether this command is enabled in the active config profile.
+    pub enabled: bool,
 }
 
 /// Create a dispatcher pre-loaded with all built-in commands.

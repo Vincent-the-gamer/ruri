@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::{IntoResponse, Response, sse::Event},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
 };
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
@@ -124,10 +124,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/tools", get(list_tools))
         // Built-in commands
         .route("/api/commands", get(list_builtin_commands))
-        .route(
-            "/api/commands/admin-required",
-            put(update_command_admin_required),
-        )
         // Chat
         .route("/api/chat", post(send_chat_message))
         .route("/api/chat/stream", post(stream_chat_message))
@@ -159,6 +155,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/config-profiles/{id}/activate",
             post(activate_config_profile),
+        )
+        .route(
+            "/api/config-profiles/{id}/deactivate",
+            post(deactivate_config_profile),
         )
         .route(
             "/api/config-profiles/{id}/provider",
@@ -1133,8 +1133,8 @@ async fn send_chat_message(
             state.config_profiles.try_read().ok().and_then(|profiles| {
                 profiles
                     .values()
-                    .find(|p| p.is_active && p.enable)
-                    .and_then(|p| p.custom_error_message.clone())
+                    .filter(|p| p.is_active && p.enable)
+                    .find_map(|p| p.custom_error_message.clone())
             })
         });
         let error_msg = custom_msg.unwrap_or_else(|| e.to_string());
@@ -1507,8 +1507,8 @@ async fn stream_chat_message(
                                 state_clone.config_profiles.try_read().ok().and_then(|profiles| {
                                     profiles
                                         .values()
-                                        .find(|p| p.is_active && p.enable)
-                                        .and_then(|p| p.custom_error_message.clone())
+                                        .filter(|p| p.is_active && p.enable)
+                                        .find_map(|p| p.custom_error_message.clone())
                                 })
                             });
                             let error_msg = custom_msg.unwrap_or_else(|| e.to_string());
@@ -2159,11 +2159,13 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             computer_use_enabled: p.computer_use_enabled,
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
-            active_platform_ids: p.active_platform_ids.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
+            enabled_commands: p.enabled_commands.clone(),
+            command_admin_required: p.command_admin_required.clone(),
             custom_error_message: p.custom_error_message.clone(),
+            platform_ids: p.platform_ids.clone(),
         })
         .collect();
     Json(dtos)
@@ -2190,11 +2192,13 @@ async fn get_config_profile(
             computer_use_enabled: p.computer_use_enabled,
             acp_enabled: p.acp_enabled,
             active_skill_names: p.active_skill_names.clone(),
-            active_platform_ids: p.active_platform_ids.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
             command_prefix: p.command_prefix.clone(),
+            enabled_commands: p.enabled_commands.clone(),
+            command_admin_required: p.command_admin_required.clone(),
             custom_error_message: p.custom_error_message.clone(),
+            platform_ids: p.platform_ids.clone(),
         };
         Ok(Json(dto))
     } else {
@@ -2213,13 +2217,8 @@ async fn create_config_profile(
     let id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    // Check if any active profile exists
-    let profiles = state.config_profiles.read().await;
-    let has_active = profiles.values().any(|p| p.is_active && p.enable);
-    drop(profiles);
-
-    // Create the profile - make it active if no other profile is active
-    let is_active = !has_active;
+    // Create the profile - make it active by default if enabled
+    let is_active = req.enable;
     let profile = StoredConfigProfile {
         id: id.clone(),
         name: req.name.clone(),
@@ -2239,15 +2238,44 @@ async fn create_config_profile(
         computer_use_enabled: req.computer_use_enabled,
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names.clone(),
-        active_platform_ids: req.active_platform_ids.clone(),
         active_knowledge_base_ids: req.active_knowledge_base_ids.clone(),
         proxy_config: req.proxy_config.clone(),
         command_prefix: req.command_prefix.clone(),
+        enabled_commands: req.enabled_commands.clone(),
+        command_admin_required: req.command_admin_required.clone(),
         custom_error_message: req.custom_error_message.clone(),
+        platform_ids: req.platform_ids.clone().unwrap_or_default(),
     };
 
     // Insert the profile
     let mut profiles = state.config_profiles.write().await;
+
+    // Validate platform_ids: check no platform_id is already used by another profile
+    if !req.platform_ids.as_ref().map_or(true, |ids| ids.is_empty()) {
+        let existing_profile_platforms: Vec<String> = profiles
+            .values()
+            .flat_map(|p| p.platform_ids.iter().cloned())
+            .collect();
+        let conflicting: Vec<String> = req
+            .platform_ids
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter(|pid| existing_profile_platforms.contains(pid))
+            .cloned()
+            .collect();
+        if !conflicting.is_empty() {
+            drop(profiles);
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": format!("Platform(s) already used by other profile: {}", conflicting.join(", ")),
+                    "conflicting_platform_ids": conflicting,
+                })),
+            ));
+        }
+    }
+
     profiles.insert(id.clone(), profile);
     drop(profiles);
 
@@ -2266,11 +2294,13 @@ async fn create_config_profile(
         computer_use_enabled: req.computer_use_enabled,
         acp_enabled: req.acp_enabled,
         active_skill_names: req.active_skill_names,
-        active_platform_ids: req.active_platform_ids,
         active_knowledge_base_ids: req.active_knowledge_base_ids,
         proxy_config: req.proxy_config,
         command_prefix: req.command_prefix,
-        custom_error_message: req.custom_error_message,
+        enabled_commands: req.enabled_commands,
+        command_admin_required: req.command_admin_required.clone(),
+        custom_error_message: req.custom_error_message.clone(),
+        platform_ids: req.platform_ids.unwrap_or_default(),
     };
 
     state.auto_save().await;
@@ -2286,6 +2316,38 @@ async fn update_config_profile(
     Path(id): Path<String>,
     Json(req): Json<UpdateConfigProfileRequest>,
 ) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    // Validate platform_ids before acquiring mutable borrow
+    if let Some(ref platform_ids) = req.platform_ids {
+        let profiles = state.config_profiles.read().await;
+        // Check that the profile exists first
+        if !profiles.contains_key(&id) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Config profile not found" })),
+            ));
+        }
+        let other_profile_platforms: Vec<String> = profiles
+            .values()
+            .filter(|p| p.id != id)
+            .flat_map(|p| p.platform_ids.iter().cloned())
+            .collect();
+        let conflicting: Vec<String> = platform_ids
+            .iter()
+            .filter(|pid| other_profile_platforms.contains(pid))
+            .cloned()
+            .collect();
+        if !conflicting.is_empty() {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": format!("Platform(s) already used by other profile: {}", conflicting.join(", ")),
+                    "conflicting_platform_ids": conflicting,
+                })),
+            ));
+        }
+        drop(profiles);
+    }
+
     let mut profiles = state.config_profiles.write().await;
 
     if let Some(profile) = profiles.get_mut(&id) {
@@ -2322,13 +2384,9 @@ async fn update_config_profile(
         if let Some(active_skill_names) = req.active_skill_names {
             profile.active_skill_names = active_skill_names;
         }
-        if let Some(ref active_platform_ids) = req.active_platform_ids {
-            profile.active_platform_ids = active_platform_ids.clone();
+        if let Some(active_knowledge_base_ids) = req.active_knowledge_base_ids {
+            profile.active_knowledge_base_ids = active_knowledge_base_ids;
         }
-        if let Some(ref active_knowledge_base_ids) = req.active_knowledge_base_ids {
-            profile.active_knowledge_base_ids = active_knowledge_base_ids.clone();
-        }
-        let platforms_changed = req.active_platform_ids.is_some();
         let enable_changed = req.enable.is_some();
         let proxy_changed = req.proxy_config.is_some();
         if let Some(proxy_config) = req.proxy_config {
@@ -2337,8 +2395,18 @@ async fn update_config_profile(
         if let Some(command_prefix) = req.command_prefix {
             profile.command_prefix = command_prefix;
         }
+        if let Some(enabled_commands) = req.enabled_commands {
+            profile.enabled_commands = enabled_commands;
+        }
+        if let Some(command_admin_required) = req.command_admin_required {
+            profile.command_admin_required = command_admin_required;
+        }
         if let Some(custom_error_message) = req.custom_error_message {
             profile.custom_error_message = custom_error_message;
+        }
+        if let Some(platform_ids) = req.platform_ids {
+            // Validation was already done above before acquiring mutable borrow
+            profile.platform_ids = platform_ids;
         }
         profile.updated_at = Utc::now();
 
@@ -2356,11 +2424,13 @@ async fn update_config_profile(
             computer_use_enabled: profile.computer_use_enabled,
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
-            active_platform_ids: profile.active_platform_ids.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
+            enabled_commands: profile.enabled_commands.clone(),
+            command_admin_required: profile.command_admin_required.clone(),
             custom_error_message: profile.custom_error_message.clone(),
+            platform_ids: profile.platform_ids.clone(),
         };
 
         let is_active = dto.is_active;
@@ -2369,20 +2439,45 @@ async fn update_config_profile(
         state.auto_save().await;
 
         // Synchronize running platform adapters when:
-        // - The active profile has changes affecting running adapters, OR
+        // - The active profile's proxy config changed, OR
         // - A profile was deactivated (was active, now disabled), so adapters
-        //   that belonged to it need to be stopped.
-        if (is_active && (platforms_changed || proxy_changed || enable_changed)) || was_deactivated
-        {
-            state.sync_platforms_with_active_profile().await;
+        //   that depended on its proxy need to be re-synced.
+        if (is_active && (proxy_changed || enable_changed)) || was_deactivated {
+            state.sync_platforms().await;
         }
 
-        // Update command dispatcher prefix from the active profile
+        // Update command dispatcher state - merge from all active profiles
         if is_active {
             let profiles = state.config_profiles.read().await;
-            if let Some(active) = profiles.values().find(|p| p.is_active && p.enable) {
+            let active_profiles: Vec<_> = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .collect();
+            if !active_profiles.is_empty() {
+                // Merge: use union of enabled commands from all active profiles
+                let mut merged_enabled_commands: Vec<String> = Vec::new();
+                let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+                    std::collections::HashMap::new();
+                // Use the first active profile's prefix as the effective prefix
+                let effective_prefix = active_profiles[0].command_prefix.clone();
+
+                for profile in &active_profiles {
+                    for cmd in &profile.enabled_commands {
+                        if !merged_enabled_commands.contains(cmd) {
+                            merged_enabled_commands.push(cmd.clone());
+                        }
+                    }
+                    for (cmd, admin_req) in &profile.command_admin_required {
+                        merged_command_admin_required.insert(cmd.clone(), *admin_req);
+                    }
+                }
+
                 let mut dispatcher = state.command_dispatcher.write().await;
-                dispatcher.set_prefix(active.command_prefix.clone());
+                dispatcher.set_prefix(effective_prefix);
+                dispatcher.set_enabled_commands(merged_enabled_commands);
+                drop(dispatcher);
+                let mut computer_use_config = state.computer_use_config.write().await;
+                computer_use_config.command_admin_required = merged_command_admin_required;
             }
         }
 
@@ -2405,13 +2500,6 @@ async fn delete_config_profile(
     let mut profiles = state.config_profiles.write().await;
 
     if let Some(profile) = profiles.remove(&id) {
-        // If we deleted an active profile, activate another one if available
-        if profile.is_active {
-            if let Some(first) = profiles.values_mut().next() {
-                first.is_active = true;
-            }
-        }
-
         drop(profiles);
         state.auto_save().await;
 
@@ -2427,7 +2515,6 @@ async fn delete_config_profile(
 }
 
 /// Activate a specific config profile
-/// This also starts/stops platform adapters based on the profile's active_platform_ids.
 async fn activate_config_profile(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -2449,17 +2536,13 @@ async fn activate_config_profile(
 
     if profiles.contains_key(&id) {
         let now = Utc::now();
-        // Set all profiles to inactive, then activate the target profile and update its timestamp
-        for p in profiles.values_mut() {
-            let is_target = p.id == id;
-            p.is_active = is_target;
-            if is_target {
-                p.updated_at = now;
-            }
+        // Just activate the target profile without deactivating others
+        if let Some(profile) = profiles.get_mut(&id) {
+            profile.is_active = true;
+            profile.updated_at = now;
         }
 
         let profile = profiles.get(&id).unwrap();
-        let active_platform_ids = profile.active_platform_ids.clone();
 
         let dto = ConfigProfileDto {
             id: profile.id.clone(),
@@ -2475,11 +2558,13 @@ async fn activate_config_profile(
             computer_use_enabled: profile.computer_use_enabled,
             acp_enabled: profile.acp_enabled,
             active_skill_names: profile.active_skill_names.clone(),
-            active_platform_ids: active_platform_ids.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
             command_prefix: profile.command_prefix.clone(),
+            enabled_commands: profile.enabled_commands.clone(),
+            command_admin_required: profile.command_admin_required.clone(),
             custom_error_message: profile.custom_error_message.clone(),
+            platform_ids: profile.platform_ids.clone(),
         };
 
         drop(profiles);
@@ -2487,15 +2572,41 @@ async fn activate_config_profile(
 
         tracing::info!(profile_id = %id, profile_name = %dto.name, "Config profile activated");
 
-        // Start/stop platform adapters based on the active profile's platform list
-        activate_platforms_for_profile(&state, &active_platform_ids).await;
+        // Synchronize platform adapters (proxy config may have changed)
+        state.sync_platforms().await;
 
-        // Update command dispatcher prefix from the newly activated profile
+        // Update command dispatcher state - merge from all active profiles
         {
             let profiles = state.config_profiles.read().await;
-            if let Some(active) = profiles.values().find(|p| p.is_active) {
+            let active_profiles: Vec<_> = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .collect();
+            if !active_profiles.is_empty() {
+                // Merge: use union of enabled commands from all active profiles
+                let mut merged_enabled_commands: Vec<String> = Vec::new();
+                let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+                    std::collections::HashMap::new();
+                // Use the first active profile's prefix as the effective prefix
+                let effective_prefix = active_profiles[0].command_prefix.clone();
+
+                for profile in &active_profiles {
+                    for cmd in &profile.enabled_commands {
+                        if !merged_enabled_commands.contains(cmd) {
+                            merged_enabled_commands.push(cmd.clone());
+                        }
+                    }
+                    for (cmd, admin_req) in &profile.command_admin_required {
+                        merged_command_admin_required.insert(cmd.clone(), *admin_req);
+                    }
+                }
+
                 let mut dispatcher = state.command_dispatcher.write().await;
-                dispatcher.set_prefix(active.command_prefix.clone());
+                dispatcher.set_prefix(effective_prefix);
+                dispatcher.set_enabled_commands(merged_enabled_commands);
+                drop(dispatcher);
+                let mut computer_use_config = state.computer_use_config.write().await;
+                computer_use_config.command_admin_required = merged_command_admin_required;
             }
         }
 
@@ -2503,17 +2614,99 @@ async fn activate_config_profile(
     } else {
         Err((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Config profile not found" })),
+            Json(json!({"error": "Config profile not found"})),
         ))
     }
 }
 
-/// Start platforms that should be active and stop platforms that should not.
-/// This is called when a config profile is activated.
-async fn activate_platforms_for_profile(state: &Arc<AppState>, _active_platform_ids: &[String]) {
-    // Delegate to the unified sync method which reads the active profile
-    // and reconciles running adapters accordingly.
-    state.sync_platforms_with_active_profile().await;
+/// Deactivate a specific config profile
+async fn deactivate_config_profile(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
+    let mut profiles = state.config_profiles.write().await;
+
+    if let Some(profile) = profiles.get_mut(&id) {
+        profile.is_active = false;
+        profile.updated_at = Utc::now();
+
+        let dto = ConfigProfileDto {
+            id: profile.id.clone(),
+            name: profile.name.clone(),
+            description: profile.description.clone(),
+            enable: profile.enable,
+            is_active: profile.is_active,
+            created_at: profile.created_at.to_rfc3339().to_string(),
+            updated_at: profile.updated_at.to_rfc3339().to_string(),
+            provider_id: profile.provider_id.clone(),
+            persona_id: profile.persona_id.clone(),
+            web_search_enabled: profile.web_search_enabled,
+            computer_use_enabled: profile.computer_use_enabled,
+            acp_enabled: profile.acp_enabled,
+            active_skill_names: profile.active_skill_names.clone(),
+            active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
+            proxy_config: profile.proxy_config.clone(),
+            command_prefix: profile.command_prefix.clone(),
+            enabled_commands: profile.enabled_commands.clone(),
+            command_admin_required: profile.command_admin_required.clone(),
+            custom_error_message: profile.custom_error_message.clone(),
+            platform_ids: profile.platform_ids.clone(),
+        };
+
+        drop(profiles);
+        state.auto_save().await;
+
+        // Synchronize platform adapters (proxy config may have changed)
+        state.sync_platforms().await;
+
+        // Update command dispatcher state - merge from all remaining active profiles
+        {
+            let profiles = state.config_profiles.read().await;
+            let active_profiles: Vec<_> = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .collect();
+            if !active_profiles.is_empty() {
+                // Merge: use union of enabled commands from all active profiles
+                let mut merged_enabled_commands: Vec<String> = Vec::new();
+                let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+                    std::collections::HashMap::new();
+                // Use the first active profile's prefix as the effective prefix
+                let effective_prefix = active_profiles[0].command_prefix.clone();
+
+                for profile in &active_profiles {
+                    for cmd in &profile.enabled_commands {
+                        if !merged_enabled_commands.contains(cmd) {
+                            merged_enabled_commands.push(cmd.clone());
+                        }
+                    }
+                    for (cmd, admin_req) in &profile.command_admin_required {
+                        merged_command_admin_required.insert(cmd.clone(), *admin_req);
+                    }
+                }
+
+                let mut dispatcher = state.command_dispatcher.write().await;
+                dispatcher.set_prefix(effective_prefix);
+                dispatcher.set_enabled_commands(merged_enabled_commands);
+                drop(dispatcher);
+                let mut computer_use_config = state.computer_use_config.write().await;
+                computer_use_config.command_admin_required = merged_command_admin_required;
+            } else {
+                // No active profiles left - clear the command dispatcher
+                let mut dispatcher = state.command_dispatcher.write().await;
+                dispatcher.set_enabled_commands(Vec::new());
+            }
+        }
+
+        tracing::info!(profile_id = %id, "Config profile deactivated");
+
+        Ok(Json(dto))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Config profile not found"})),
+        ))
+    }
 }
 
 /// List all built-in commands
@@ -2522,56 +2715,35 @@ async fn list_builtin_commands(
 ) -> Json<Vec<crate::command::BuiltinCommandInfo>> {
     let dispatcher = state.command_dispatcher.read().await;
     let profiles = state.config_profiles.read().await;
-    let computer_use_config = state.computer_use_config.read().await;
-    let prefix = profiles
+    let active_profiles: Vec<_> = profiles
         .values()
-        .find(|p| p.is_active && p.enable)
-        .map(|p| p.command_prefix.as_str())
-        .unwrap_or("/");
-    Json(dispatcher.list_commands_info(prefix, &computer_use_config.command_admin_required))
-}
-
-/// Update per-command admin requirement overrides
-async fn update_command_admin_required(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<UpdateCommandAdminRequiredRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let mut computer_use_config = state.computer_use_config.write().await;
-
-    // Validate that all command names exist
-    {
-        let dispatcher = state.command_dispatcher.read().await;
-        for cmd_name in req.admin_required.keys() {
-            if !dispatcher.has_command(cmd_name) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": format!("Unknown command: {}", cmd_name)
-                    })),
-                ));
+        .filter(|p| p.is_active && p.enable)
+        .collect();
+    if active_profiles.is_empty() {
+        let empty_admin_map: std::collections::HashMap<String, bool> =
+            std::collections::HashMap::new();
+        return Json(dispatcher.list_commands_info("/", &empty_admin_map, &Vec::new()));
+    }
+    // Merge: use union of enabled commands, merge admin requirements, first profile's prefix
+    let prefix = active_profiles[0].command_prefix.as_str();
+    let mut merged_enabled_commands: Vec<String> = Vec::new();
+    let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
+    for profile in &active_profiles {
+        for cmd in &profile.enabled_commands {
+            if !merged_enabled_commands.contains(cmd) {
+                merged_enabled_commands.push(cmd.clone());
             }
         }
+        for (cmd, admin_req) in &profile.command_admin_required {
+            merged_command_admin_required.insert(cmd.clone(), *admin_req);
+        }
     }
-
-    // Update the overrides
-    computer_use_config.command_admin_required = req.admin_required;
-
-    let dto = ComputerUseConfigDto::from(&*computer_use_config);
-    drop(computer_use_config);
-
-    state.auto_save().await;
-
-    Ok(Json(json!({
-        "command_admin_required": dto.command_admin_required,
-    })))
-}
-
-/// Request body for updating per-command admin requirement overrides.
-#[derive(Debug, Deserialize)]
-struct UpdateCommandAdminRequiredRequest {
-    /// Map of command name -> whether admin is required.
-    /// This replaces the entire override map.
-    admin_required: std::collections::HashMap<String, bool>,
+    Json(dispatcher.list_commands_info(
+        prefix,
+        &merged_command_admin_required,
+        &merged_enabled_commands,
+    ))
 }
 
 /// Get the provider associated with a config profile
@@ -3238,6 +3410,7 @@ async fn list_platforms(State(state): State<Arc<AppState>>) -> Json<Vec<Platform
         .map(|c| PlatformInstanceDto {
             id: c.id.clone(),
             platform_type: c.platform_type.clone(),
+            enable: c.enable,
             config: c.extra.clone(),
             status: statuses
                 .get(&c.id)
@@ -3255,6 +3428,7 @@ async fn get_platform(State(state): State<Arc<AppState>>, Path(id): Path<String>
         Some(c) => Json(PlatformInstanceDto {
             id: c.id.clone(),
             platform_type: c.platform_type.clone(),
+            enable: c.enable,
             config: c.extra.clone(),
             status: statuses
                 .get(&c.id)
@@ -3301,6 +3475,7 @@ async fn create_platform(
     let new_config = PlatformInstanceConfig {
         platform_type: req.platform_type.clone(),
         id: platform_id.clone(),
+        enable: req.enable,
         extra: req.config,
     };
 
@@ -3310,13 +3485,17 @@ async fn create_platform(
     drop(configs);
     state.save_platforms_config().await.ok();
 
-    // Return the created platform (adapter will be started by config profile activation)
+    // Ensure the adapter is started if enabled
+    state.sync_platforms().await;
+
+    // Return the created platform
     let statuses = state.platform_statuses_async().await;
     let configs = state.platform_configs.read().await;
     match configs.iter().find(|c| c.id == platform_id) {
         Some(c) => Json(PlatformInstanceDto {
             id: c.id.clone(),
             platform_type: c.platform_type.clone(),
+            enable: c.enable,
             config: c.extra.clone(),
             status: statuses
                 .get(&c.id)
@@ -3372,6 +3551,9 @@ async fn update_platform(
     if let Some(pt) = req.platform_type {
         config.platform_type = pt;
     }
+    if let Some(enable) = req.enable {
+        config.enable = enable;
+    }
     if let Some(extra) = req.config {
         config.extra = extra;
     }
@@ -3384,7 +3566,7 @@ async fn update_platform(
     // Save config to file
     state.save_platforms_config().await.ok();
 
-    // If ID changed, remove old adapter (adapter lifecycle is managed by config profile)
+    // If ID changed, remove old adapter
     {
         let mut pm = state.platform_manager.write().await;
         if old_id != new_id && pm.is_running(&old_id) {
@@ -3394,12 +3576,16 @@ async fn update_platform(
         }
     }
 
+    // Sync platform running state with enable state
+    state.sync_platforms().await;
+
     let statuses = state.platform_statuses_async().await;
     let configs = state.platform_configs.read().await;
     match configs.iter().find(|c| c.id == new_id) {
         Some(c) => Json(PlatformInstanceDto {
             id: c.id.clone(),
             platform_type: c.platform_type.clone(),
+            enable: c.enable,
             config: c.extra.clone(),
             status: statuses
                 .get(&c.id)
@@ -3525,20 +3711,20 @@ async fn restart_platform(State(state): State<Arc<AppState>>, Path(id): Path<Str
             .into_response();
     };
 
-    // Check that the platform is in the active profile
-    let is_active = {
-        let profiles = state.config_profiles.read().await;
-        profiles
-            .values()
-            .find(|p| p.is_active && p.enable)
-            .map(|p| p.active_platform_ids.contains(&id))
+    // Check that the platform is enabled
+    let is_enabled = {
+        let configs = state.platform_configs.read().await;
+        configs
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.enable)
             .unwrap_or(false)
     };
 
-    if !is_active {
+    if !is_enabled {
         return (
             StatusCode::FAILED_DEPENDENCY,
-            Json(json!({"error": "Platform is not active in the current config profile"})),
+            Json(json!({"error": "Platform is not enabled"})),
         )
             .into_response();
     }
@@ -3548,8 +3734,8 @@ async fn restart_platform(State(state): State<Arc<AppState>>, Path(id): Path<Str
         let profiles = state.config_profiles.read().await;
         profiles
             .values()
-            .find(|p| p.is_active && p.enable)
-            .and_then(|p| {
+            .filter(|p| p.is_active && p.enable)
+            .find_map(|p| {
                 if p.proxy_config.is_configured() {
                     Some(p.proxy_config.clone())
                 } else {
@@ -3603,6 +3789,7 @@ async fn restart_platform(State(state): State<Arc<AppState>>, Path(id): Path<Str
         Some(c) => Json(PlatformInstanceDto {
             id: c.id.clone(),
             platform_type: c.platform_type.clone(),
+            enable: c.enable,
             config: c.extra.clone(),
             status: statuses
                 .get(&c.id)

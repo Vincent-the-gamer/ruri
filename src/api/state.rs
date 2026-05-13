@@ -157,18 +157,28 @@ pub struct PersistedConfigProfile {
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
-    pub active_platform_ids: Vec<String>,
-    #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
     #[serde(default)]
     pub proxy_config: crate::types::ProxyConfig,
     /// Built-in command prefix for this profile (default: "/").
     #[serde(default = "default_command_prefix")]
     pub command_prefix: String,
+    /// List of enabled built-in command names. Commands not in this list are disabled for this profile.
+    /// Default: empty (all commands disabled).
+    #[serde(default)]
+    pub enabled_commands: Vec<String>,
+    /// Per-command admin requirement overrides for this profile.
+    /// Key: command name, Value: true = admin required, false = open to all.
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
+    /// Platform instance IDs that this profile is associated with.
+    /// A platform instance can only belong to one config profile at a time.
+    #[serde(default)]
+    pub platform_ids: Vec<String>,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -271,6 +281,8 @@ struct ResolvedConfigContext {
     embedded_skills: Vec<EmbeddedSkill>,
     /// Active embedded skill names
     active_embedded_skill_names: Vec<String>,
+    /// Active global skill names (references skills stored in `self.skills`)
+    active_skill_names: Vec<String>,
     /// Custom error message
     custom_error_message: Option<String>,
     /// Knowledge base IDs to attach
@@ -309,11 +321,15 @@ pub struct StoredConfigProfile {
     pub computer_use_enabled: bool,
     pub acp_enabled: bool,
     pub active_skill_names: Vec<String>,
-    pub active_platform_ids: Vec<String>,
     pub active_knowledge_base_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
     pub command_prefix: String,
+    pub enabled_commands: Vec<String>,
+    pub command_admin_required: HashMap<String, bool>,
     pub custom_error_message: Option<String>,
+    /// Platform instance IDs that this profile is associated with.
+    /// A platform instance can only belong to one config profile at a time.
+    pub platform_ids: Vec<String>,
 }
 
 /// Information about a stored provider configuration.
@@ -476,7 +492,7 @@ impl AppState {
             personas,
             config_profiles,
             acp_config,
-            computer_use_config,
+            mut computer_use_config,
             web_search_config,
         ) = match Self::load_from_file_sync(config_path) {
             Ok(config) => {
@@ -566,11 +582,13 @@ impl AppState {
                                 computer_use_enabled: p.computer_use_enabled,
                                 acp_enabled: p.acp_enabled,
                                 active_skill_names: p.active_skill_names,
-                                active_platform_ids: p.active_platform_ids,
                                 active_knowledge_base_ids: p.active_knowledge_base_ids,
                                 proxy_config: p.proxy_config,
                                 command_prefix: p.command_prefix,
+                                enabled_commands: p.enabled_commands,
+                                command_admin_required: p.command_admin_required,
                                 custom_error_message: p.custom_error_message,
+                                platform_ids: p.platform_ids.clone(),
                             },
                         )
                     })
@@ -611,6 +629,51 @@ impl AppState {
         let workspace_manager =
             std::sync::Arc::new(crate::computer_use::WorkspaceManager::new(data_dir));
 
+        // Initialize command dispatcher from all active profiles
+        let mut command_dispatcher = crate::command::create_builtin_dispatcher();
+        {
+            let active_profiles: Vec<_> = config_profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .collect();
+            if !active_profiles.is_empty() {
+                // Merge: use union of enabled commands from all active profiles
+                let mut merged_enabled_commands: Vec<String> = Vec::new();
+                // Use the first active profile's prefix as the effective prefix
+                let effective_prefix = active_profiles[0].command_prefix.clone();
+
+                for profile in &active_profiles {
+                    for cmd in &profile.enabled_commands {
+                        if !merged_enabled_commands.contains(cmd) {
+                            merged_enabled_commands.push(cmd.clone());
+                        }
+                    }
+                }
+
+                command_dispatcher.set_prefix(effective_prefix);
+                command_dispatcher.set_enabled_commands(merged_enabled_commands);
+            }
+        }
+        // Sync command_admin_required from all active profiles to ComputerUseConfig
+        {
+            let active_profiles: Vec<_> = config_profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .collect();
+            if !active_profiles.is_empty() {
+                let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+                    std::collections::HashMap::new();
+
+                for profile in &active_profiles {
+                    for (cmd, admin_req) in &profile.command_admin_required {
+                        merged_command_admin_required.insert(cmd.clone(), *admin_req);
+                    }
+                }
+
+                computer_use_config.command_admin_required = merged_command_admin_required;
+            }
+        }
+
         Self {
             providers: RwLock::new(providers),
             active_provider_id: RwLock::new(active_provider_id),
@@ -634,9 +697,7 @@ impl AppState {
             platform_manager: std::sync::Arc::new(tokio::sync::RwLock::new(
                 crate::platform::PlatformManager::new(),
             )),
-            command_dispatcher: std::sync::Arc::new(tokio::sync::RwLock::new(
-                crate::command::create_builtin_dispatcher(),
-            )),
+            command_dispatcher: std::sync::Arc::new(tokio::sync::RwLock::new(command_dispatcher)),
             session_variables: std::sync::Arc::new(tokio::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
@@ -680,6 +741,145 @@ impl AppState {
         if let Err(e) = self.save_to_file(&self.config_path).await {
             tracing::warn!("Failed to auto-save config: {}", e);
         }
+    }
+
+    /// Reload the config file from disk into in-memory state.
+    /// Used by the file watcher to hot-reload changes to config.json.
+    pub async fn reload_config_from_file(&self) -> anyhow::Result<()> {
+        let config = Self::load_from_file_sync(&self.config_path)?;
+
+        let providers = config
+            .providers
+            .into_iter()
+            .map(|(id, p)| {
+                let created_at = DateTime::parse_from_rfc3339(&p.created_at)
+                    .map(|dt| dt.to_utc())
+                    .unwrap_or(Utc::now());
+                (
+                    id,
+                    StoredProvider {
+                        id: p.id,
+                        name: p.name,
+                        provider_type: p.provider_type,
+                        config_json: p.config_json,
+                        is_active: p.is_active,
+                        created_at,
+                    },
+                )
+            })
+            .collect();
+
+        let skills = config
+            .skills
+            .into_iter()
+            .map(|(name, s)| {
+                (
+                    name,
+                    StoredSkill {
+                        name: s.name,
+                        description: s.description,
+                        skill_type: s.skill_type,
+                        config: s.config,
+                        is_active: s.is_active,
+                    },
+                )
+            })
+            .collect();
+
+        let personas = config
+            .personas
+            .into_iter()
+            .map(|(id, p)| {
+                (
+                    id.clone(),
+                    StoredPersona {
+                        id,
+                        name: p.name,
+                        description: p.description,
+                        prompt: p.prompt,
+                    },
+                )
+            })
+            .collect();
+
+        let config_profiles = config
+            .config_profiles
+            .into_iter()
+            .map(|(id, p)| {
+                let created_at = DateTime::parse_from_rfc3339(&p.created_at)
+                    .map(|dt| dt.to_utc())
+                    .unwrap_or_else(|_| Utc::now());
+                let updated_at = DateTime::parse_from_rfc3339(&p.updated_at)
+                    .map(|dt| dt.to_utc())
+                    .unwrap_or_else(|_| Utc::now());
+                (
+                    id.clone(),
+                    StoredConfigProfile {
+                        id,
+                        name: p.name,
+                        description: p.description,
+                        enable: p.enable,
+                        is_active: p.is_active,
+                        created_at,
+                        updated_at,
+                        provider_id: p.provider_id,
+                        persona_id: p.persona_id,
+                        embedded_persona: p.embedded_persona,
+                        embedded_providers: p.embedded_providers,
+                        active_embedded_provider: p.active_embedded_provider,
+                        embedded_skills: p.embedded_skills,
+                        active_embedded_skill_names: p.active_embedded_skill_names,
+                        web_search_enabled: p.web_search_enabled,
+                        computer_use_enabled: p.computer_use_enabled,
+                        acp_enabled: p.acp_enabled,
+                        active_skill_names: p.active_skill_names,
+                        active_knowledge_base_ids: p.active_knowledge_base_ids,
+                        proxy_config: p.proxy_config,
+                        command_prefix: p.command_prefix,
+                        enabled_commands: p.enabled_commands,
+                        command_admin_required: p.command_admin_required,
+                        custom_error_message: p.custom_error_message,
+                        platform_ids: p.platform_ids.clone(),
+                    },
+                )
+            })
+            .collect();
+
+        // Update all in-memory state
+        {
+            let mut guard = self.providers.write().await;
+            *guard = providers;
+        }
+        {
+            let mut guard = self.active_provider_id.write().await;
+            *guard = config.active_provider_id;
+        }
+        {
+            let mut guard = self.skills.write().await;
+            *guard = skills;
+        }
+        {
+            let mut guard = self.personas.write().await;
+            *guard = personas;
+        }
+        {
+            let mut guard = self.config_profiles.write().await;
+            *guard = config_profiles;
+        }
+        {
+            let mut guard = self.acp_config.write().await;
+            *guard = config.acp_config;
+        }
+        {
+            let mut guard = self.computer_use_config.write().await;
+            *guard = config.computer_use_config;
+        }
+        {
+            let mut guard = self.web_search_config.write().await;
+            *guard = config.web_search_config;
+        }
+
+        Ok(())
     }
 
     // ─── Platform Config Persistence ────────────────────────────
@@ -791,42 +991,52 @@ impl AppState {
         }
     }
 
-    /// Synchronize running platform adapters with the currently active config profile.
-    ///
-    /// - Stops adapters that are running but **not** in the active profile's
-    ///   `active_platform_ids`.
-    /// - Starts adapters that are in `active_platform_ids` but not yet running.
+    /// Synchronize running platform adapters with their `enable` state.
     ///
     /// This is the single source of truth for which adapters should be alive
     /// at any given time — used both at startup and during hot-reload.
-    pub async fn sync_platforms_with_active_profile(&self) {
-        let (active_platform_ids, proxy_config): (Vec<String>, Option<crate::types::ProxyConfig>) = {
+    /// Each platform's `enable` field determines whether it should be running.
+    /// Proxy config is still read from the active profile.
+    pub async fn sync_platforms(&self) {
+        let (proxy_config, active_platform_ids): (
+            Option<crate::types::ProxyConfig>,
+            std::collections::HashSet<String>,
+        ) = {
             let profiles = self.config_profiles.read().await;
-            match profiles.values().find(|p| p.is_active && p.enable) {
-                Some(p) => (
-                    p.active_platform_ids.clone(),
+            // Merge proxy config from all active profiles - use the first configured one
+            let proxy = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .find_map(|p| {
                     if p.proxy_config.is_configured() {
                         Some(p.proxy_config.clone())
                     } else {
                         None
-                    },
-                ),
-                None => (Vec::new(), None),
-            }
+                    }
+                });
+            // Collect platform IDs that should be running based on active profiles
+            let active_ids: std::collections::HashSet<String> = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable)
+                .flat_map(|p| p.platform_ids.iter().cloned())
+                .collect();
+            (proxy, active_ids)
         };
-
-        let active_set: std::collections::HashSet<&str> =
-            active_platform_ids.iter().map(|s| s.as_str()).collect();
 
         let configs = self.platform_configs.read().await;
         let mut pm = self.platform_manager.write().await;
 
-        // Stop adapters that are running but not in the active profile
-        // (or the active profile is disabled / missing, so stop all)
+        // Stop adapters that are running but disabled or not in any active profile's platform_ids
         let running_ids: Vec<String> = pm.statuses().iter().map(|(id, _)| id.clone()).collect();
         for running_id in &running_ids {
-            if !active_set.contains(running_id.as_str()) {
-                tracing::info!(platform_id = %running_id, "Stopping platform (not in active profile)");
+            let is_enabled = configs
+                .iter()
+                .find(|c| c.id == *running_id)
+                .map(|c| c.enable)
+                .unwrap_or(false);
+            let in_active_profile = active_platform_ids.contains(running_id);
+            if !is_enabled || !in_active_profile {
+                tracing::info!(platform_id = %running_id, "Stopping platform (disabled or not in active profile)");
                 if let Err(e) = pm.remove_platform(running_id).await {
                     tracing::error!(platform_id = %running_id, error = %e, "Failed to stop platform");
                 }
@@ -836,10 +1046,10 @@ impl AppState {
         // For platforms already running, check if proxy config changed and restart them
         let still_running: Vec<String> = pm.statuses().iter().map(|(id, _)| id.clone()).collect();
         for config in configs.iter() {
-            if !still_running.contains(&config.id) {
+            if !config.enable {
                 continue;
             }
-            if !active_set.contains(config.id.as_str()) {
+            if !still_running.contains(&config.id) {
                 continue;
             }
 
@@ -891,20 +1101,21 @@ impl AppState {
             }
         }
 
-        // Start adapters that are in the active profile but not yet running
+        // Start adapters that are enabled but not yet running
         for config in configs.iter() {
-            if !active_set.contains(config.id.as_str()) {
+            if !config.enable {
                 continue;
             }
             if pm.is_running(&config.id) {
                 continue;
             }
+            // Only start platforms that belong to an active profile
+            if !active_platform_ids.contains(&config.id) {
+                continue;
+            }
 
             let mut config_with_proxy = config.clone();
 
-            // Inject proxy_url from the active profile into the platform config.
-            // In "rules" mode, only inject for platforms whose domains match proxy_domains.
-            // We determine the platform's host from its type (Discord → discord.gg, DingTalk → dingtalk.com).
             if let Some(ref proxy) = proxy_config {
                 let platform_host = match config.platform_type.as_str() {
                     "discord" => "discord.gg",
@@ -914,7 +1125,6 @@ impl AppState {
 
                 if proxy.should_proxy(platform_host) {
                     if let Some(obj) = config_with_proxy.extra.as_object_mut() {
-                        // Set proxy_url — always override from profile config
                         obj.insert(
                             "proxy_url".to_string(),
                             serde_json::Value::String(proxy.url.clone()),
@@ -926,19 +1136,17 @@ impl AppState {
                         "Injecting proxy for platform"
                     );
                 } else {
-                    // Ensure no stale proxy_url in config
                     if let Some(obj) = config_with_proxy.extra.as_object_mut() {
                         obj.remove("proxy_url");
                     }
                 }
             } else {
-                // No proxy configured, ensure no stale proxy_url
                 if let Some(obj) = config_with_proxy.extra.as_object_mut() {
                     obj.remove("proxy_url");
                 }
             }
 
-            tracing::info!(platform_id = %config.id, "Starting platform (from active profile)");
+            tracing::info!(platform_id = %config.id, "Starting enabled platform");
             if let Err(e) = pm.add_platform(config_with_proxy).await {
                 tracing::error!(platform_id = %config.id, error = %e, "Failed to start platform");
             }
@@ -960,8 +1168,6 @@ impl AppState {
             if let Err(e) = self.save_platforms_config().await {
                 tracing::warn!("Failed to persist updated platform configs: {}", e);
             } else {
-                // Mark adapters as persisted so they won't keep returning
-                // the same config via persist_config_hint.
                 let mut pm = self.platform_manager.write().await;
                 for id in updated_ids {
                     if let Some(adapter) = pm.get_mut_adapter(&id) {
@@ -1175,11 +1381,13 @@ impl AppState {
                         computer_use_enabled: p.computer_use_enabled,
                         acp_enabled: p.acp_enabled,
                         active_skill_names: p.active_skill_names.clone(),
-                        active_platform_ids: p.active_platform_ids.clone(),
                         active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
                         command_prefix: p.command_prefix.clone(),
+                        enabled_commands: p.enabled_commands.clone(),
+                        command_admin_required: p.command_admin_required.clone(),
                         custom_error_message: p.custom_error_message.clone(),
+                        platform_ids: p.platform_ids.clone(),
                     },
                 )
             })
@@ -1586,6 +1794,7 @@ impl AppState {
                     persona_mode: debug.persona_mode,
                     embedded_skills: debug.skills.clone(),
                     active_embedded_skill_names: debug.active_skill_names.clone(),
+                    active_skill_names: Vec::new(), // debug session uses embedded skills only
                     custom_error_message: debug.custom_error_message.clone(),
                     knowledge_base_ids: debug.knowledge_base_ids.clone(),
                     proxy_config: crate::types::ProxyConfig::default(),
@@ -1611,6 +1820,7 @@ impl AppState {
                     persona_mode: default_persona_mode(),
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
+                    active_skill_names: profile.active_skill_names.clone(),
                     custom_error_message: profile.custom_error_message.clone(),
                     knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                     proxy_config: profile.proxy_config.clone(),
@@ -1618,8 +1828,8 @@ impl AppState {
             }
         }
 
-        // 3. Active config profile
-        if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+        // 3. Active config profile(s)
+        if let Some(profile) = profiles.values().filter(|p| p.is_active && p.enable).next() {
             // Always return the profile context, even if it has no
             // embedded_providers. The profile independently manages all
             // its configuration (provider, persona, skills, proxy, etc.)
@@ -1634,6 +1844,7 @@ impl AppState {
                 persona_mode: default_persona_mode(),
                 embedded_skills: profile.embedded_skills.clone(),
                 active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
+                active_skill_names: profile.active_skill_names.clone(),
                 custom_error_message: profile.custom_error_message.clone(),
                 knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                 proxy_config: profile.proxy_config.clone(),
@@ -1722,8 +1933,15 @@ impl AppState {
                 };
 
                 if let Some((p, c)) = resolved_provider {
-                    (p, c, ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
-                } else if let Some(ep) = ctx.embedded_providers
+                    (
+                        p,
+                        c,
+                        ctx.custom_error_message.clone(),
+                        ctx.proxy_config.clone(),
+                        ctx.knowledge_base_ids.clone(),
+                    )
+                } else if let Some(ep) = ctx
+                    .embedded_providers
                     .iter()
                     .find(|p| {
                         if let Some(ref name) = ctx.active_embedded_provider {
@@ -1736,7 +1954,13 @@ impl AppState {
                 {
                     // Use embedded provider from the profile
                     let built = Self::build_provider_from_embedded(ep)?;
-                    (built, ep.config_json.clone(), ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
+                    (
+                        built,
+                        ep.config_json.clone(),
+                        ctx.custom_error_message.clone(),
+                        ctx.proxy_config.clone(),
+                        ctx.knowledge_base_ids.clone(),
+                    )
                 } else if let Some(ref pid) = ctx.provider_id {
                     // Profile has a provider_id referencing a stored provider
                     if !pid.is_empty() {
@@ -1750,7 +1974,13 @@ impl AppState {
                             let built = Self::build_provider(stored)?;
                             let config_json = stored.config_json.clone();
                             drop(providers);
-                            (built, config_json, ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
+                            (
+                                built,
+                                config_json,
+                                ctx.custom_error_message.clone(),
+                                ctx.proxy_config.clone(),
+                                ctx.knowledge_base_ids.clone(),
+                            )
                         } else {
                             drop(providers);
                             return Err(format!(
@@ -1769,7 +1999,10 @@ impl AppState {
                 // This should not happen in normal operation — every conversation
                 // should be managed by a profile. If we reach here, there is no
                 // debug session and no active/enabled profile at all.
-                return Err("No active profile found. Please create and enable a configuration profile.".to_string());
+                return Err(
+                    "No active profile found. Please create and enable a configuration profile."
+                        .to_string(),
+                );
             };
 
         // Apply proxy config if configured
@@ -1805,13 +2038,30 @@ impl AppState {
         let mut agent = Agent::with_config(provider, config);
 
         // ── Build skills from profile context ──
-        let skill_instances = if let Some(ctx) = &context {
-            let filter_names: Option<&[String]> = if !ctx.active_embedded_skill_names.is_empty() {
+        // Skills come from two sources:
+        //   1. Embedded skills (profile-internal copies) filtered by active_embedded_skill_names
+        //   2. Global skills (stored in self.skills) referenced by active_skill_names
+        let skill_instances: Vec<Arc<dyn Skill>> = if let Some(ctx) = &context {
+            // Build embedded skills
+            let embedded_filter: Option<&[String]> = if !ctx.active_embedded_skill_names.is_empty()
+            {
                 Some(ctx.active_embedded_skill_names.as_slice())
             } else {
                 None
             };
-            Self::build_skills_from_embedded(&ctx.embedded_skills, filter_names)
+            let mut skills =
+                Self::build_skills_from_embedded(&ctx.embedded_skills, embedded_filter);
+
+            // Build global skills referenced by active_skill_names
+            if !ctx.active_skill_names.is_empty() {
+                let global_skills = self.skills.read().await;
+                let global =
+                    Self::build_skills(&global_skills, Some(ctx.active_skill_names.as_slice()));
+                drop(global_skills);
+                skills.extend(global);
+            }
+
+            skills
         } else {
             // No profile context — should not happen in normal operation
             tracing::warn!("No profile context available, no skills will be loaded");

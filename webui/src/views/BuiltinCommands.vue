@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, reactive } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
-import { getBuiltinCommands, updateCommandAdminRequired } from "../api";
+import { getBuiltinCommands } from "../api";
 import type { BuiltinCommand } from "../types";
 
 const { t } = useI18n();
@@ -10,66 +10,21 @@ const configStore = useConfigStore();
 
 const commands = ref<BuiltinCommand[]>([]);
 const loading = ref(false);
-const saving = ref(false);
 const error = ref<string | null>(null);
-const successMessage = ref<string | null>(null);
 
 const commandPrefix = computed(() => configStore.commandPrefix);
 
 const visibleCommands = computed(() => commands.value.filter((c) => !c.hidden));
 
-// Build admin overrides map from loaded commands
-const adminOverrides = reactive<Record<string, boolean>>({});
-
-function syncOverrides() {
-    // Clear and rebuild from current commands
-    for (const key of Object.keys(adminOverrides)) {
-        delete adminOverrides[key];
-    }
-    for (const cmd of commands.value) {
-        adminOverrides[cmd.name] = cmd.require_admin;
-    }
-}
-
-function toggleAdminRequired(cmdName: string) {
-    adminOverrides[cmdName] = !adminOverrides[cmdName];
-}
-
-function isOverridden(cmd: BuiltinCommand): boolean {
-    return cmd.require_admin !== cmd.default_require_admin;
-}
-
-async function saveOverrides() {
-    saving.value = true;
-    error.value = null;
-    successMessage.value = null;
-    try {
-        const result = await updateCommandAdminRequired({ ...adminOverrides });
-        // Update local commands state from result
-        for (const cmd of commands.value) {
-            if (result.command_admin_required[cmd.name] !== undefined) {
-                cmd.require_admin = result.command_admin_required[cmd.name];
-            }
-        }
-        successMessage.value = t("builtinCommands.saveSuccess");
-        setTimeout(() => {
-            successMessage.value = null;
-        }, 3000);
-    } catch (e: unknown) {
-        error.value = e instanceof Error ? e.message : "Failed to save";
-        // Revert overrides on failure
-        syncOverrides();
-    } finally {
-        saving.value = false;
-    }
-}
+const enabledCount = computed(
+    () => visibleCommands.value.filter((c) => c.enabled).length,
+);
 
 onMounted(async () => {
     loading.value = true;
     error.value = null;
     try {
         commands.value = await getBuiltinCommands();
-        syncOverrides();
     } catch (e: unknown) {
         error.value =
             e instanceof Error ? e.message : "Failed to load commands";
@@ -107,58 +62,38 @@ onMounted(async () => {
                     </p>
                 </div>
             </div>
-            <div class="header-actions">
-                <div v-if="commandPrefix" class="prefix-badge">
-                    <span class="prefix-label"
-                        >{{ t("builtinCommands.prefix") }}:</span
-                    >
-                    <span class="prefix-value">{{ commandPrefix }}</span>
-                </div>
-                <button
-                    class="btn-save"
-                    :disabled="saving"
-                    @click="saveOverrides"
-                >
-                    <svg
-                        v-if="!saving"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path
-                            d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
-                        />
-                        <polyline points="17 21 17 13 7 13 7 21" />
-                        <polyline points="7 3 7 8 15 8" />
-                    </svg>
-                    <svg
-                        v-else
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        class="spin-icon"
-                    >
-                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                    </svg>
-                    {{
-                        saving
-                            ? t("builtinCommands.saving")
-                            : t("builtinCommands.save")
-                    }}
-                </button>
+        </div>
+
+        <!-- Status summary -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">{{
+                    t("builtinCommands.prefix")
+                }}</span>
+                <span class="status-value prefix-value">{{
+                    commandPrefix
+                }}</span>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <span class="status-label">{{
+                    t("builtinCommands.totalCommands")
+                }}</span>
+                <span class="status-value">{{ visibleCommands.length }}</span>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item">
+                <span class="status-label">{{
+                    t("builtinCommands.enabledCommands")
+                }}</span>
+                <span class="status-value enabled-count">{{
+                    enabledCount
+                }}</span>
             </div>
         </div>
 
-        <!-- Success Banner -->
-        <div v-if="successMessage" class="success-banner">
+        <!-- Info tip -->
+        <div class="info-tip">
             <svg
                 width="16"
                 height="16"
@@ -167,10 +102,11 @@ onMounted(async () => {
                 stroke="currentColor"
                 stroke-width="2"
             >
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
-            <span>{{ successMessage }}</span>
+            <span>{{ t("builtinCommands.readOnlyTip") }}</span>
         </div>
 
         <div v-if="loading" class="loading-state">
@@ -205,27 +141,11 @@ onMounted(async () => {
         </div>
 
         <div v-else class="commands-list">
-            <!-- Info tip -->
-            <div class="info-tip">
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="16" x2="12" y2="12" />
-                    <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-                <span>{{ t("builtinCommands.adminTip") }}</span>
-            </div>
-
             <div
                 v-for="cmd in visibleCommands"
                 :key="cmd.name"
                 class="command-card"
+                :class="{ 'command-card--disabled': !cmd.enabled }"
             >
                 <div class="command-main">
                     <div class="command-info">
@@ -234,20 +154,24 @@ onMounted(async () => {
                                 >{{ commandPrefix }}{{ cmd.name }}</span
                             >
                             <span
-                                v-if="adminOverrides[cmd.name]"
-                                class="admin-badge"
+                                class="status-badge"
+                                :class="
+                                    cmd.enabled
+                                        ? 'status-badge--enabled'
+                                        : 'status-badge--disabled'
+                                "
                             >
+                                {{
+                                    cmd.enabled
+                                        ? t("builtinCommands.enabled")
+                                        : t("builtinCommands.disabled")
+                                }}
+                            </span>
+                            <span v-if="cmd.require_admin" class="admin-badge">
                                 🔒 {{ t("builtinCommands.requireAdmin") }}
                             </span>
                             <span v-else class="open-badge">
                                 🌐 {{ t("builtinCommands.openToAll") }}
-                            </span>
-                            <span
-                                v-if="isOverridden(cmd)"
-                                class="override-badge"
-                                :title="t('builtinCommands.overrideHint')"
-                            >
-                                {{ t("builtinCommands.customized") }}
                             </span>
                         </div>
                         <p class="command-desc">{{ cmd.description }}</p>
@@ -257,41 +181,6 @@ onMounted(async () => {
                             >
                             <code class="usage-code">{{ cmd.usage }}</code>
                         </p>
-                    </div>
-
-                    <div class="command-toggle">
-                        <label class="toggle-label">
-                            <span class="toggle-text">{{
-                                t("builtinCommands.adminOnly")
-                            }}</span>
-                            <button
-                                class="toggle-switch"
-                                :class="{ active: adminOverrides[cmd.name] }"
-                                @click="toggleAdminRequired(cmd.name)"
-                                role="switch"
-                                :aria-checked="adminOverrides[cmd.name]"
-                            >
-                                <span class="toggle-thumb"></span>
-                            </button>
-                        </label>
-                        <span
-                            v-if="
-                                cmd.default_require_admin &&
-                                !adminOverrides[cmd.name]
-                            "
-                            class="default-notice"
-                        >
-                            {{ t("builtinCommands.defaultAdminOpened") }}
-                        </span>
-                        <span
-                            v-else-if="
-                                !cmd.default_require_admin &&
-                                adminOverrides[cmd.name]
-                            "
-                            class="default-notice"
-                        >
-                            {{ t("builtinCommands.defaultOpenLocked") }}
-                        </span>
                     </div>
                 </div>
             </div>
@@ -305,7 +194,7 @@ onMounted(async () => {
 }
 
 .page-header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -350,95 +239,75 @@ onMounted(async () => {
     margin: 0.25rem 0 0;
 }
 
-.header-actions {
+/* Status Bar */
+.status-bar {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    background: hsl(var(--card) / 0.6);
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    margin-bottom: 1rem;
     flex-wrap: wrap;
 }
 
-.prefix-badge {
+.status-item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: hsl(var(--secondary));
-    border: 1px solid hsl(var(--border));
-    border-radius: 8px;
-    font-size: 0.875rem;
 }
 
-.prefix-label {
+.status-label {
+    font-size: 0.8125rem;
     color: hsl(var(--muted-foreground));
     font-weight: 500;
 }
 
-.prefix-value {
-    color: hsl(var(--primary));
+.status-value {
+    font-size: 0.875rem;
     font-weight: 700;
+    color: hsl(var(--foreground));
+}
+
+.prefix-value {
     font-family: monospace;
-    font-size: 1rem;
+    color: hsl(var(--primary));
 }
 
-.btn-save {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 1rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: hsl(var(--primary-foreground));
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 70% 60%));
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 8px hsl(var(--primary) / 0.2);
+.enabled-count {
+    color: hsl(142 76% 36%);
 }
 
-.btn-save:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
+.dark .enabled-count {
+    color: hsl(142 76% 60%);
 }
 
-.btn-save:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+.status-divider {
+    width: 1px;
+    height: 20px;
+    background: hsl(var(--border));
 }
 
-.spin-icon {
-    animation: spin 0.8s linear infinite;
-}
-
-/* Success Banner */
-.success-banner {
+/* Info Tip */
+.info-tip {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-    background: hsl(142 76% 36% / 0.1);
-    border: 1px solid hsl(142 76% 36% / 0.3);
+    background: hsl(var(--primary) / 0.06);
+    border: 1px solid hsl(var(--primary) / 0.15);
     border-radius: 8px;
-    color: hsl(142 76% 30%);
+    margin-bottom: 1rem;
     font-size: 0.8125rem;
-    font-weight: 500;
-    animation: fadeIn 0.3s ease;
+    color: hsl(var(--muted-foreground));
+    line-height: 1.5;
 }
 
-.dark .success-banner {
-    color: hsl(142 76% 70%);
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-4px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+.info-tip svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: hsl(var(--primary));
 }
 
 /* Loading / Error */
@@ -519,36 +388,15 @@ onMounted(async () => {
     margin: 0;
 }
 
-/* Info Tip */
-.info-tip {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    background: hsl(var(--primary) / 0.06);
-    border: 1px solid hsl(var(--primary) / 0.15);
-    border-radius: 8px;
-    margin-bottom: 1rem;
-    font-size: 0.8125rem;
-    color: hsl(var(--muted-foreground));
-    line-height: 1.5;
-}
-
-.info-tip svg {
-    flex-shrink: 0;
-    margin-top: 1px;
-    color: hsl(var(--primary));
-}
-
 /* Commands List */
 .commands-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
 }
 
 .command-card {
-    padding: 1rem 1.25rem;
+    padding: 0.875rem 1.25rem;
     background: hsl(var(--card) / 0.6);
     border: 1px solid hsl(var(--border));
     border-radius: 12px;
@@ -559,6 +407,14 @@ onMounted(async () => {
     border-color: hsl(var(--primary) / 0.3);
     background: hsl(var(--card));
     box-shadow: 0 2px 8px hsl(var(--primary) / 0.05);
+}
+
+.command-card--disabled {
+    opacity: 0.55;
+}
+
+.command-card--disabled:hover {
+    opacity: 0.75;
 }
 
 .command-main {
@@ -588,6 +444,28 @@ onMounted(async () => {
     color: hsl(var(--primary));
 }
 
+/* Status Badge */
+.status-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+}
+
+.status-badge--enabled {
+    background: hsl(142 76% 36% / 0.12);
+    color: hsl(142 76% 30%);
+}
+
+.dark .status-badge--enabled {
+    color: hsl(142 76% 70%);
+}
+
+.status-badge--disabled {
+    background: hsl(var(--muted-foreground) / 0.12);
+    color: hsl(var(--muted-foreground));
+}
+
 .admin-badge {
     font-size: 0.6875rem;
     font-weight: 600;
@@ -612,15 +490,6 @@ onMounted(async () => {
 
 .dark .open-badge {
     color: hsl(142 76% 70%);
-}
-
-.override-badge {
-    font-size: 0.625rem;
-    font-weight: 600;
-    padding: 0.0625rem 0.375rem;
-    background: hsl(var(--primary) / 0.1);
-    color: hsl(var(--primary));
-    border-radius: 999px;
 }
 
 .command-desc {
@@ -652,72 +521,6 @@ onMounted(async () => {
     font-size: 0.8125rem;
 }
 
-/* Toggle Switch */
-.command-toggle {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.375rem;
-    flex-shrink: 0;
-    padding-top: 0.125rem;
-}
-
-.toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-}
-
-.toggle-text {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: hsl(var(--muted-foreground));
-    white-space: nowrap;
-}
-
-.toggle-switch {
-    position: relative;
-    width: 36px;
-    height: 20px;
-    border-radius: 10px;
-    border: none;
-    background: hsl(var(--border));
-    cursor: pointer;
-    transition: all 0.2s ease;
-    padding: 0;
-}
-
-.toggle-switch.active {
-    background: hsl(var(--primary));
-}
-
-.toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: white;
-    transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.toggle-switch.active .toggle-thumb {
-    transform: translateX(16px);
-}
-
-.default-notice {
-    font-size: 0.6875rem;
-    color: hsl(38 92% 50%);
-    white-space: nowrap;
-}
-
-.dark .default-notice {
-    color: hsl(38 92% 70%);
-}
-
 @media (max-width: 640px) {
     .page-header {
         flex-direction: column;
@@ -727,14 +530,14 @@ onMounted(async () => {
         flex-direction: column;
     }
 
-    .command-toggle {
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        padding-top: 0.5rem;
-        border-top: 1px solid hsl(var(--border) / 0.5);
-        margin-top: 0.25rem;
+    .status-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .status-divider {
+        display: none;
     }
 }
 </style>

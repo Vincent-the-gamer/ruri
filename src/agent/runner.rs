@@ -60,6 +60,19 @@ impl AgentConfig {
         self.custom_error_message = message;
         self
     }
+
+    /// Returns the message to display when the maximum tool rounds limit is reached.
+    ///
+    /// If a `custom_error_message` is configured, it is used; otherwise a
+    /// descriptive default warning is returned.
+    pub fn max_rounds_reached_message(&self) -> String {
+        self.custom_error_message.clone().unwrap_or_else(|| {
+            format!(
+                "⚠️ Maximum tool call rounds ({}) reached, stopping.",
+                self.max_tool_rounds
+            )
+        })
+    }
 }
 
 /// The core Agent that orchestrates everything.
@@ -160,7 +173,7 @@ impl Agent {
                 "Sending chat request"
             );
 
-            let response = self.transport.send(request).await?;
+            let mut response = self.transport.send(request).await?;
 
             // Check if the model wants to call tools
             let choice = &response.choices[0];
@@ -200,6 +213,14 @@ impl Agent {
                     round += 1;
                     if round >= self.config.max_tool_rounds {
                         tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                        // Instead of returning a blank response (the last API response
+                        // only contained tool calls), inject a meaningful message so the
+                        // user isn't left with empty content.
+                        let warning = self.config.max_rounds_reached_message();
+                        let assistant_msg = ChatMessage::assistant(&warning);
+                        self.history.push(assistant_msg.clone());
+                        // Patch the response so the caller sees the warning text.
+                        response.choices[0].message = assistant_msg;
                         break response;
                     }
                     // Loop back to get the model's next response
@@ -580,6 +601,17 @@ impl AgentStreamer {
                         round += 1;
                         if round >= max_rounds {
                             tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                            // Emit a meaningful warning message as the last content
+                            // so the client doesn't receive a blank response.
+                            let warning = agent.config.max_rounds_reached_message();
+                            agent.history.push(ChatMessage::assistant(&warning));
+                            if tx
+                                .send(Ok(StreamEvent::ContentDelta { delta: warning }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
                             break;
                         }
                         // Loop back for next round

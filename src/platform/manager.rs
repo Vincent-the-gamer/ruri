@@ -7,6 +7,10 @@ use crate::platform::weixin_oc::WeixinOcAdapter;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
+fn default_true() -> bool {
+    true
+}
+
 /// Configuration for a single platform instance.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct PlatformInstanceConfig {
@@ -16,6 +20,9 @@ pub struct PlatformInstanceConfig {
     /// Instance ID (unique across all platforms).
     #[serde(default)]
     pub id: String,
+    /// Whether this platform instance is enabled. Disabled platforms are not started.
+    #[serde(default = "default_true")]
+    pub enable: bool,
     /// Platform-specific configuration (passed to the adapter).
     #[serde(flatten)]
     pub extra: serde_json::Value,

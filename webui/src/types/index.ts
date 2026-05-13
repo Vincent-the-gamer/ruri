@@ -365,12 +365,16 @@ export interface ConfigProfile {
   // 技能配置
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
-  // 平台配置
-  active_platform_ids: string[]
   // 内置指令前缀
   command_prefix: string
+  // 启用的内置指令列表
+  enabled_commands: string[]
+  // 每个指令的管理员权限覆盖
+  command_admin_required: Record<string, boolean>
   // 自定义错误信息
   custom_error_message?: string
+  // 关联的平台实例
+  platform_ids: string[]
   // 代理配置
   proxy_config: ProxyConfig
 }
@@ -386,9 +390,11 @@ export interface CreateConfigProfileRequest {
   acp_enabled: boolean
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
-  active_platform_ids: string[]
   command_prefix: string
+  enabled_commands?: string[]
+  command_admin_required?: Record<string, boolean>
   custom_error_message?: string
+  platform_ids?: string[]
   proxy_config: ProxyConfig
 }
 
@@ -403,9 +409,11 @@ export interface UpdateConfigProfileRequest {
   acp_enabled?: boolean
   active_skill_names?: string[]
   active_knowledge_base_ids?: string[]
-  active_platform_ids?: string[]
   command_prefix?: string
+  enabled_commands?: string[]
+  command_admin_required?: Record<string, boolean>
   custom_error_message?: string | null
+  platform_ids?: string[]
   proxy_config?: ProxyConfig
 }
 
@@ -533,6 +541,7 @@ export type PlatformConfig = DingtalkPlatformConfig | DiscordPlatformConfig | We
 export interface PlatformInstance {
   id: string
   platform_type: PlatformType
+  enable: boolean
   config: PlatformConfig
   status: PlatformStatus
 }
@@ -540,6 +549,7 @@ export interface PlatformInstance {
 export interface CreatePlatformRequest {
   id: string
   type: PlatformType
+  enable?: boolean
   // DingTalk fields
   client_id?: string
   client_secret?: string
@@ -578,6 +588,7 @@ export interface CreatePlatformRequest {
 export interface UpdatePlatformRequest {
   id?: string
   type?: PlatformType
+  enable?: boolean
   // DingTalk fields
   client_id?: string
   client_secret?: string
@@ -732,6 +743,8 @@ export interface BuiltinCommand {
   /** Built-in default admin requirement for this command. */
   default_require_admin: boolean
   hidden: boolean
+  /** Whether this command is enabled in the active config profile. */
+  enabled: boolean
 }
 
 // ─── Auth Types ─────────────────────────────────────────────────

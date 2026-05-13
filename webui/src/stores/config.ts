@@ -91,14 +91,35 @@ export const useConfigStore = defineStore('config', () => {
     error.value = null
     try {
       const updated = await api.activateConfigProfile(id)
-      configProfiles.value = configProfiles.value.map(p => ({
-        ...p,
-        is_active: p.id === id,
-      }))
-      activeConfigProfile.value = updated
+      const index = configProfiles.value.findIndex(p => p.id === id)
+      if (index !== -1) {
+        configProfiles.value[index] = updated
+      }
+      // Update the active config reference to the first active profile
+      activeConfigProfile.value = configProfiles.value.find(p => p.is_active) || null
       return updated
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to activate config profile'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function deactivateConfigProfile(id: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const updated = await api.deactivateConfigProfile(id)
+      const index = configProfiles.value.findIndex(p => p.id === id)
+      if (index !== -1) {
+        configProfiles.value[index] = updated
+      }
+      // Update the active config reference
+      activeConfigProfile.value = configProfiles.value.find(p => p.is_active) || null
+      return updated
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Failed to deactivate config profile'
       throw e
     } finally {
       loading.value = false
@@ -130,8 +151,19 @@ export const useConfigStore = defineStore('config', () => {
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
   const acpEnabled = computed(() => activeConfigProfile.value?.acp_enabled ?? false)
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
-  const activePlatformIds = computed(() => activeConfigProfile.value?.active_platform_ids ?? [])
   const commandPrefix = computed(() => activeConfigProfile.value?.command_prefix ?? '/')
+  const enabledCommands = computed(() => activeConfigProfile.value?.enabled_commands ?? [])
+  const commandAdminRequired = computed(() => activeConfigProfile.value?.command_admin_required ?? {})
+
+  const usedPlatformIds = computed(() => {
+    const ids = new Set<string>()
+    for (const profile of configProfiles.value) {
+      for (const pid of (profile.platform_ids || [])) {
+        ids.add(pid)
+      }
+    }
+    return ids
+  })
 
   return {
     configProfiles,
@@ -143,8 +175,10 @@ export const useConfigStore = defineStore('config', () => {
     computerUseEnabled,
     acpEnabled,
     activeSkillNames,
-    activePlatformIds,
     commandPrefix,
+    enabledCommands,
+    commandAdminRequired,
+    usedPlatformIds,
     loading,
     error,
     fetchConfigProfiles,
@@ -152,6 +186,7 @@ export const useConfigStore = defineStore('config', () => {
     updateConfigProfile,
     deleteConfigProfile,
     activateConfigProfile,
+    deactivateConfigProfile,
     getConfigProfileProvider,
     getConfigProfilePersona,
   }

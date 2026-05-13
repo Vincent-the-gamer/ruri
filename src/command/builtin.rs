@@ -61,6 +61,10 @@ impl Command for HelpCommand {
             if cmd.hidden() {
                 continue;
             }
+            // Only show enabled commands
+            if !dispatcher.is_command_enabled(cmd.name()) {
+                continue;
+            }
             visible_count += 1;
             let admin_marker = if cmd.require_admin() { " 🔒" } else { "" };
             lines.push(format!(
@@ -69,6 +73,10 @@ impl Command for HelpCommand {
                 cmd.description(),
                 admin_marker
             ));
+        }
+
+        if visible_count == 0 {
+            lines.push("  （当前无已启用的指令）".to_string());
         }
 
         lines.push(String::new());

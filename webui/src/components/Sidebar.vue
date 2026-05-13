@@ -46,11 +46,6 @@ const navGroups = computed(() => [
                 label: t("nav.conversationHistory"),
                 icon: "lucide:history",
             },
-            {
-                path: "/builtin-commands",
-                label: t("nav.builtinCommands"),
-                icon: "lucide:terminal",
-            },
         ],
     },
     {
@@ -62,6 +57,11 @@ const navGroups = computed(() => [
                 path: "/configs",
                 label: t("nav.configs"),
                 icon: "lucide:layers",
+            },
+            {
+                path: "/builtin-commands",
+                label: t("nav.builtinCommands"),
+                icon: "lucide:terminal",
             },
             {
                 path: "/providers",

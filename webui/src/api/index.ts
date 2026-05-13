@@ -388,6 +388,11 @@ export async function activateConfigProfile(id: string): Promise<ConfigProfile> 
   return res.data
 }
 
+export async function deactivateConfigProfile(id: string): Promise<ConfigProfile> {
+  const res = await client.post(`/api/config-profiles/${id}/deactivate`)
+  return res.data
+}
+
 export async function getConfigProfileProvider(profileId: string): Promise<Provider | null> {
   const res = await client.get(`/api/config-profiles/${profileId}/provider`)
   return res.data.provider || null
@@ -539,15 +544,6 @@ export async function searchKnowledgeBase(kbId: string, data: SearchRequest): Pr
 
 export async function getBuiltinCommands(): Promise<BuiltinCommand[]> {
   const res = await client.get('/api/commands')
-  return res.data
-}
-
-export async function updateCommandAdminRequired(
-  adminRequired: Record<string, boolean>,
-): Promise<{ command_admin_required: Record<string, boolean> }> {
-  const res = await client.put('/api/commands/admin-required', {
-    admin_required: adminRequired,
-  })
   return res.data
 }
 
