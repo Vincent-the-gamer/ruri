@@ -56,6 +56,11 @@ pub struct WeixinOcAdapter {
     shutdown_tx: Option<watch::Sender<bool>>,
     /// Context token cache for replying in conversations.
     context_tokens: Arc<Mutex<ContextTokenMap>>,
+    /// Typing ticket cache: maps user_id → typing_ticket.
+    typing_tickets: Arc<Mutex<HashMap<String, String>>>,
+    /// Whether the config has been updated (e.g. after QR login) and
+    /// should be persisted via `persist_config_hint()`.
+    config_dirty: bool,
 }
 
 impl WeixinOcAdapter {
@@ -73,7 +78,21 @@ impl WeixinOcAdapter {
             api: Arc::new(api),
             shutdown_tx: None,
             context_tokens: Arc::new(Mutex::new(HashMap::new())),
+            typing_tickets: Arc::new(Mutex::new(HashMap::new())),
+            config_dirty: false,
         })
+    }
+
+    /// Copy the current token and account_id from the API state back into
+    /// `self.config` and mark the config as dirty so that
+    /// [`persist_config_hint()`] will return the updated value.
+    async fn sync_config_from_api(&mut self) {
+        let state = self.api.state();
+        let guard = state.read().await;
+        self.config.token = guard.token.clone();
+        self.config.account_id = guard.account_id.clone();
+        drop(guard);
+        self.config_dirty = true;
     }
 
     /// Run the QR code login flow.
@@ -147,6 +166,7 @@ impl WeixinOcAdapter {
                     print_qr_code(&new_qr.qrcode_img_content);
                 }
                 "scaned_but_redirect" => {
+                    tracing::info!("👀 已扫码，请在个人微信中确认登录...");
                     if let Some(ref host) = result.redirect_host {
                         api.set_qr_redirect_url(host).await;
                     } else {
@@ -166,26 +186,49 @@ impl WeixinOcAdapter {
         anyhow::bail!("个人微信登录超时，请重试")
     }
 
+    /// Maximum consecutive failures before backing off.
+    const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+    /// Backoff delay after too many consecutive failures (30 seconds).
+    const BACKOFF_DELAY_MS: u64 = 30_000;
+    /// Retry delay between individual failures (2 seconds).
+    const RETRY_DELAY_MS: u64 = 2_000;
+    /// Default long-poll timeout in milliseconds.
+    const DEFAULT_LONG_POLL_TIMEOUT_MS: u64 = 35_000;
+
     /// Run the long-poll loop for receiving messages.
+    ///
+    /// Returns the reason the loop exited so the caller can decide
+    /// whether to re-login or give up.
     async fn run_poll_loop(
         api: Arc<WeixinApi>,
         instance_id: String,
         cdn_base_url: String,
         context_tokens: Arc<Mutex<ContextTokenMap>>,
+        typing_tickets: Arc<Mutex<HashMap<String, String>>>,
         event_sender: mpsc::Sender<PlatformEvent>,
         shutdown_rx: watch::Receiver<bool>,
         self_id: String,
-    ) {
+    ) -> PollLoopExitReason {
+        let mut consecutive_failures: u32 = 0;
+        let mut next_poll_timeout_ms: u64 = Self::DEFAULT_LONG_POLL_TIMEOUT_MS;
+
         loop {
             // Check shutdown
             if *shutdown_rx.borrow() {
                 tracing::info!(platform_id = %instance_id, "Poll loop shutting down");
-                break;
+                return PollLoopExitReason::Shutdown;
             }
 
-            match api.get_updates().await {
+            match api.get_updates_with_timeout(next_poll_timeout_ms).await {
                 Ok(updates) => {
-                    if let Some(errcode) = updates.errcode {
+                    // Check for API-level errors in the response body
+                    // (the server may return HTTP 200 but include an error code)
+                    let is_api_error =
+                        (updates.ret.is_some() && updates.ret != Some(0))
+                        || (updates.errcode.is_some() && updates.errcode != Some(0));
+
+                    if is_api_error {
+                        let errcode = updates.errcode.unwrap_or(0);
                         if errcode == -14 {
                             tracing::warn!(
                                 platform_id = %instance_id,
@@ -194,10 +237,56 @@ impl WeixinOcAdapter {
                             let _ = event_sender
                                 .send(PlatformEvent::Error {
                                     platform_id: instance_id.clone(),
-                                    message: "WeChat session timeout, need to re-login".to_string(),
+                                    message: "WeChat session timeout, attempting re-login..."
+                                        .to_string(),
                                 })
                                 .await;
-                            break;
+                            return PollLoopExitReason::SessionTimeout;
+                        }
+
+                        consecutive_failures += 1;
+                        tracing::error!(
+                            platform_id = %instance_id,
+                            ret = ?updates.ret,
+                            errcode = ?updates.errcode,
+                            errmsg = ?updates.errmsg,
+                            consecutive_failures,
+                            "getUpdates API error in response body"
+                        );
+
+                        if consecutive_failures >= Self::MAX_CONSECUTIVE_FAILURES {
+                            tracing::error!(
+                                platform_id = %instance_id,
+                                "{} consecutive failures, backing off for {}s",
+                                Self::MAX_CONSECUTIVE_FAILURES,
+                                Self::BACKOFF_DELAY_MS / 1000
+                            );
+                            consecutive_failures = 0;
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                Self::BACKOFF_DELAY_MS,
+                            ))
+                            .await;
+                        } else {
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                Self::RETRY_DELAY_MS,
+                            ))
+                            .await;
+                        }
+                        continue;
+                    }
+
+                    // Success — reset failure counter
+                    consecutive_failures = 0;
+
+                    // Use server-suggested long-poll timeout for next request
+                    if let Some(timeout_ms) = updates.longpolling_timeout_ms {
+                        if timeout_ms > 0 {
+                            next_poll_timeout_ms = timeout_ms;
+                            tracing::debug!(
+                                platform_id = %instance_id,
+                                "Updated next poll timeout to {}ms",
+                                timeout_ms
+                            );
                         }
                     }
 
@@ -208,39 +297,203 @@ impl WeixinOcAdapter {
                                 continue;
                             }
 
+                            let from_user_id = msg.from_user_id.as_deref().unwrap_or("unknown");
+                            let item_types: Vec<String> = msg
+                                .item_list
+                                .as_ref()
+                                .map(|items| items.iter().map(|i| format!("{}", i.item_type.unwrap_or(0))).collect())
+                                .unwrap_or_default();
+                            tracing::info!(
+                                platform_id = %instance_id,
+                                from = %from_user_id,
+                                item_types = ?item_types,
+                                has_context_token = msg.context_token.is_some(),
+                                "Inbound message"
+                            );
+
                             if let Some(platform_msg) =
                                 convert_weixin_message(&msg, &instance_id, &self_id, &cdn_base_url)
                             {
-                                // Cache context_token
+                                // Cache context_token keyed by session_id so that
+                                // `send_message` can look it up via `target_id` (which
+                                // equals session_id for both friend and group messages).
                                 if let Some(ref token) = msg.context_token {
-                                    if let Some(ref from_id) = msg.from_user_id {
-                                        let mut ctx = context_tokens.lock().await;
-                                        ctx.insert(from_id.clone(), token.clone());
-                                    }
+                                    let mut ctx = context_tokens.lock().await;
+                                    ctx.insert(platform_msg.session_id.clone(), token.clone());
                                 }
+
+                                // Fetch typing ticket for this user (best-effort)
+                                let user_id_for_typing = platform_msg.session_id.clone();
+                                let ctx_token_for_config = msg.context_token.clone();
+                                let api_clone = api.clone();
+                                let typing_tickets_clone = typing_tickets.clone();
+                                tokio::spawn(async move {
+                                    if let Ok(config_resp) = api_clone
+                                        .get_config(&user_id_for_typing, ctx_token_for_config.as_deref())
+                                        .await
+                                    {
+                                        if let Some(ticket) = config_resp.typing_ticket {
+                                            let mut tickets = typing_tickets_clone.lock().await;
+                                            tickets.insert(user_id_for_typing, ticket);
+                                        }
+                                    }
+                                });
+
+                                // Send typing indicator (best-effort)
+                                let typing_tickets_for_send = typing_tickets.clone();
+                                let api_for_typing = api.clone();
+                                let user_id_typing = platform_msg.session_id.clone();
+                                tokio::spawn(async move {
+                                    let tickets = typing_tickets_for_send.lock().await;
+                                    if let Some(ticket) = tickets.get(&user_id_typing) {
+                                        let _ = api_for_typing
+                                            .send_typing(&user_id_typing, ticket, 1)
+                                            .await;
+                                    }
+                                });
 
                                 let event = PlatformEvent::Message(platform_msg);
                                 if event_sender.send(event).await.is_err() {
-                                    break;
+                                    return PollLoopExitReason::SendError;
                                 }
                             }
                         }
                     }
                 }
                 Err(e) => {
+                    consecutive_failures += 1;
                     tracing::error!(
                         platform_id = %instance_id,
                         error = %e,
+                        consecutive_failures,
                         "getUpdates error"
                     );
-                    // Brief sleep before retry
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                    if consecutive_failures >= Self::MAX_CONSECUTIVE_FAILURES {
+                        tracing::error!(
+                            platform_id = %instance_id,
+                            "{} consecutive failures, backing off for {}s",
+                            Self::MAX_CONSECUTIVE_FAILURES,
+                            Self::BACKOFF_DELAY_MS / 1000
+                        );
+                        consecutive_failures = 0;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            Self::BACKOFF_DELAY_MS,
+                        ))
+                        .await;
+                    } else {
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            Self::RETRY_DELAY_MS,
+                        ))
+                        .await;
+                    }
                 }
             }
         }
-
-        tracing::info!(platform_id = %instance_id, "Poll loop ended");
     }
+}
+
+/// Reason the poll loop exited.
+#[derive(Debug)]
+enum PollLoopExitReason {
+    /// Graceful shutdown requested.
+    Shutdown,
+    /// Session timed out (errcode=-14); the caller should re-login.
+    SessionTimeout,
+    /// The event sender channel was closed (receiver dropped).
+    SendError,
+}
+
+/// Standalone QR login function that can be called from the spawned task.
+///
+/// This is the same logic as `WeixinOcAdapter::do_qr_login` but doesn't
+/// require `&self`, so it works inside a `tokio::spawn` closure.
+async fn do_qr_login_standalone(
+    api: &WeixinApi,
+    instance_id: &str,
+    qr_poll_interval_ms: u64,
+) -> anyhow::Result<()> {
+    // Step 1: Get QR code
+    tracing::info!(
+        platform_id = %instance_id,
+        "Starting Personal WeChat QR login..."
+    );
+
+    let qr_resp = api.qr_login_start().await?;
+
+    tracing::info!("请使用手机微信扫码登录个人微信，二维码有效期 5 分钟，过期后会自动刷新。");
+
+    // Print QR code URL
+    tracing::info!("QR code URL: {}", qr_resp.qrcode_img_content);
+
+    // Try to render a terminal QR code
+    print_qr_code(&qr_resp.qrcode_img_content);
+
+    // Step 2: Poll until confirmed
+    let login_timeout_ms: u64 = 480_000; // 8 minutes
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(login_timeout_ms);
+    let mut max_qr_refresh = 3;
+    let mut current_qrcode = qr_resp.qrcode.clone();
+
+    while std::time::Instant::now() < deadline {
+        let poll_timeout = std::cmp::min(
+            35_000,
+            (deadline - std::time::Instant::now()).as_millis() as u64,
+        );
+        if poll_timeout == 0 {
+            break;
+        }
+
+        let result = api.qr_login_wait(&current_qrcode, poll_timeout).await?;
+
+        match result.status.as_str() {
+            "wait" => {
+                // Still waiting, continue polling
+            }
+            "scaned" => {
+                tracing::info!("👀 已扫码，请在个人微信中确认登录...");
+            }
+            "confirmed" => {
+                if let (Some(token), Some(account_id)) = (&result.bot_token, &result.ilink_bot_id) {
+                    tracing::info!("✅ 个人微信登录成功！account_id={}", account_id);
+                    api.save_login(token.clone(), account_id.clone(), result.baseurl.clone())
+                        .await;
+                    return Ok(());
+                } else {
+                    anyhow::bail!("Login confirmed but missing bot_token or ilink_bot_id");
+                }
+            }
+            "expired" => {
+                max_qr_refresh -= 1;
+                if max_qr_refresh <= 0 {
+                    anyhow::bail!("二维码多次过期，请重新启动适配器");
+                }
+                tracing::warn!("二维码已过期，正在刷新...({}次剩余)", max_qr_refresh);
+                // Get a new QR code
+                let new_qr = api.qr_login_start().await?;
+                current_qrcode = new_qr.qrcode.clone();
+                tracing::info!("新二维码已生成，请重新扫描");
+                print_qr_code(&new_qr.qrcode_img_content);
+            }
+            "scaned_but_redirect" => {
+                tracing::info!("👀 已扫码，请在个人微信中确认登录...");
+                if let Some(ref host) = result.redirect_host {
+                    api.set_qr_redirect_url(host).await;
+                } else {
+                    tracing::warn!(
+                        "Received scaned_but_redirect but redirect_host is missing, continuing with current host"
+                    );
+                }
+            }
+            other => {
+                tracing::warn!("Unknown QR status: {}", other);
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(qr_poll_interval_ms)).await;
+    }
+
+    anyhow::bail!("个人微信登录超时，请重试")
 }
 
 /// Print a QR code to the terminal using the `qrcode` crate.
@@ -287,17 +540,10 @@ fn convert_weixin_message(
             .unwrap_or(0)
     });
 
-    // Determine message type: WeChat personal doesn't have native groups from this API,
-    // so all messages are treated as friend messages unless a group_id is present.
-    let group_id = msg.group_id.clone().unwrap_or_default();
-    let (message_type, session_id) = if group_id.is_empty() {
-        (MessageType::FriendMessage, from_user_id.to_string())
-    } else {
-        (
-            MessageType::GroupMessage,
-            format!("{}_{}", group_id, from_user_id),
-        )
-    };
+    // WeChat ClawBot only supports private (1-on-1) messages;
+    // all messages are treated as friend messages.
+    let _group_id = msg.group_id.clone().unwrap_or_default();
+    let session_id = from_user_id.to_string();
 
     // Parse message components
     let mut components = Vec::new();
@@ -383,7 +629,7 @@ fn convert_weixin_message(
     Some(PlatformMessage {
         platform_id: platform_id.to_string(),
         message_id,
-        message_type,
+        message_type: MessageType::FriendMessage,
         message_str,
         components,
         sender: crate::platform::types::MessageSender {
@@ -391,7 +637,7 @@ fn convert_weixin_message(
             nickname: String::new(),
         },
         self_id: self_id.to_string(),
-        group_id,
+        group_id: String::new(),
         session_id,
         timestamp,
         raw: Some(serde_json::to_value(msg).unwrap_or(serde_json::Value::Null)),
@@ -413,6 +659,9 @@ impl Platform for WeixinOcAdapter {
                 "No WeChat token found, starting QR login..."
             );
             self.do_qr_login().await?;
+            // Sync the updated token/account_id back into self.config
+            // so persist_config_hint() can return them.
+            self.sync_config_from_api().await;
         }
 
         // Reset the sync cursor before starting polling
@@ -422,7 +671,7 @@ impl Platform for WeixinOcAdapter {
             guard.get_updates_buf = String::new();
         }
 
-        // Step 2: Get self_id
+        // Get self_id
         let self_id = {
             let state = self.api.state();
             let guard = state.read().await;
@@ -442,19 +691,88 @@ impl Platform for WeixinOcAdapter {
         let instance_id = self.instance_id.clone();
         let cdn_base_url = self.config.cdn_base_url.clone();
         let context_tokens = self.context_tokens.clone();
+        let typing_tickets = self.typing_tickets.clone();
+        let qr_poll_interval_ms = self.config.qr_poll_interval_ms;
 
-        // Spawn the poll loop
+        // Spawn the main loop that handles both polling and re-login.
+        // On session timeout (errcode=-14) the poll loop returns
+        // `PollLoopExitReason::SessionTimeout`, and the outer loop
+        // re-does QR login before resuming polling.
         tokio::spawn(async move {
-            Self::run_poll_loop(
-                api,
-                instance_id,
-                cdn_base_url,
-                context_tokens,
-                event_sender,
-                shutdown_rx,
-                self_id,
-            )
-            .await;
+            let poll_shutdown_rx = shutdown_rx;
+            loop {
+                let exit_reason = WeixinOcAdapter::run_poll_loop(
+                    api.clone(),
+                    instance_id.clone(),
+                    cdn_base_url.clone(),
+                    context_tokens.clone(),
+                    typing_tickets.clone(),
+                    event_sender.clone(),
+                    poll_shutdown_rx.clone(),
+                    self_id.clone(),
+                )
+                .await;
+
+                match exit_reason {
+                    PollLoopExitReason::Shutdown | PollLoopExitReason::SendError => {
+                        tracing::info!(
+                            platform_id = %instance_id,
+                            "Poll loop exited ({:?}), not re-connecting",
+                            exit_reason
+                        );
+                        break;
+                    }
+                    PollLoopExitReason::SessionTimeout => {
+                        tracing::info!(
+                            platform_id = %instance_id,
+                            "Session expired, starting QR re-login..."
+                        );
+
+                        // Clear stale credentials in the API state
+                        {
+                            let state = api.state();
+                            let mut guard = state.write().await;
+                            guard.token = None;
+                            guard.account_id = None;
+                            guard.get_updates_buf = String::new();
+                            guard.qr_redirect_base_url = None;
+                        }
+
+                        // Re-login via QR
+                        match do_qr_login_standalone(&api, &instance_id, qr_poll_interval_ms).await
+                        {
+                            Ok(()) => {
+                                tracing::info!(
+                                    platform_id = %instance_id,
+                                    "QR re-login succeeded, resuming poll loop"
+                                );
+                                // Notify that config should be persisted
+                                let _ = event_sender
+                                    .send(PlatformEvent::StatusChanged {
+                                        platform_id: instance_id.clone(),
+                                        status: PlatformStatus::Running,
+                                    })
+                                    .await;
+                                // Continue the outer loop → poll again
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    platform_id = %instance_id,
+                                    error = %e,
+                                    "QR re-login failed, giving up"
+                                );
+                                let _ = event_sender
+                                    .send(PlatformEvent::Error {
+                                        platform_id: instance_id.clone(),
+                                        message: format!("QR re-login failed: {}", e),
+                                    })
+                                    .await;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         tracing::info!(
@@ -466,6 +784,29 @@ impl Platform for WeixinOcAdapter {
     }
 
     async fn terminate(&mut self) -> anyhow::Result<()> {
+        // Sync latest credentials from API state before shutting down,
+        // so persist_config_hint() returns the most up-to-date values
+        // when the platform manager drains config updates on shutdown.
+        {
+            let state = self.api.state();
+            if let Ok(guard) = state.try_read() {
+                let token_changed = self.config.token != guard.token;
+                let account_changed = self.config.account_id != guard.account_id;
+                if token_changed || account_changed {
+                    self.config.token = guard.token.clone();
+                    self.config.account_id = guard.account_id.clone();
+                    if guard.base_url != self.config.base_url {
+                        self.config.base_url = guard.base_url.clone();
+                    }
+                    self.config_dirty = true;
+                    tracing::info!(
+                        platform_id = %self.instance_id,
+                        "Synced latest credentials before shutdown (dirty={})",
+                        self.config_dirty
+                    );
+                }
+            }
+        }
         self.status = PlatformStatus::Stopped;
         if let Some(tx) = &self.shutdown_tx {
             let _ = tx.send(true);
@@ -475,43 +816,47 @@ impl Platform for WeixinOcAdapter {
     }
 
     async fn send_message(&self, message: OutboundMessage) -> anyhow::Result<()> {
+        // WeChat ClawBot only supports private (1-on-1) messages.
+        // target_id is always the user's ID (same as session_id for friend messages).
+        let to_user_id = &message.target_id;
+
+        // Look up cached context_token by session_id (= target_id)
+        let context_token = {
+            let ctx = self.context_tokens.lock().await;
+            ctx.get(&message.target_id).cloned()
+        };
+
+        // Cancel typing indicator before sending reply (best-effort)
+        let typing_ticket = {
+            let tickets = self.typing_tickets.lock().await;
+            tickets.get(&message.target_id).cloned()
+        };
+        if let Some(ref ticket) = typing_ticket {
+            let _ = self
+                .api
+                .send_typing(to_user_id, ticket, 2) // 2 = cancel
+                .await;
+        }
+
         match &message.content {
             OutboundContent::Text { content } => {
-                // Look up cached context_token
-                let context_token = {
-                    let ctx = self.context_tokens.lock().await;
-                    ctx.get(&message.target_id).cloned()
-                };
-
                 self.api
-                    .send_text_message(&message.target_id, content, context_token.as_deref())
+                    .send_text_message(to_user_id, content, context_token.as_deref())
                     .await
             }
             OutboundContent::Image { photo_url } => {
-                // For image sending, we need to:
-                // 1. Download the image (if it's a URL)
-                // 2. Encrypt it with AES-128-ECB
-                // 3. Get upload URL via getUploadUrl
-                // 4. Upload to CDN
-                // 5. Send a message with the image CDNMedia reference
-                //
-                // For now, send as text with the URL since full image upload
-                // requires more complex CDN flow.
+                // Full CDN upload not yet implemented, send URL as text.
                 tracing::warn!(
                     "Image sending via CDN upload is not yet fully implemented, sending URL as text"
                 );
                 self.api
-                    .send_text_message(&message.target_id, photo_url, None)
+                    .send_text_message(to_user_id, photo_url, context_token.as_deref())
                     .await
             }
             OutboundContent::Markdown { title: _, text } => {
                 // WeChat does not natively support markdown, send as plain text
-                let context_token = {
-                    let ctx = self.context_tokens.lock().await;
-                    ctx.get(&message.target_id).cloned()
-                };
                 self.api
-                    .send_text_message(&message.target_id, text, context_token.as_deref())
+                    .send_text_message(to_user_id, text, context_token.as_deref())
                     .await
             }
             OutboundContent::File {
@@ -532,5 +877,60 @@ impl Platform for WeixinOcAdapter {
 
     fn platform_type(&self) -> &str {
         "weixin_oc"
+    }
+
+    fn persist_config_hint(&self) -> Option<serde_json::Value> {
+        // Check if credentials have been updated in the API state since
+        // the config was last persisted.  This covers both the initial
+        // QR login case (`config_dirty` is set by `sync_config_from_api`)
+        // AND the re-login case (where the spawned task updates the API
+        // state but can't reach `self.config`).
+        //
+        // We use `try_read` because this is a sync method and the lock
+        // is an async `tokio::sync::RwLock`.  If we can't acquire the
+        // lock immediately we return None – we'll retry on the next call.
+        let dirty = if self.config_dirty {
+            true
+        } else if let Ok(guard) = self.api.state().try_read() {
+            // Check if API state has a token that differs from self.config
+            match (&self.config.token, &guard.token) {
+                (Some(a), Some(b)) if a == b => false,
+                (None, None) => false,
+                _ => true,
+            }
+        } else {
+            false
+        };
+
+        if !dirty {
+            return None;
+        }
+
+        // Build an updated config value.  Try to read the current API
+        // state so we always return the latest credentials.
+        let mut config = self.config.clone();
+        if let Ok(guard) = self.api.state().try_read() {
+            if guard.token.is_some() {
+                config.token = guard.token.clone();
+            }
+            if guard.account_id.is_some() {
+                config.account_id = guard.account_id.clone();
+            }
+        }
+        serde_json::to_value(&config).ok()
+    }
+
+    fn mark_config_persisted(&mut self) {
+        self.config_dirty = false;
+        // Sync self.config from the API state so persist_config_hint
+        // won't keep returning Some on future calls.
+        if let Ok(guard) = self.api.state().try_read() {
+            if guard.token.is_some() {
+                self.config.token = guard.token.clone();
+            }
+            if guard.account_id.is_some() {
+                self.config.account_id = guard.account_id.clone();
+            }
+        }
     }
 }

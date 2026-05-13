@@ -16,6 +16,7 @@ import type {
   CreateProviderRequest,
   CreateSkillRequest,
   CreatePersonaRequest,
+  DebugSession,
   KbDocument,
   KnowledgeBase,
   LogEntry,
@@ -34,6 +35,7 @@ import type {
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
   UpdateConfigProfileRequest,
+  UpdateDebugSessionRequest,
   UpdateKnowledgeBaseRequest,
   UpdateMcpServerRequest,
   UpdatePersonaRequest,
@@ -584,5 +586,17 @@ export async function uploadAvatar(file: File): Promise<{ avatar_url: string }> 
       'Content-Type': 'multipart/form-data',
     },
   })
+  return res.data
+}
+
+// ─── Debug Session ──────────────────────────────────────────────
+
+export async function getDebugSession(): Promise<DebugSession> {
+  const res = await client.get('/api/debug-session')
+  return res.data
+}
+
+export async function updateDebugSession(data: UpdateDebugSessionRequest): Promise<DebugSession> {
+  const res = await client.put('/api/debug-session', data)
   return res.data
 }

@@ -173,6 +173,15 @@ export const useChatStore = defineStore('chat', () => {
       for await (const event of api.sendMessageStream(req)) {
         handleStreamEvent(event)
       }
+
+      // If the stream ended without any content or error, something went wrong
+      // (e.g. the connection was closed silently or the agent panicked)
+      if (!streamingContent.value && !error.value) {
+        messages.value.push({
+          role: 'assistant',
+          content: '⚠️ No response received from the model. The stream ended unexpectedly.',
+        })
+      }
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Failed to send message'
       // If we have partial streaming content, finalize it as an error

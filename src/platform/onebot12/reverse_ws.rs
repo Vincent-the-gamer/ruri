@@ -14,25 +14,42 @@ use tokio_tungstenite::tungstenite::{Utf8Bytes, client::IntoClientRequest};
 /// Start a reverse WebSocket client that connects to the configured URL.
 ///
 /// This function runs in a loop, reconnecting with the configured interval
-/// when the connection drops.
+/// when the connection drops. Uses exponential backoff on consecutive failures
+/// (capped at 60 s) and resets the backoff on a successful connection.
 pub async fn run_reverse_ws(
     state: Arc<Ob12ServerState>,
     config: &WsReverseConfig,
 ) -> anyhow::Result<()> {
+    let base_delay_ms = config.reconnect_interval;
+    let max_delay_ms = 60_000u64; // cap at 60 s
+    let mut consecutive_failures: u32 = 0;
+
     loop {
         match connect_once(&state, config).await {
             Ok(()) => {
+                consecutive_failures = 0;
                 tracing::info!(url = %config.url, "Reverse WebSocket disconnected, reconnecting");
             }
             Err(e) => {
-                tracing::warn!(url = %config.url, error = %e, "Reverse WebSocket connection failed, reconnecting");
+                consecutive_failures += 1;
+                tracing::warn!(
+                    url = %config.url,
+                    error = %e,
+                    failures = consecutive_failures,
+                    "Reverse WebSocket connection failed, reconnecting"
+                );
             }
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(
-            config.reconnect_interval,
-        ))
-        .await;
+        // Exponential backoff: base * 2^(failures-1), capped at max_delay
+        let delay_ms = if consecutive_failures == 0 {
+            base_delay_ms
+        } else {
+            let exp = 2u64.saturating_pow(consecutive_failures.saturating_sub(1));
+            (base_delay_ms * exp).min(max_delay_ms)
+        };
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
     }
 }
 

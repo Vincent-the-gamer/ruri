@@ -5,12 +5,14 @@ import { useConfigStore } from "../stores/config";
 import { usePersonaStore } from "../stores/persona";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useProviderStore } from "../stores/provider";
+import { useDebugSessionStore } from "../stores/debugSession";
 import { ProxyRuleTypeLabels } from "../types";
 import type {
     ProxyConfig,
     ProxyMode,
     ProxyRule,
     ProxyRuleType,
+    PersonaMode,
 } from "../types";
 
 const props = defineProps<{
@@ -36,30 +38,17 @@ const configStore = useConfigStore();
 const personaStore = usePersonaStore();
 const kbStore = useKnowledgeBaseStore();
 const providerStore = useProviderStore();
+const debugSessionStore = useDebugSessionStore();
 
 // ── Model Provider Selection ──
 const selectedProviderId = ref<string | null>(null);
 const providers = computed(() => providerStore.providers);
 const activeProviderForChat = computed(() => {
-    if (selectedProviderId.value) {
-        return (
-            providerStore.providers.find(
-                (p) => p.id === selectedProviderId.value,
-            ) || null
-        );
+    const id = selectedProviderId.value || debugSessionStore.providerId;
+    if (id) {
+        return providerStore.providers.find((p) => p.id === id) || null;
     }
-    // Fallback: use the config profile's provider_id
-    const profileProviderId = configStore.activeConfigProfile?.provider_id;
-    if (profileProviderId) {
-        return (
-            providerStore.providers.find((p) => p.id === profileProviderId) ||
-            null
-        );
-    }
-    // Fallback: any provider
-    return providerStore.providers.length > 0
-        ? providerStore.providers[0]
-        : null;
+    return null;
 });
 
 // ── Model Parameters ──
@@ -70,14 +59,11 @@ const maxTokens = ref(4096);
 const selectedPersonaId = ref<string | null>(null);
 const personas = computed(() => personaStore.personas);
 const activePersona = computed(() => {
-    if (selectedPersonaId.value) {
-        return (
-            personaStore.personas.find(
-                (p) => p.id === selectedPersonaId.value,
-            ) || personaStore.activePersona
-        );
-    }
-    return personaStore.activePersona;
+    if (!selectedPersonaId.value) return null;
+    return (
+        personaStore.personas.find((p) => p.id === selectedPersonaId.value) ||
+        null
+    );
 });
 
 // ── Custom Error Message ──
@@ -214,51 +200,86 @@ function debouncedSave() {
 }
 
 async function handleSave() {
-    const activeProfileId = configStore.activeProfileId;
-    if (!activeProfileId) return;
-
     try {
-        await configStore.updateConfigProfile(activeProfileId, {
-            provider_id: selectedProviderId.value,
-            persona_id: selectedPersonaId.value,
+        // Persona is independent from config profile
+        // selectedPersonaId === null means "no persona" (persona_mode = 'none')
+        // selectedPersonaId has a value means "use this persona" (persona_mode = 'custom')
+        const personaData = selectedPersonaId.value
+            ? (() => {
+                  const p = personaStore.personas.find(
+                      (p) => p.id === selectedPersonaId.value,
+                  );
+                  return p
+                      ? {
+                            name: p.name,
+                            description: p.description,
+                            prompt: p.prompt,
+                        }
+                      : null;
+              })()
+            : null;
+        const effectivePersonaMode: PersonaMode = selectedPersonaId.value
+            ? "custom"
+            : "none";
+
+        await debugSessionStore.updateDebugSessionConfig({
+            persona_mode: effectivePersonaMode,
+            persona: personaData,
+            temperature: temperature.value,
+            max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
-            active_knowledge_base_ids: selectedKbIds.value,
-            proxy_config: { ...proxyConfig },
+            knowledge_base_ids: selectedKbIds.value,
+            provider_id: selectedProviderId.value,
         });
     } catch {
         // Auto-save errors are silently ignored
     }
 }
 
-// ── Sync from store ──
+// ── Sync from debug session store ──
+watch(
+    () => debugSessionStore.debugSession,
+    (session) => {
+        if (session) {
+            // Sync persona: if persona_mode is 'custom' and persona exists, find by name
+            if (session.persona_mode === "custom" && session.persona?.name) {
+                const matched = personaStore.personas.find(
+                    (p) => p.name === session.persona!.name,
+                );
+                selectedPersonaId.value = matched?.id ?? null;
+            } else {
+                selectedPersonaId.value = null;
+            }
+            selectedProviderId.value =
+                session.provider_id || session.active_provider || null;
+            temperature.value = session.temperature ?? 0.7;
+            maxTokens.value = session.max_tokens ?? 4096;
+            customErrorMessage.value = session.custom_error_message || "";
+            selectedKbIds.value = [...(session.knowledge_base_ids || [])];
+        }
+    },
+    { immediate: true },
+);
+
+// Also sync from config profile for proxy config (proxy is still profile-level)
 watch(
     () => configStore.activeConfigProfile,
     (profile) => {
-        if (profile) {
-            selectedProviderId.value = profile.provider_id || null;
-            selectedPersonaId.value = profile.persona_id || null;
-            customErrorMessage.value = profile.custom_error_message || "";
-            selectedKbIds.value = [
-                ...(profile.active_knowledge_base_ids || []),
+        if (profile?.proxy_config) {
+            proxyConfig.enabled = profile.proxy_config.enabled;
+            proxyConfig.url = profile.proxy_config.url;
+            proxyConfig.mode = profile.proxy_config.mode;
+            proxyConfig.proxy_domains = [...profile.proxy_config.proxy_domains];
+            proxyConfig.bypass_domains = [
+                ...profile.proxy_config.bypass_domains,
             ];
-            if (profile.proxy_config) {
-                proxyConfig.enabled = profile.proxy_config.enabled;
-                proxyConfig.url = profile.proxy_config.url;
-                proxyConfig.mode = profile.proxy_config.mode;
-                proxyConfig.proxy_domains = [
-                    ...profile.proxy_config.proxy_domains,
-                ];
-                proxyConfig.bypass_domains = [
-                    ...profile.proxy_config.bypass_domains,
-                ];
-                proxyConfig.username = profile.proxy_config.username;
-                proxyConfig.password = profile.proxy_config.password;
-                proxyConfig.bypass_localhost =
-                    profile.proxy_config.bypass_localhost;
-                proxyConfig.rules = profile.proxy_config.rules.map((r) => ({
-                    ...r,
-                }));
-            }
+            proxyConfig.username = profile.proxy_config.username;
+            proxyConfig.password = profile.proxy_config.password;
+            proxyConfig.bypass_localhost =
+                profile.proxy_config.bypass_localhost;
+            proxyConfig.rules = profile.proxy_config.rules.map((r) => ({
+                ...r,
+            }));
         }
     },
     { immediate: true },
@@ -292,6 +313,7 @@ watch(
 
 onMounted(async () => {
     await Promise.all([
+        debugSessionStore.fetchDebugSession(),
         configStore.fetchConfigProfiles(),
         personaStore.fetchPersonas(),
         kbStore.fetchKnowledgeBases(),
@@ -445,8 +467,8 @@ defineExpose({
                                 <option :value="null">
                                     {{
                                         t(
-                                            "chatConfig.providerDefault",
-                                            "Use profile default",
+                                            "chatConfig.providerPlaceholder",
+                                            "Select a provider",
                                         )
                                     }}
                                 </option>
@@ -498,12 +520,7 @@ defineExpose({
                             {{ t("chatConfig.persona") }}
                         </h2>
                         <p class="section-desc">
-                            {{
-                                t(
-                                    "chatConfig.personaDesc",
-                                    "Choose a persona that shapes the assistant's behavior and tone",
-                                )
-                            }}
+                            {{ t("chatConfig.personaDesc") }}
                         </p>
 
                         <div class="form-field">
@@ -522,6 +539,15 @@ defineExpose({
                                     {{ persona.name }}
                                 </option>
                             </select>
+                        </div>
+
+                        <div v-if="!activePersona" class="persona-preview">
+                            <p
+                                class="persona-preview-name"
+                                style="color: var(--text-muted)"
+                            >
+                                {{ t("chatConfig.noPersonaHint") }}
+                            </p>
                         </div>
 
                         <div v-if="activePersona" class="persona-preview">

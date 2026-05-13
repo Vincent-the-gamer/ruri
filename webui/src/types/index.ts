@@ -759,4 +759,63 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
+// ─── Persona Mode Types ──────────────────────────────────────────
+
+/** Controls how persona is resolved for a debug session.
+ * - 'default': use the existing fallback chain (embedded persona → profile persona → global persona)
+ * - 'none': never inject any persona, regardless of profile or global settings
+ * - 'custom': use the embedded persona from the debug session only
+ */
+export type PersonaMode = 'default' | 'none' | 'custom'
+
+// ─── Debug Session Types ─────────────────────────────────────────
+
+export interface EmbeddedPersona {
+  name: string
+  description: string
+  prompt: string
+}
+
+export interface EmbeddedProvider {
+  id: string
+  name: string
+  provider_type: string
+  config: ProviderConfig
+}
+
+export interface EmbeddedSkill {
+  name: string
+  description: string
+  skill_type: string
+  config: Record<string, unknown>
+}
+
+export interface DebugSession {
+  persona_mode: PersonaMode
+  persona: EmbeddedPersona | null
+  providers: EmbeddedProvider[]
+  active_provider: string | null
+  provider_id: string | null
+  temperature: number | null
+  max_tokens: number | null
+  custom_error_message: string | null
+  knowledge_base_ids: string[]
+  skills: EmbeddedSkill[]
+  active_skill_names: string[]
+}
+
+export interface UpdateDebugSessionRequest {
+  persona_mode?: PersonaMode
+  persona?: EmbeddedPersona | null
+  providers?: EmbeddedProvider[]
+  active_provider?: string | null
+  provider_id?: string | null
+  temperature?: number | null
+  max_tokens?: number | null
+  custom_error_message?: string | null
+  knowledge_base_ids?: string[]
+  skills?: EmbeddedSkill[]
+  active_skill_names?: string[]
+}
+
 

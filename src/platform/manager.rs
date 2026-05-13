@@ -44,6 +44,9 @@ pub struct PlatformManager {
     event_sender: mpsc::Sender<PlatformEvent>,
     /// The event receiver. Should be taken once at startup via [`take_event_receiver`].
     event_receiver: Option<mpsc::Receiver<PlatformEvent>>,
+    /// Updated config extras returned by adapters after `run()`.
+    /// Keyed by instance ID. Call [`drain_config_updates`] to retrieve and clear.
+    pending_config_updates: HashMap<String, serde_json::Value>,
 }
 
 impl PlatformManager {
@@ -54,6 +57,7 @@ impl PlatformManager {
             adapters: HashMap::new(),
             event_sender,
             event_receiver: Some(event_receiver),
+            pending_config_updates: HashMap::new(),
         }
     }
 
@@ -108,6 +112,21 @@ impl PlatformManager {
             .run(sender)
             .await
             .map_err(|e| format!("Failed to start platform {}: {}", instance_id, e))?;
+
+        // If the adapter has new credentials (e.g. after QR login), store them
+        // so callers can persist the updated config. The manager itself doesn't
+        // have access to AppState / the config file, so we expose the hint via
+        // a separate method.
+        if let Some(updated_extra) = adapter.persist_config_hint() {
+            tracing::info!(
+                platform_id = %instance_id,
+                "Adapter has updated config to persist (new credentials)"
+            );
+            // Store the updated extra so callers can retrieve it later.
+            // We use the adapter's platform_type to identify the config.
+            self.pending_config_updates
+                .insert(instance_id.clone(), updated_extra);
+        }
 
         self.adapters.insert(instance_id, adapter);
         Ok(())
@@ -196,5 +215,20 @@ impl PlatformManager {
     /// Whether there are no adapters.
     pub fn is_empty(&self) -> bool {
         self.adapters.is_empty()
+    }
+
+    /// Drain pending config updates from the manager.
+    pub fn drain_config_updates(&mut self) -> HashMap<String, serde_json::Value> {
+        std::mem::take(&mut self.pending_config_updates)
+    }
+
+    /// Get a reference to the internal adapters map for inspection.
+    pub fn adapters(&self) -> &HashMap<String, Box<dyn Platform>> {
+        &self.adapters
+    }
+
+    /// Get a mutable reference to a specific adapter by instance ID.
+    pub fn get_mut_adapter(&mut self, id: &str) -> Option<&mut Box<dyn Platform>> {
+        self.adapters.get_mut(id)
     }
 }

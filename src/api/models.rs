@@ -982,11 +982,15 @@ pub struct EmbeddedSkillDto {
 /// Response DTO for debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugSessionDto {
+    #[serde(default = "default_persona_mode_dto")]
+    pub persona_mode: String,
     pub persona: Option<EmbeddedPersonaDto>,
     #[serde(default)]
     pub providers: Vec<EmbeddedProviderDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     #[serde(default)]
     pub temperature: Option<f64>,
     #[serde(default)]
@@ -1001,15 +1005,23 @@ pub struct DebugSessionDto {
     pub active_skill_names: Vec<String>,
 }
 
+fn default_persona_mode_dto() -> String {
+    "default".to_string()
+}
+
 /// Request DTO for updating debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDebugSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persona: Option<EmbeddedPersonaDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<Vec<EmbeddedProviderDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_provider: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<Option<f64>>,
     #[serde(skip_serializing_if = "Option::is_none")]

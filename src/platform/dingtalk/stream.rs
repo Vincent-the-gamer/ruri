@@ -207,39 +207,46 @@ async fn run_once(
     // 4. Message loop
     loop {
         tokio::select! {
-            msg = ws_stream.next() => {
+            msg = tokio::time::timeout(std::time::Duration::from_secs(300), ws_stream.next()) => {
                 match msg {
-                    Some(Ok(msg)) => {
-                        match msg {
-                            Message::Text(text) => {
-                                handle_text_frame(
-                                    &text,
-                                    &mut ws_sink,
-                                    event_sender,
-                                    platform_id,
-                                    &config.client_id,
-                                )
-                                .await?;
+                    Ok(inner) => {
+                        match inner {
+                            Some(Ok(msg)) => {
+                                match msg {
+                                    Message::Text(text) => {
+                                        handle_text_frame(
+                                            &text,
+                                            &mut ws_sink,
+                                            event_sender,
+                                            platform_id,
+                                            &config.client_id,
+                                        )
+                                        .await?;
+                                    }
+                                    Message::Ping(data) => {
+                                        tracing::debug!("Received ping, sending pong");
+                                        let _ = ws_sink.send(Message::Pong(data)).await;
+                                    }
+                                    Message::Close(_) => {
+                                        tracing::info!("WebSocket close frame received");
+                                        let _ = ws_sink.close().await;
+                                        return Ok(());
+                                    }
+                                    other => {
+                                        tracing::debug!(?other, "Ignoring WS message type");
+                                    }
+                                }
                             }
-                            Message::Ping(data) => {
-                                tracing::debug!("Received ping, sending pong");
-                                let _ = ws_sink.send(Message::Pong(data)).await;
+                            Some(Err(e)) => {
+                                return Err(anyhow::anyhow!("WebSocket read error: {}", e));
                             }
-                            Message::Close(_) => {
-                                tracing::info!("WebSocket close frame received");
-                                let _ = ws_sink.close().await;
+                            None => {
                                 return Ok(());
-                            }
-                            other => {
-                                tracing::debug!(?other, "Ignoring WS message type");
                             }
                         }
                     }
-                    Some(Err(e)) => {
-                        return Err(anyhow::anyhow!("WebSocket read error: {}", e));
-                    }
-                    None => {
-                        return Ok(());
+                    Err(_) => {
+                        return Err(anyhow::anyhow!("WebSocket read timeout (300s), connection may be dead"));
                     }
                 }
             }

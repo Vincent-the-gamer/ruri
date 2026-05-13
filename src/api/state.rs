@@ -21,6 +21,26 @@ fn default_command_prefix() -> String {
     "/".to_string()
 }
 
+/// Controls how persona is resolved for a debug session or config profile.
+/// - `"default"`: use the existing fallback chain (embedded persona → profile persona → global persona)
+/// - `"none"`: never inject any persona, regardless of other settings
+/// - `"custom"`: use the embedded persona from the debug session only
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PersonaMode {
+    /// Use the existing fallback chain (embedded persona → profile persona → global persona)
+    #[default]
+    Default,
+    /// Never inject any persona, regardless of profile or global settings
+    None,
+    /// Use the embedded persona from the debug session / profile only
+    Custom,
+}
+
+fn default_persona_mode() -> PersonaMode {
+    PersonaMode::Default
+}
+
 // ─── Persisted Config Structures (serde-friendly) ────────────────
 
 /// Serializable version of StoredProvider for config file persistence.
@@ -187,6 +207,12 @@ pub struct PersistedConfig {
 /// This is completely separate from Config Profiles.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugSessionConfig {
+    /// Controls how persona is resolved for this debug session.
+    /// - "default": use the existing fallback chain (embedded persona → profile persona → global persona)
+    /// - "none": never inject any persona
+    /// - "custom": use the embedded persona only
+    #[serde(default = "default_persona_mode")]
+    pub persona_mode: PersonaMode,
     /// The persona configuration for debug/chat sessions
     pub persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations for debug sessions
@@ -231,8 +257,16 @@ struct ResolvedConfigContext {
     embedded_providers: Vec<EmbeddedProvider>,
     /// Name or ID of the active embedded provider
     active_embedded_provider: Option<String>,
+    /// Legacy provider_id from the profile, used as fallback when no embedded providers.
+    /// References a global provider by ID.
+    provider_id: Option<String>,
     /// Embedded persona configuration
     embedded_persona: Option<EmbeddedPersona>,
+    /// Legacy persona_id from the profile, used as fallback when no embedded persona.
+    /// References a global persona by ID.
+    persona_id: Option<String>,
+    /// Persona mode: controls how persona is resolved
+    persona_mode: PersonaMode,
     /// Embedded skill configurations
     embedded_skills: Vec<EmbeddedSkill>,
     /// Active embedded skill names
@@ -241,7 +275,7 @@ struct ResolvedConfigContext {
     custom_error_message: Option<String>,
     /// Knowledge base IDs to attach
     knowledge_base_ids: Vec<String>,
-    /// Proxy configuration
+    /// Proxy configuration (profile-scoped, no global proxy)
     proxy_config: crate::types::ProxyConfig,
 }
 
@@ -909,6 +943,33 @@ impl AppState {
                 tracing::error!(platform_id = %config.id, error = %e, "Failed to start platform");
             }
         }
+
+        // Persist any updated config extras that adapters returned after QR login.
+        let config_updates = pm.drain_config_updates();
+        drop(pm);
+        if !config_updates.is_empty() {
+            let mut configs = self.platform_configs.write().await;
+            let mut updated_ids = Vec::new();
+            for (instance_id, updated_extra) in &config_updates {
+                if let Some(cfg) = configs.iter_mut().find(|c| c.id == *instance_id) {
+                    cfg.extra = updated_extra.clone();
+                    updated_ids.push(instance_id.clone());
+                }
+            }
+            drop(configs);
+            if let Err(e) = self.save_platforms_config().await {
+                tracing::warn!("Failed to persist updated platform configs: {}", e);
+            } else {
+                // Mark adapters as persisted so they won't keep returning
+                // the same config via persist_config_hint.
+                let mut pm = self.platform_manager.write().await;
+                for id in updated_ids {
+                    if let Some(adapter) = pm.get_mut_adapter(&id) {
+                        adapter.mark_config_persisted();
+                    }
+                }
+            }
+        }
     }
 
     /// Returns a map of platform_id -> status string.
@@ -935,6 +996,63 @@ impl AppState {
                 (c.id.clone(), status.to_string())
             })
             .collect()
+    }
+
+    /// Check all running adapters for updated credentials and persist them.
+    ///
+    /// This should be called after events that may indicate a credential
+    /// change (e.g. a `StatusChanged` event after re-login). It reads
+    /// each adapter's `persist_config_hint()` and merges the result into
+    /// `platform_configs` before saving to the YAML file.
+    pub async fn persist_adapter_credentials(&self) {
+        // Phase 1: Collect hints (read lock on manager)
+        let updates: Vec<(String, serde_json::Value)> = {
+            let pm = self.platform_manager.read().await;
+            pm.adapters()
+                .iter()
+                .filter_map(|(id, adapter)| {
+                    adapter
+                        .persist_config_hint()
+                        .map(|extra| (id.clone(), extra))
+                })
+                .collect()
+        };
+
+        if updates.is_empty() {
+            return;
+        }
+
+        // Phase 2: Update platform_configs and save (no manager lock needed)
+        let updated_ids: Vec<String> = {
+            let mut configs = self.platform_configs.write().await;
+            let mut ids = Vec::new();
+            for (instance_id, updated_extra) in &updates {
+                if let Some(cfg) = configs.iter_mut().find(|c| c.id == *instance_id) {
+                    cfg.extra = updated_extra.clone();
+                    ids.push(instance_id.clone());
+                    tracing::info!(
+                        platform_id = %instance_id,
+                        "Persisted updated credentials for platform"
+                    );
+                }
+            }
+            ids
+        };
+        if let Err(e) = self.save_platforms_config().await {
+            tracing::warn!("Failed to persist updated platform configs: {}", e);
+            // Don't mark as persisted if the save failed
+            return;
+        }
+
+        // Phase 3: Clear dirty flags on adapters (write lock on manager)
+        {
+            let mut pm = self.platform_manager.write().await;
+            for id in updated_ids {
+                if let Some(adapter) = pm.get_mut_adapter(&id) {
+                    adapter.mark_config_persisted();
+                }
+            }
+        }
     }
 
     /// Ensure there is an active conversation for chat messages.
@@ -1462,7 +1580,10 @@ impl AppState {
                     source: "debug_session".to_string(),
                     embedded_providers: debug.providers.clone(),
                     active_embedded_provider: debug.active_provider.clone(),
+                    provider_id: None,
                     embedded_persona: debug.persona.clone(),
+                    persona_id: None,
+                    persona_mode: debug.persona_mode,
                     embedded_skills: debug.skills.clone(),
                     active_embedded_skill_names: debug.active_skill_names.clone(),
                     custom_error_message: debug.custom_error_message.clone(),
@@ -1477,32 +1598,17 @@ impl AppState {
         // 2. Specific profile by ID
         if let Some(pid) = profile_id {
             if let Some(profile) = profiles.get(pid) {
-                if !profile.embedded_providers.is_empty() {
-                    return Some(ResolvedConfigContext {
-                        source: format!("profile_{}", pid),
-                        embedded_providers: profile.embedded_providers.clone(),
-                        active_embedded_provider: profile.active_embedded_provider.clone(),
-                        embedded_persona: profile.embedded_persona.clone(),
-                        embedded_skills: profile.embedded_skills.clone(),
-                        active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
-                        custom_error_message: profile.custom_error_message.clone(),
-                        knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
-                        proxy_config: profile.proxy_config.clone(),
-                    });
-                }
-                // Profile exists but has no embedded providers - will fall back to global
-                tracing::info!(profile_id = %pid, "Profile found but has no embedded providers, falling back to global");
-            }
-        }
-
-        // 3. Active config profile
-        if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
-            if !profile.embedded_providers.is_empty() {
+                // Always return the profile context, even if it has no
+                // embedded_providers. The profile may still have a
+                // provider_id, persona, skills, proxy, etc.
                 return Some(ResolvedConfigContext {
-                    source: format!("active_profile_{}", profile.id),
+                    source: format!("profile_{}", pid),
                     embedded_providers: profile.embedded_providers.clone(),
                     active_embedded_provider: profile.active_embedded_provider.clone(),
+                    provider_id: profile.provider_id.clone(),
                     embedded_persona: profile.embedded_persona.clone(),
+                    persona_id: profile.persona_id.clone(),
+                    persona_mode: default_persona_mode(),
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                     custom_error_message: profile.custom_error_message.clone(),
@@ -1510,12 +1616,33 @@ impl AppState {
                     proxy_config: profile.proxy_config.clone(),
                 });
             }
-            tracing::info!(profile_id = %profile.id, "Active profile has no embedded providers, falling back to global");
+        }
+
+        // 3. Active config profile
+        if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+            // Always return the profile context, even if it has no
+            // embedded_providers. The profile independently manages all
+            // its configuration (provider, persona, skills, proxy, etc.)
+            // and should NOT fall back to any global config.
+            return Some(ResolvedConfigContext {
+                source: format!("active_profile_{}", profile.id),
+                embedded_providers: profile.embedded_providers.clone(),
+                active_embedded_provider: profile.active_embedded_provider.clone(),
+                provider_id: profile.provider_id.clone(),
+                embedded_persona: profile.embedded_persona.clone(),
+                persona_id: profile.persona_id.clone(),
+                persona_mode: default_persona_mode(),
+                embedded_skills: profile.embedded_skills.clone(),
+                active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
+                custom_error_message: profile.custom_error_message.clone(),
+                knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
+                proxy_config: profile.proxy_config.clone(),
+            });
         }
 
         drop(profiles);
 
-        // 4. No embedded config found - return None to trigger global fallback
+        // 4. No active profile found at all — return None
         None
     }
 
@@ -1552,86 +1679,97 @@ impl AppState {
             .resolve_config_context(use_debug_session, profile_id)
             .await;
 
+        tracing::info!(
+            provider_id = ?provider_id,
+            use_debug_session = use_debug_session,
+            has_context = context.is_some(),
+            context_source = context.as_ref().map(|c| c.source.as_str()).unwrap_or("none"),
+            "build_agent_with_context_extended: resolving provider"
+        );
+
         let (mut provider, provider_config_json, custom_error_message, proxy_config, kb_ids) =
             if let Some(ctx) = &context {
-                // ── Use embedded configuration ──
-                tracing::info!(source = %ctx.source, "Using embedded configuration context");
+                // ── Use profile/debug-session configuration ──
+                // Each profile independently manages its provider, persona,
+                // skills, proxy, knowledge_base, etc. No global fallback.
+                tracing::info!(source = %ctx.source, "Using profile configuration context");
 
-                // Resolve the active embedded provider
-                let active_provider_name = ctx.active_embedded_provider.clone();
-                let embedded_provider = if let Some(ref name) = active_provider_name {
-                    ctx.embedded_providers
-                        .iter()
-                        .find(|p| p.name == *name || p.id == *name)
-                } else if !ctx.embedded_providers.is_empty() {
-                    ctx.embedded_providers.first()
-                } else {
-                    None
-                };
-
-                let (provider, config_json) = if let Some(ep) = embedded_provider {
-                    let built = Self::build_provider_from_embedded(ep)?;
-                    (built, ep.config_json.clone())
-                } else {
-                    return Err(
-                        "No embedded provider available in configuration context".to_string()
-                    );
-                };
-
-                (
-                    provider,
-                    config_json,
-                    ctx.custom_error_message.clone(),
-                    ctx.proxy_config.clone(),
-                    ctx.knowledge_base_ids.clone(),
-                )
-            } else {
-                // ── Fall back to global configuration (backward compatibility) ──
-                tracing::info!("No embedded config found, using global configuration");
-
-                let providers = self.providers.read().await;
-                let global_active_id = self.active_provider_id.read().await;
-
-                let resolved_id = if let Some(pid) = provider_id {
-                    if !pid.is_empty() && providers.contains_key(pid) {
-                        Some(pid.to_string())
+                // Priority for provider resolution:
+                // 1. Explicit provider_id argument (from API call)
+                // 2. Embedded providers in the profile
+                // 3. Profile's provider_id field (references a stored provider)
+                let resolved_provider = if let Some(pid) = provider_id {
+                    if !pid.is_empty() {
+                        let providers = self.providers.read().await;
+                        if let Some(stored) = providers.get(pid) {
+                            tracing::info!(
+                                provider_id = %pid,
+                                "Using explicitly requested provider"
+                            );
+                            let built = Self::build_provider(stored).ok();
+                            let config_json = stored.config_json.clone();
+                            drop(providers);
+                            built.map(|b| (b, config_json))
+                        } else {
+                            drop(providers);
+                            None
+                        }
                     } else {
                         None
                     }
                 } else {
-                    let profiles = self.config_profiles.read().await;
-                    let from_profile = profiles
-                        .values()
-                        .find(|p| p.is_active && p.enable)
-                        .and_then(|p| p.provider_id.clone())
-                        .filter(|pid| !pid.is_empty() && providers.contains_key(pid.as_str()));
-                    drop(profiles);
-                    from_profile.or_else(|| global_active_id.clone())
+                    None
                 };
 
-                let active_id = resolved_id.ok_or("No active provider configured")?;
-                let stored = providers
-                    .get(&active_id)
-                    .ok_or("Active provider not found")?;
-                let provider = Self::build_provider(stored)?;
-                let config_json = stored.config_json.clone();
-                drop(providers);
-
-                // Get proxy and custom error from active profile
-                let (proxy_cfg, custom_err, kb_ids) = {
-                    let profiles = self.config_profiles.read().await;
-                    if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
-                        (
-                            profile.proxy_config.clone(),
-                            profile.custom_error_message.clone(),
-                            profile.active_knowledge_base_ids.clone(),
-                        )
+                if let Some((p, c)) = resolved_provider {
+                    (p, c, ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
+                } else if let Some(ep) = ctx.embedded_providers
+                    .iter()
+                    .find(|p| {
+                        if let Some(ref name) = ctx.active_embedded_provider {
+                            p.name == *name || p.id == *name
+                        } else {
+                            true // first one if no active specified
+                        }
+                    })
+                    .or_else(|| ctx.embedded_providers.first())
+                {
+                    // Use embedded provider from the profile
+                    let built = Self::build_provider_from_embedded(ep)?;
+                    (built, ep.config_json.clone(), ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
+                } else if let Some(ref pid) = ctx.provider_id {
+                    // Profile has a provider_id referencing a stored provider
+                    if !pid.is_empty() {
+                        let providers = self.providers.read().await;
+                        if let Some(stored) = providers.get(pid) {
+                            tracing::info!(
+                                provider_id = %pid,
+                                source = %ctx.source,
+                                "Using profile's provider_id to resolve stored provider"
+                            );
+                            let built = Self::build_provider(stored)?;
+                            let config_json = stored.config_json.clone();
+                            drop(providers);
+                            (built, config_json, ctx.custom_error_message.clone(), ctx.proxy_config.clone(), ctx.knowledge_base_ids.clone())
+                        } else {
+                            drop(providers);
+                            return Err(format!(
+                                "Profile references provider_id '{}' but it was not found in stored providers",
+                                pid
+                            ));
+                        }
                     } else {
-                        (crate::types::ProxyConfig::default(), None, Vec::new())
+                        return Err("Profile has no provider configured (no embedded providers, no valid provider_id)".to_string());
                     }
-                };
-
-                (provider, config_json, custom_err, proxy_cfg, kb_ids)
+                } else {
+                    return Err("Profile has no provider configured (no embedded providers, no provider_id)".to_string());
+                }
+            } else {
+                // ── No active profile found ──
+                // This should not happen in normal operation — every conversation
+                // should be managed by a profile. If we reach here, there is no
+                // debug session and no active/enabled profile at all.
+                return Err("No active profile found. Please create and enable a configuration profile.".to_string());
             };
 
         // Apply proxy config if configured
@@ -1666,7 +1804,7 @@ impl AppState {
 
         let mut agent = Agent::with_config(provider, config);
 
-        // ── Build skills from embedded or global ──
+        // ── Build skills from profile context ──
         let skill_instances = if let Some(ctx) = &context {
             let filter_names: Option<&[String]> = if !ctx.active_embedded_skill_names.is_empty() {
                 Some(ctx.active_embedded_skill_names.as_slice())
@@ -1675,10 +1813,9 @@ impl AppState {
             };
             Self::build_skills_from_embedded(&ctx.embedded_skills, filter_names)
         } else {
-            let skills = self.skills.read().await;
-            let instances = Self::build_skills(&skills, None);
-            drop(skills);
-            instances
+            // No profile context — should not happen in normal operation
+            tracing::warn!("No profile context available, no skills will be loaded");
+            Vec::new()
         };
 
         let num_skills = skill_instances.len();
@@ -1689,62 +1826,111 @@ impl AppState {
         tracing::info!("Successfully added {} skills to agent", num_skills);
 
         // ── Inject persona system prompt ──
-        // Priority: explicit persona_id > embedded persona > global persona lookup
+        // The persona_mode from the resolved context controls how persona is resolved:
+        // - PersonaMode::None: never inject any persona
+        // - PersonaMode::Custom: use the embedded persona from the context only
+        // - PersonaMode::Default: embedded persona → profile's persona_id lookup
+        //
+        // Additionally, if persona_id is explicitly "none", skip persona injection completely.
+        // If persona_id is a real ID, look up the stored persona directly.
         let persona_injected = if let Some(pid) = persona_id {
-            // Explicit persona_id provided - look up in global personas
-            let personas = self.personas.read().await;
-            if let Some(p) = personas.get(pid) {
-                if !p.prompt.is_empty() {
-                    tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting explicit persona system prompt");
-                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                    drop(personas);
-                    true
-                } else {
-                    drop(personas);
-                    false
-                }
-            } else {
-                tracing::warn!(persona_id = %pid, "Requested persona not found");
-                drop(personas);
+            if pid == "none" {
+                // Explicit "none" sentinel - skip persona injection completely
+                tracing::info!("persona_id=\"none\" received, skipping persona injection");
                 false
-            }
-        } else if let Some(ctx) = &context {
-            // Use embedded persona if available
-            if let Some(ref persona) = ctx.embedded_persona {
-                if !persona.prompt.is_empty() {
-                    tracing::info!(persona_name = %persona.name, "Injecting embedded persona system prompt");
-                    agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
-                    true
-                } else {
-                    false
-                }
             } else {
-                // Fall back to global persona lookup via active profile's persona_id
-                let profiles = self.config_profiles.read().await;
-                let persona_id_from_profile = profiles
-                    .values()
-                    .find(|p| p.is_active && p.enable)
-                    .and_then(|p| p.persona_id.clone());
-                drop(profiles);
-
-                if let Some(pid) = persona_id_from_profile {
-                    let personas = self.personas.read().await;
-                    if let Some(p) = personas.get(&pid) {
-                        if !p.prompt.is_empty() {
-                            tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting profile-linked persona system prompt");
-                            agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                            drop(personas);
-                            true
-                        } else {
-                            drop(personas);
-                            false
-                        }
+                // Explicit persona_id provided (not "none") - look up in stored personas
+                let personas = self.personas.read().await;
+                if let Some(p) = personas.get(pid) {
+                    if !p.prompt.is_empty() {
+                        tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting explicit persona system prompt");
+                        agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                        drop(personas);
+                        true
                     } else {
                         drop(personas);
                         false
                     }
                 } else {
+                    tracing::warn!(persona_id = %pid, "Requested persona not found");
+                    drop(personas);
                     false
+                }
+            }
+        } else if let Some(ctx) = &context {
+            // Resolve persona based on persona_mode from the context
+            match ctx.persona_mode {
+                PersonaMode::None => {
+                    // Never inject any persona
+                    tracing::info!(source = %ctx.source, "PersonaMode::None - skipping persona injection");
+                    false
+                }
+                PersonaMode::Custom => {
+                    // Use the embedded persona only, no fallback
+                    if let Some(ref persona) = ctx.embedded_persona {
+                        if !persona.prompt.is_empty() {
+                            tracing::info!(persona_name = %persona.name, source = %ctx.source, "Injecting embedded persona (PersonaMode::Custom)");
+                            agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
+                            true
+                        } else {
+                            tracing::info!(source = %ctx.source, "Embedded persona has empty prompt, skipping");
+                            false
+                        }
+                    } else {
+                        tracing::info!(source = %ctx.source, "PersonaMode::Custom but no embedded persona, skipping");
+                        false
+                    }
+                }
+                PersonaMode::Default => {
+                    // Fallback chain: embedded persona → profile's persona_id (stored persona)
+                    if let Some(ref persona) = ctx.embedded_persona {
+                        if !persona.prompt.is_empty() {
+                            tracing::info!(persona_name = %persona.name, source = %ctx.source, "Injecting embedded persona (PersonaMode::Default)");
+                            agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
+                            true
+                        } else if let Some(ref pid) = ctx.persona_id {
+                            // Fall back to stored persona via profile's persona_id
+                            let personas = self.personas.read().await;
+                            if let Some(p) = personas.get(pid) {
+                                if !p.prompt.is_empty() {
+                                    tracing::info!(persona_id = %p.id, persona_name = %p.name, source = %ctx.source, "Injecting profile-linked persona via persona_id");
+                                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                                    drop(personas);
+                                    true
+                                } else {
+                                    drop(personas);
+                                    false
+                                }
+                            } else {
+                                tracing::warn!(persona_id = %pid, source = %ctx.source, "Profile's persona_id not found");
+                                drop(personas);
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else if let Some(ref pid) = ctx.persona_id {
+                        // No embedded persona — use profile's persona_id directly
+                        let personas = self.personas.read().await;
+                        if let Some(p) = personas.get(pid) {
+                            if !p.prompt.is_empty() {
+                                tracing::info!(persona_id = %p.id, persona_name = %p.name, source = %ctx.source, "Injecting profile-linked persona via persona_id");
+                                agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                                drop(personas);
+                                true
+                            } else {
+                                drop(personas);
+                                false
+                            }
+                        } else {
+                            tracing::warn!(persona_id = %pid, source = %ctx.source, "Profile's persona_id not found");
+                            drop(personas);
+                            false
+                        }
+                    } else {
+                        tracing::info!(source = %ctx.source, "No persona configured in profile, skipping persona injection");
+                        false
+                    }
                 }
             }
         } else {

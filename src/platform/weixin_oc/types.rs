@@ -264,13 +264,29 @@ pub struct SendMessageReq {
 }
 
 /// The `msg` field in a sendMessage request.
+///
+/// Mirrors the WeixinMessage structure used by the official openclaw-weixin plugin.
+/// Required fields: `to_user_id`, `client_id`, `message_type` (2=BOT),
+/// `message_state` (2=FINISH), `item_list`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct WeixinMessageSend {
+    /// Bot's user ID (can be empty).
+    #[serde(default)]
+    pub from_user_id: String,
+    /// Target user ID.
     pub to_user_id: String,
+    /// Unique client-generated message ID.
+    pub client_id: String,
+    /// Message type: 2 = BOT.
+    pub message_type: u32,
+    /// Message state: 2 = FINISH.
+    pub message_state: u32,
+    /// Message content items.
+    pub item_list: Vec<SendMessageItem>,
+    /// Context token for replying in the same conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_token: Option<String>,
-    pub item_list: Vec<SendMessageItem>,
 }
 
 /// A single item in a sendMessage request's item_list.
@@ -302,6 +318,23 @@ impl SendMessageItem {
             video_item: None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// getConfig / sendTyping types
+// ---------------------------------------------------------------------------
+
+/// getConfig response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct GetConfigResp {
+    #[serde(default)]
+    pub ret: Option<i64>,
+    #[serde(default)]
+    pub errmsg: Option<String>,
+    /// Base64-encoded typing ticket for sendTyping.
+    #[serde(default)]
+    pub typing_ticket: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

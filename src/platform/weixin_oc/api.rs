@@ -198,8 +198,15 @@ impl WeixinApi {
     // Core API endpoints
     // -----------------------------------------------------------------------
 
-    /// Long-poll for new messages via getUpdates.
-    pub async fn get_updates(&self) -> anyhow::Result<GetUpdatesResp> {
+    /// Long-poll for new messages via getUpdates with a specific timeout.
+    ///
+    /// The `timeout_ms` parameter overrides the configured long-poll timeout.
+    /// This is used to adapt to the server-suggested `longpolling_timeout_ms`
+    /// returned in each response.
+    pub async fn get_updates_with_timeout(
+        &self,
+        timeout_ms: u64,
+    ) -> anyhow::Result<GetUpdatesResp> {
         let (token, base_url, buf) = {
             let state = self.state.read().await;
             (
@@ -216,9 +223,7 @@ impl WeixinApi {
 
         let resp = self
             .post_json(&format!("{}/ilink/bot/getupdates", base_url), &token, &body)
-            .timeout(std::time::Duration::from_millis(
-                self.config.long_poll_timeout_ms,
-            ))
+            .timeout(std::time::Duration::from_millis(timeout_ms))
             .send()
             .await;
 
@@ -265,6 +270,12 @@ impl WeixinApi {
         text: &str,
         context_token: Option<&str>,
     ) -> anyhow::Result<()> {
+        if context_token.is_none() {
+            tracing::warn!(
+                to = %to_user_id,
+                "sendMessage: context_token missing, sending without context — the reply may not appear in the WeChat conversation"
+            );
+        }
         let (token, base_url) = {
             let state = self.state.read().await;
             (
@@ -275,9 +286,13 @@ impl WeixinApi {
 
         let req = SendMessageReq {
             msg: WeixinMessageSend {
+                from_user_id: String::new(),
                 to_user_id: to_user_id.to_string(),
-                context_token: context_token.map(|s| s.to_string()),
+                client_id: uuid::Uuid::new_v4().to_string(),
+                message_type: 2, // BOT
+                message_state: 2, // FINISH
                 item_list: vec![SendMessageItem::text(text)],
+                context_token: context_token.map(|s| s.to_string()),
             },
             base_info: Some(BaseInfo {
                 channel_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -305,6 +320,118 @@ impl WeixinApi {
     }
 
     // -----------------------------------------------------------------------
+    // getConfig & sendTyping
+    // -----------------------------------------------------------------------
+
+    /// Get account configuration including the typing ticket.
+    pub async fn get_config(
+        &self,
+        ilink_user_id: &str,
+        context_token: Option<&str>,
+    ) -> anyhow::Result<GetConfigResp> {
+        let (token, base_url) = {
+            let state = self.state.read().await;
+            (
+                state.token.clone().unwrap_or_default(),
+                state.base_url.clone(),
+            )
+        };
+
+        let body = serde_json::json!({
+            "ilink_user_id": ilink_user_id,
+            "context_token": context_token,
+            "base_info": { "channel_version": env!("CARGO_PKG_VERSION") }
+        });
+
+        let resp = self
+            .post_json(
+                &format!("{}/ilink/bot/getconfig", base_url),
+                &token,
+                &body,
+            )
+            .timeout(std::time::Duration::from_millis(
+                self.config.api_timeout_ms,
+            ))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            // Non-fatal: typing is optional
+            tracing::warn!(
+                "getConfig failed (typing unavailable): status={}, body={}",
+                status,
+                body
+            );
+            return Ok(GetConfigResp {
+                ret: Some(-1),
+                errmsg: Some(format!("HTTP {}", status)),
+                typing_ticket: None,
+            });
+        }
+
+        let config_resp: GetConfigResp = resp.json().await?;
+        Ok(config_resp)
+    }
+
+    /// Send or cancel a typing indicator.
+    pub async fn send_typing(
+        &self,
+        ilink_user_id: &str,
+        typing_ticket: &str,
+        status: u32, // 1 = typing, 2 = cancel
+    ) -> anyhow::Result<()> {
+        let (token, base_url) = {
+            let state = self.state.read().await;
+            (
+                state.token.clone().unwrap_or_default(),
+                state.base_url.clone(),
+            )
+        };
+
+        let body = serde_json::json!({
+            "ilink_user_id": ilink_user_id,
+            "typing_ticket": typing_ticket,
+            "status": status,
+            "base_info": { "channel_version": env!("CARGO_PKG_VERSION") }
+        });
+
+        let resp = self
+            .post_json(
+                &format!("{}/ilink/bot/sendtyping", base_url),
+                &token,
+                &body,
+            )
+            .timeout(std::time::Duration::from_millis(
+                self.config.api_timeout_ms,
+            ))
+            .send()
+            .await;
+
+        match resp {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    // Non-fatal: typing indicator failure should not break message flow
+                    tracing::debug!(
+                        "sendTyping failed: status={}, body={}",
+                        status,
+                        body
+                    );
+                }
+            }
+            Err(e) => {
+                // Non-fatal
+                tracing::debug!("sendTyping error: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 
@@ -325,6 +452,8 @@ impl WeixinApi {
             .post(url)
             .header("Content-Type", "application/json")
             .header("AuthorizationType", "ilink_bot_token")
+            .header("iLink-App-Id", "")
+            .header("iLink-App-ClientVersion", "0")
             .header("X-WECHAT-UIN", &uin)
             .json(body);
 

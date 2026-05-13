@@ -30,6 +30,11 @@ pub enum ProviderError {
     #[error("Request timeout")]
     Timeout,
 
+    /// The provider rejected the request because it does not support multimodal
+    /// (image) content. The caller may retry after stripping image content.
+    #[error("Multimodal content not supported by the model")]
+    MultimodalNotSupported,
+
     #[error("Custom error: {0}")]
     Custom(String),
 }

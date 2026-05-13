@@ -50,6 +50,21 @@ pub trait Platform: Send + Sync {
 
     /// Return the platform type name (e.g. "dingtalk").
     fn platform_type(&self) -> &str;
+
+    /// Return updated config that should be persisted, if the adapter has
+    /// new credentials (e.g. after QR login). Returns `None` by default.
+    ///
+    /// The returned `serde_json::Value` should be the platform-specific
+    /// config extra (i.e. the same shape that was passed to `from_config`),
+    /// but with updated fields like `token` and `account_id`.
+    fn persist_config_hint(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Called after `persist_config_hint()` returned `Some` and the
+    /// config has been successfully persisted. Adapters can use this
+    /// to clear their dirty flag and sync their internal config copy.
+    fn mark_config_persisted(&mut self) {}
 }
 
 /// An event emitted by a platform adapter.

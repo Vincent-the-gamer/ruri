@@ -223,13 +223,13 @@ impl Agent {
     /// If the provider does not support multimodal content, image content
     /// parts are automatically stripped from messages and a warning is logged.
     fn build_request(&self) -> ChatRequest {
-        let messages = if self.transport.supports_multimodal() {
-            self.history.clone()
-        } else {
-            self.strip_multimodal_content()
-        };
+        let mut request =
+            ChatRequest::new(self.history.clone()).with_model(self.transport.default_model());
 
-        let mut request = ChatRequest::new(messages).with_model(self.transport.default_model());
+        // If the provider does not support multimodal content, strip images upfront.
+        if !self.transport.supports_multimodal() {
+            request = request.strip_multimodal_content();
+        }
 
         // Add tools if any are registered
         let tool_defs = self.tool_executor.definitions();
@@ -253,78 +253,6 @@ impl Agent {
         }
 
         request
-    }
-
-    /// Strip image content parts from all messages in history, logging a
-    /// warning the first time images are dropped for a given session.
-    ///
-    /// Messages that only contained a single image (no text) are converted to
-    /// a placeholder text message so that the conversation structure is
-    /// preserved.
-    fn strip_multimodal_content(&self) -> Vec<ChatMessage> {
-        self.history
-            .iter()
-            .map(|msg| {
-                let Some(ref content) = msg.content else {
-                    return msg.clone();
-                };
-
-                match content {
-                    MessageContent::Text(_) => msg.clone(),
-                    MessageContent::Parts(parts) => {
-                        let has_images = parts
-                            .iter()
-                            .any(|p| p.part_type == ContentPartType::ImageUrl || p.part_type == ContentPartType::Image);
-
-                        if !has_images {
-                            return msg.clone();
-                        }
-
-                        // Log a warning about dropped images
-                        tracing::warn!(
-                            role = ?msg.role,
-                            "Dropping image content from message because the active provider does not support multimodal. \
-                             Enable multimodal on the provider or start the backend with the --multimodal flag."
-                        );
-
-                        // Keep only text parts
-                        let text_parts: Vec<&ContentPart> = parts
-                            .iter()
-                            .filter(|p| p.part_type == ContentPartType::Text)
-                            .collect();
-
-                        let new_content = if text_parts.is_empty() {
-                            // No text parts remaining — use a placeholder
-                            Some(MessageContent::Text(
-                                "[Image content was removed: the active provider does not support multimodal]"
-                                    .to_string(),
-                            ))
-                        } else if text_parts.len() == 1 {
-                            // Single text part — simplify to plain text
-                            Some(MessageContent::Text(
-                                text_parts[0]
-                                    .text
-                                    .clone()
-                                    .unwrap_or_default(),
-                            ))
-                        } else {
-                            // Multiple text parts — keep them
-                            Some(MessageContent::Parts(
-                                text_parts
-                                    .into_iter()
-                                    .cloned()
-                                    .collect(),
-                            ))
-                        };
-
-                        ChatMessage {
-                            content: new_content,
-                            ..msg.clone()
-                        }
-                    }
-                }
-            })
-            .collect()
     }
 
     /// Initialize skills that haven't been attached yet.
@@ -427,180 +355,262 @@ impl AgentStreamer {
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<StreamEvent, ProviderError>>(256);
 
         tokio::spawn(async move {
-            let mut agent = self.agent;
-            let user_message = self.user_message;
+            use futures_util::FutureExt;
+            use std::panic::AssertUnwindSafe;
 
-            // Add user message to history
-            agent.history.push(user_message);
+            let result = AssertUnwindSafe(async {
+                let mut agent = self.agent;
+                let user_message = self.user_message;
 
-            // Run skill pre-processing
-            agent.run_skills_on_user_message().await;
+                // Add user message to history
+                agent.history.push(user_message);
 
-            // Tool loop
-            let mut round = 0u32;
-            let max_rounds = agent.config.max_tool_rounds;
+                // Run skill pre-processing
+                agent.run_skills_on_user_message().await;
 
-            loop {
-                let request = agent.build_request();
+                // Tool loop
+                let mut round = 0u32;
+                let max_rounds = agent.config.max_tool_rounds;
 
-                tracing::info!(
-                    round = round,
-                    provider = %agent.transport.provider_name(),
-                    model = %agent.transport.default_model(),
-                    messages = request.messages.len(),
-                    "Sending streaming chat request"
-                );
+                loop {
+                    let request = agent.build_request();
 
-                // Stream from the provider
-                let mut stream = agent.transport.send_stream(request);
+                    tracing::info!(
+                        round = round,
+                        provider = %agent.transport.provider_name(),
+                        model = %agent.transport.default_model(),
+                        messages = request.messages.len(),
+                        "Sending streaming chat request"
+                    );
 
-                let mut has_tool_calls = false;
-                let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
-                let mut content_text = String::new();
+                    // Stream from the provider (with multimodal fallback)
+                    let mut stream = agent.transport.send_stream(request.clone());
 
-                use futures_util::StreamExt;
-                while let Some(event_result) = stream.next().await {
-                    match event_result {
-                        Ok(event) => {
-                            match &event {
-                                StreamEvent::ToolCallStart {
-                                    tool_call_id,
-                                    function_name,
-                                } => {
-                                    has_tool_calls = true;
-                                    tool_calls_accum.push(AccumulatedToolCall {
-                                        id: tool_call_id.clone(),
-                                        function_name: function_name.clone(),
-                                        arguments: String::new(),
-                                    });
-                                }
-                                StreamEvent::ToolCallDelta {
-                                    tool_call_id,
-                                    arguments_delta,
-                                } => {
-                                    if let Some(tc) = tool_calls_accum
-                                        .iter_mut()
-                                        .find(|tc| &tc.id == tool_call_id)
-                                    {
-                                        tc.arguments.push_str(arguments_delta);
+                    let mut has_tool_calls = false;
+                    let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
+                    let mut content_text = String::new();
+
+                    use futures_util::StreamExt;
+                    while let Some(event_result) = stream.next().await {
+                        match event_result {
+                            Ok(event) => {
+                                match &event {
+                                    StreamEvent::ToolCallStart {
+                                        tool_call_id,
+                                        function_name,
+                                    } => {
+                                        has_tool_calls = true;
+                                        tool_calls_accum.push(AccumulatedToolCall {
+                                            id: tool_call_id.clone(),
+                                            function_name: function_name.clone(),
+                                            arguments: String::new(),
+                                        });
+                                    }
+                                    StreamEvent::ToolCallDelta {
+                                        tool_call_id,
+                                        arguments_delta,
+                                    } => {
+                                        if let Some(tc) = tool_calls_accum
+                                            .iter_mut()
+                                            .find(|tc| &tc.id == tool_call_id)
+                                        {
+                                            tc.arguments.push_str(arguments_delta);
+                                        }
+                                    }
+                                    StreamEvent::ToolCallEnd { .. } => {
+                                        // Tool call completed, don't forward this to the client
+                                        // We'll execute the tool and emit ToolResult instead
+                                    }
+                                    StreamEvent::ContentDelta { delta } => {
+                                        content_text.push_str(delta);
+                                    }
+                                    StreamEvent::Done { .. } => {
+                                        // End of this streaming round, don't forward
+                                    }
+                                    StreamEvent::ToolResult { .. } => {
+                                        // Shouldn't happen from provider, but forward anyway
+                                    }
+                                    StreamEvent::Error { .. } => {
+                                        // Forward errors
                                     }
                                 }
-                                StreamEvent::ToolCallEnd { .. } => {
-                                    // Tool call completed, don't forward this to the client
-                                    // We'll execute the tool and emit ToolResult instead
-                                }
-                                StreamEvent::ContentDelta { delta } => {
-                                    content_text.push_str(delta);
-                                }
-                                StreamEvent::Done { .. } => {
-                                    // End of this streaming round, don't forward
-                                }
-                                StreamEvent::ToolResult { .. } => {
-                                    // Shouldn't happen from provider, but forward anyway
-                                }
-                                StreamEvent::Error { .. } => {
-                                    // Forward errors
+                                // Forward all events to the client except ToolCallEnd and Done
+                                // (we manage those ourselves after tool execution)
+                                if !matches!(
+                                    event,
+                                    StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                                ) {
+                                    if tx.send(Ok(event)).await.is_err() {
+                                        return; // receiver dropped
+                                    }
                                 }
                             }
-                            // Forward all events to the client except ToolCallEnd and Done
-                            // (we manage those ourselves after tool execution)
-                            if !matches!(
-                                event,
-                                StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
-                            ) {
-                                if tx.send(Ok(event)).await.is_err() {
-                                    return; // receiver dropped
+                            Err(ProviderError::MultimodalNotSupported) => {
+                                // The model doesn't support multimodal content.
+                                // Retry with images stripped from the request.
+                                tracing::warn!(
+                                    "Streaming request failed because the model does not support multimodal. \
+                                     Retrying with image content stripped."
+                                );
+                                let stripped = request.strip_multimodal_content();
+                                let mut retry_stream = agent.transport.send_stream(stripped);
+
+                                // Process the retry stream in-place
+                                // (We re-enter the same event loop logic, but simpler
+                                // since we've already stripped images and won't get
+                                // MultimodalNotSupported again.)
+                                while let Some(retry_event) = retry_stream.next().await {
+                                    match retry_event {
+                                        Ok(event) => {
+                                            match &event {
+                                                StreamEvent::ToolCallStart {
+                                                    tool_call_id,
+                                                    function_name,
+                                                } => {
+                                                    has_tool_calls = true;
+                                                    tool_calls_accum.push(AccumulatedToolCall {
+                                                        id: tool_call_id.clone(),
+                                                        function_name: function_name.clone(),
+                                                        arguments: String::new(),
+                                                    });
+                                                }
+                                                StreamEvent::ToolCallDelta {
+                                                    tool_call_id,
+                                                    arguments_delta,
+                                                } => {
+                                                    if let Some(tc) = tool_calls_accum
+                                                        .iter_mut()
+                                                        .find(|tc| &tc.id == tool_call_id)
+                                                    {
+                                                        tc.arguments.push_str(arguments_delta);
+                                                    }
+                                                }
+                                                StreamEvent::ContentDelta { delta } => {
+                                                    content_text.push_str(delta);
+                                                }
+                                                _ => {}
+                                            }
+                                            if !matches!(
+                                                event,
+                                                StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                                            ) {
+                                                if tx.send(Ok(event)).await.is_err() {
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = tx.send(Err(e)).await;
+                                            return;
+                                        }
+                                    }
                                 }
+                                break; // Exit the retry, continue to tool handling below
                             }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Err(e)).await;
-                            return;
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
+                                return;
+                            }
                         }
                     }
-                }
 
-                // Now handle what happened in this round
-                if has_tool_calls && agent.config.auto_execute_tools {
-                    // Build assistant message with tool calls for history
-                    let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
-                        .iter()
-                        .map(|tc| ToolCall {
-                            id: tc.id.clone(),
-                            call_type: crate::types::ToolCallType::Function,
-                            function: FunctionCall {
-                                name: tc.function_name.clone(),
-                                arguments: tc.arguments.clone(),
+                    // Now handle what happened in this round
+                    if has_tool_calls && agent.config.auto_execute_tools {
+                        // Build assistant message with tool calls for history
+                        let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
+                            .iter()
+                            .map(|tc| ToolCall {
+                                id: tc.id.clone(),
+                                call_type: crate::types::ToolCallType::Function,
+                                function: FunctionCall {
+                                    name: tc.function_name.clone(),
+                                    arguments: tc.arguments.clone(),
+                                },
+                            })
+                            .collect();
+
+                        let assistant_msg = ChatMessage::assistant_with_tool_calls(
+                            if content_text.is_empty() {
+                                None
+                            } else {
+                                Some(content_text)
                             },
-                        })
-                        .collect();
+                            tool_calls_for_history.clone(),
+                        );
+                        agent.history.push(assistant_msg);
 
-                    let assistant_msg = ChatMessage::assistant_with_tool_calls(
-                        if content_text.is_empty() {
-                            None
-                        } else {
-                            Some(content_text)
-                        },
-                        tool_calls_for_history.clone(),
-                    );
-                    agent.history.push(assistant_msg);
+                        // Execute each tool call
+                        for call in &tool_calls_for_history {
+                            tracing::info!(tool = %call.function.name, "Executing tool call");
 
-                    // Execute each tool call
-                    for call in &tool_calls_for_history {
-                        tracing::info!(tool = %call.function.name, "Executing tool call");
+                            let result = agent
+                                .tool_executor
+                                .execute_with_id(&call.id, &call.function)
+                                .await;
 
-                        let result = agent
-                            .tool_executor
-                            .execute_with_id(&call.id, &call.function)
-                            .await;
+                            // Notify skills
+                            for skill in &agent.skills {
+                                if skill.is_active() {
+                                    skill
+                                        .on_tool_result(&call.function.name, &result.content)
+                                        .await;
+                                }
+                            }
 
-                        // Notify skills
-                        for skill in &agent.skills {
-                            if skill.is_active() {
-                                skill
-                                    .on_tool_result(&call.function.name, &result.content)
-                                    .await;
+                            // Add tool result to history
+                            agent.history.push(ChatMessage::tool_result(
+                                &result.tool_call_id,
+                                &result.content,
+                            ));
+
+                            // Emit tool result event to client
+                            if tx
+                                .send(Ok(StreamEvent::ToolResult {
+                                    tool_call_id: result.tool_call_id,
+                                    tool_name: call.function.name.clone(),
+                                    content: result.content,
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
                             }
                         }
 
-                        // Add tool result to history
-                        agent.history.push(ChatMessage::tool_result(
-                            &result.tool_call_id,
-                            &result.content,
-                        ));
-
-                        // Emit tool result event to client
-                        if tx
-                            .send(Ok(StreamEvent::ToolResult {
-                                tool_call_id: result.tool_call_id,
-                                tool_name: call.function.name.clone(),
-                                content: result.content,
-                            }))
-                            .await
-                            .is_err()
-                        {
-                            return;
+                        round += 1;
+                        if round >= max_rounds {
+                            tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                            break;
                         }
-                    }
-
-                    round += 1;
-                    if round >= max_rounds {
-                        tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                        // Loop back for next round
+                    } else {
+                        // No tool calls — add the assistant message to history
+                        agent.history.push(ChatMessage::assistant(&content_text));
                         break;
                     }
-                    // Loop back for next round
-                } else {
-                    // No tool calls — add the assistant message to history
-                    agent.history.push(ChatMessage::assistant(&content_text));
-                    break;
                 }
+
+                // Run skill post-processing
+                agent.run_skills_on_response().await;
+
+                // Emit final Done event
+                let _ = tx.send(Ok(StreamEvent::Done { usage: None })).await;
+            })
+            .catch_unwind()
+            .await;
+
+            if let Err(panic_payload) = result {
+                // The agent loop panicked — send an error event so the client knows
+                let msg = if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else {
+                    "Agent stream panicked".to_string()
+                };
+                tracing::error!(error = %msg, "Agent stream panicked, sending error event");
+                let _ = tx.send(Ok(StreamEvent::Error { error: msg })).await;
             }
-
-            // Run skill post-processing
-            agent.run_skills_on_response().await;
-
-            // Emit final Done event
-            let _ = tx.send(Ok(StreamEvent::Done { usage: None })).await;
         });
 
         // Convert the receiver into a stream

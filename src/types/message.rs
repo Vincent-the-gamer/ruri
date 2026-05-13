@@ -323,6 +323,94 @@ impl ChatRequest {
         self.parallel_tool_calls = Some(enabled);
         self
     }
+
+    /// Whether any message in this request contains multimodal (image) content.
+    pub fn has_multimodal_content(&self) -> bool {
+        self.messages
+            .iter()
+            .any(|msg| msg.content.as_ref().map_or(false, |c| c.has_images()))
+    }
+
+    /// Return a new request with all image content parts stripped from messages.
+    ///
+    /// Messages that only contained images (no text) are converted to a
+    /// placeholder text message so that the conversation structure is preserved.
+    /// This is useful as a fallback when a provider rejects multimodal content.
+    pub fn strip_multimodal_content(&self) -> ChatRequest {
+        let mut had_images = false;
+        let messages = self.messages.iter().map(|msg| {
+            let Some(ref content) = msg.content else {
+                return msg.clone();
+            };
+
+            match content {
+                MessageContent::Text(_) => msg.clone(),
+                MessageContent::Parts(parts) => {
+                    let has_images = parts.iter().any(|p|
+                        p.part_type == ContentPartType::ImageUrl
+                        || p.part_type == ContentPartType::Image
+                    );
+
+                    if !has_images {
+                        return msg.clone();
+                    }
+
+                    had_images = true;
+
+                    // Keep only text parts
+                    let text_parts: Vec<&ContentPart> = parts
+                        .iter()
+                        .filter(|p| p.part_type == ContentPartType::Text)
+                        .collect();
+
+                    let new_content = if text_parts.is_empty() {
+                        // No text parts remaining — use a placeholder
+                        Some(MessageContent::Text(
+                            "[Image content was removed: the active provider does not support multimodal]"
+                                .to_string(),
+                        ))
+                    } else if text_parts.len() == 1 {
+                        // Single text part — simplify to plain text
+                        Some(MessageContent::Text(
+                            text_parts[0].text.clone().unwrap_or_default(),
+                        ))
+                    } else {
+                        // Multiple text parts — keep them
+                        Some(MessageContent::Parts(
+                            text_parts.into_iter().cloned().collect(),
+                        ))
+                    };
+
+                    ChatMessage {
+                        content: new_content,
+                        ..msg.clone()
+                    }
+                }
+            }
+        }).collect();
+
+        let result = ChatRequest {
+            messages,
+            model: self.model.clone(),
+            temperature: self.temperature,
+            max_tokens: self.max_tokens,
+            tools: self.tools.clone(),
+            tool_choice: self.tool_choice.clone(),
+            parallel_tool_calls: self.parallel_tool_calls,
+            stream: self.stream,
+            stop: self.stop.clone(),
+            extra: self.extra.clone(),
+        };
+
+        if had_images {
+            tracing::warn!(
+                "Stripped image content from chat request because the active model does not support multimodal. \
+                 Set supports_multimodal to false on the provider to avoid this warning."
+            );
+        }
+
+        result
+    }
 }
 
 /// A streaming event emitted during a chat completion stream.
@@ -383,6 +471,16 @@ pub struct StreamUsage {
 }
 
 impl MessageContent {
+    /// Whether this content contains any image parts.
+    pub fn has_images(&self) -> bool {
+        match self {
+            MessageContent::Text(_) => false,
+            MessageContent::Parts(parts) => parts.iter().any(|p| {
+                p.part_type == ContentPartType::ImageUrl || p.part_type == ContentPartType::Image
+            }),
+        }
+    }
+
     /// 提取所有文本部分并合并为单个字符串。
     /// 如果没有找到文本部分，则返回 None。
     pub fn as_text_full(&self) -> Option<String> {

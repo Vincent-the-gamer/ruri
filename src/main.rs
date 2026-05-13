@@ -440,106 +440,8 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             };
 
-                            // Run the agent chat with cancellation support
-                            tokio::select! {
-                                result = agent.chat_with_message(user_msg) => {
-                                    // Remove the cancellation token when done
-                                    {
-                                        let mut tasks = state_for_platform.running_agent_tasks.write().await;
-                                        tasks.remove(&msg.session_id);
-                                    }
-
-                                    match result {
-                                        Ok(response) => {
-                                            // 使用 as_text_full() 合并所有文本部分，避免只取第一个文本的缺陷
-                                            let content = response
-                                                .choices
-                                                .first()
-                                                .and_then(|c| c.message.content.as_ref())
-                                                .and_then(|c| c.as_text_full());
-
-                                            if let Some(content) = content {
-                                                tracing::info!(
-                                                    response_len = content.len(),
-                                                    "Agent replied to platform message"
-                                                );
-
-                                                // Save assistant message to conversation database
-                                                if let Some(ref conv_id) = conversation_id {
-                                                    let conv_db = state_for_platform.conversation_db.read().await;
-                                                    if let Some(db) = conv_db.as_ref() {
-                                                        if let Err(e) = db
-                                                            .add_message(conversation::models::AddMessageRequest {
-                                                                conversation_id: conv_id.clone(),
-                                                                role: "assistant".to_string(),
-                                                                content: content.clone(),
-                                                            })
-                                                            .await
-                                                        {
-                                                            tracing::error!(
-                                                                error = %e,
-                                                                "Failed to add assistant message to conversation database"
-                                                            );
-                                                        }
-                                                    }
-                                                }
-
-                                                // Send the reply back to the originating platform
-                                                let pm = platform_manager_ref.read().await;
-                                                if let Err(e) = pm
-                                                    .send_text_to_platform(
-                                                        &msg.platform_id,
-                                                        msg.message_type,
-                                                        &msg.session_id,
-                                                        &content,
-                                                    )
-                                                    .await
-                                                {
-                                                    tracing::error!(
-                                                        error = %e,
-                                                        "Failed to send reply to platform"
-                                                    );
-                                                }
-                                            } else {
-                                                // 大模型返回了空回复，通知用户而不是静默失败
-                                                tracing::warn!(
-                                                    session_id = %msg.session_id,
-                                                    "Agent returned empty response for platform message"
-                                                );
-                                                let pm = platform_manager_ref.read().await;
-                                                let _ = pm
-                                                    .send_text_to_platform(
-                                                        &msg.platform_id,
-                                                        msg.message_type,
-                                                        &msg.session_id,
-                                                        "（AI 未返回有效回复，请重试）",
-                                                    )
-                                                    .await;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(error = %e, "Agent failed to process platform message");
-                                            // Send error reply to user
-                                            let error_reply = {
-                                                let profiles = state_for_platform.config_profiles.read().await;
-                                                profiles
-                                                    .values()
-                                                    .find(|p| p.is_active && p.enable)
-                                                    .and_then(|p| p.custom_error_message.clone())
-                                                    .unwrap_or_else(|| e.to_string())
-                                            };
-                                            let pm = platform_manager_ref.read().await;
-                                            let _ = pm
-                                                .send_text_to_platform(
-                                                    &msg.platform_id,
-                                                    msg.message_type,
-                                                    &msg.session_id,
-                                                    &error_reply,
-                                                )
-                                                .await;
-                                        }
-                                    }
-                                }
+                            // Run the agent chat non-streaming with cancellation support.
+                            let result = tokio::select! {
                                 _ = cancel_clone.cancelled() => {
                                     // Task was cancelled via /stop
                                     tracing::info!(
@@ -555,6 +457,109 @@ async fn main() -> anyhow::Result<()> {
                                             "⏹ 任务已停止。",
                                         )
                                         .await;
+                                    None
+                                }
+                                response = agent.chat_with_message(user_msg) => Some(response),
+                            };
+
+                            // Remove the cancellation token when done
+                            {
+                                let mut tasks =
+                                    state_for_platform.running_agent_tasks.write().await;
+                                tasks.remove(&msg.session_id);
+                            }
+
+                            // Process the response (None means cancelled)
+                            if let Some(response_result) = result {
+                                match response_result {
+                                    Ok(response) => {
+                                        // Extract text from response
+                                        let text = response
+                                            .choices
+                                            .first()
+                                            .and_then(|c| c.message.content.as_ref())
+                                            .and_then(|c| c.as_text_full())
+                                            .unwrap_or_default();
+
+                                        if !text.is_empty() {
+                                            // Save assistant message to conversation database
+                                            if let Some(ref conv_id) = conversation_id {
+                                                let conv_db =
+                                                    state_for_platform.conversation_db.read().await;
+                                                if let Some(db) = conv_db.as_ref() {
+                                                    if let Err(e) = db
+                                                        .add_message(conversation::models::AddMessageRequest {
+                                                            conversation_id: conv_id.clone(),
+                                                            role: "assistant".to_string(),
+                                                            content: text.clone(),
+                                                        })
+                                                        .await
+                                                    {
+                                                        tracing::error!(
+                                                            error = %e,
+                                                            "Failed to add assistant message to conversation database"
+                                                        );
+                                                    }
+                                                }
+                                            }
+
+                                            // Send to platform
+                                            let pm = platform_manager_ref.read().await;
+                                            if let Err(e) = pm
+                                                .send_text_to_platform(
+                                                    &msg.platform_id,
+                                                    msg.message_type,
+                                                    &msg.session_id,
+                                                    &text,
+                                                )
+                                                .await
+                                            {
+                                                tracing::error!(
+                                                    error = %e,
+                                                    "Failed to send reply to platform"
+                                                );
+                                            }
+                                        } else {
+                                            // Empty response
+                                            tracing::warn!(
+                                                session_id = %msg.session_id,
+                                                "Agent returned empty response for platform message"
+                                            );
+                                            let pm = platform_manager_ref.read().await;
+                                            let _ = pm
+                                                .send_text_to_platform(
+                                                    &msg.platform_id,
+                                                    msg.message_type,
+                                                    &msg.session_id,
+                                                    "（AI 未返回有效回复，请重试）",
+                                                )
+                                                .await;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            error = %e,
+                                            "Agent failed to process platform message"
+                                        );
+                                        let error_reply = {
+                                            let profiles =
+                                                state_for_platform.config_profiles.read().await;
+                                            profiles
+                                                .values()
+                                                .find(|p| p.is_active && p.enable)
+                                                .and_then(|p| p.custom_error_message.clone())
+                                                .unwrap_or_else(|| e.to_string())
+                                        };
+                                        let pm = platform_manager_ref.read().await;
+                                        let _ = pm
+                                            .send_text_to_platform(
+                                                &msg.platform_id,
+                                                msg.message_type,
+                                                &msg.session_id,
+                                                &error_reply,
+                                            )
+                                            .await;
+                                    }
                                 }
                             }
                         }
@@ -590,6 +595,9 @@ async fn main() -> anyhow::Result<()> {
                         status = %status,
                         "Platform adapter status changed"
                     );
+                    // After a status change (e.g. re-login after session timeout),
+                    // check if any adapter has updated credentials to persist.
+                    state_for_platform.persist_adapter_credentials().await;
                 }
                 platform::PlatformEvent::Error {
                     platform_id,
@@ -600,10 +608,28 @@ async fn main() -> anyhow::Result<()> {
                         error = %message,
                         "Platform adapter error"
                     );
+                    // On error events (e.g. session timeout, re-login failure),
+                    // also try to persist any credentials that might have been updated.
+                    state_for_platform.persist_adapter_credentials().await;
                 }
             }
         }
     });
+
+    // ── Periodic credential persistence for platform adapters ────
+    // Some adapters (e.g. WeChat after re-login) update credentials
+    // inside spawned tasks. The event-based persistence above covers
+    // most cases, but we also persist periodically as a safety net
+    // to ensure no credentials are lost.
+    {
+        let state_for_persist = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                state_for_persist.persist_adapter_credentials().await;
+            }
+        });
+    }
 
     // ── Watch platforms.yaml for changes (hot-reload) ────────────
     {

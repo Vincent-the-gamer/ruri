@@ -271,6 +271,9 @@ impl Platform for DingtalkAdapter {
         // we bridge them into PlatformEvent::Message before forwarding.
         let (msg_sender, mut msg_receiver) = mpsc::channel::<PlatformMessage>(256);
 
+        // Clone event_sender so the stream task can also report errors.
+        let error_event_sender = event_sender.clone();
+
         // Spawn the bridge task that wraps PlatformMessage → PlatformEvent
         tokio::spawn(async move {
             while let Some(msg) = msg_receiver.recv().await {
@@ -296,6 +299,12 @@ impl Platform for DingtalkAdapter {
                     platform_id = %instance_id,
                     "DingTalk stream task errored"
                 );
+                let _ = error_event_sender
+                    .send(PlatformEvent::Error {
+                        platform_id: instance_id.clone(),
+                        message: format!("DingTalk stream failed after max retries: {}", e),
+                    })
+                    .await;
             }
         });
 

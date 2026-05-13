@@ -901,6 +901,16 @@ async fn send_chat_message(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChatRequestDto>,
 ) -> Result<Json<ChatResponseDto>, (StatusCode, Json<serde_json::Value>)> {
+    tracing::info!(
+        message_len = req.message.len(),
+        provider_id = ?req.provider_id,
+        persona_id = ?req.persona_id,
+        user_id = ?req.user_id,
+        session_id = ?req.session_id,
+        source = "webui",
+        "Received non-streaming chat request"
+    );
+
     // ── Command dispatch ─────────────────────────────────────────
     // Check if the message is a built-in command before sending to the agent.
     {
@@ -1222,6 +1232,16 @@ async fn stream_chat_message(
     Json(req): Json<ChatRequestDto>,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     use crate::agent::runner::AgentStreamer;
+
+    tracing::info!(
+        message_len = req.message.len(),
+        provider_id = ?req.provider_id,
+        persona_id = ?req.persona_id,
+        user_id = ?req.user_id,
+        session_id = ?req.session_id,
+        source = "webui-stream",
+        "Received streaming chat request"
+    );
 
     // Store user message text for early use
     let user_message_text = req.message.clone();
@@ -3427,18 +3447,26 @@ async fn delete_platform(State(state): State<Arc<AppState>>, Path(id): Path<Stri
 async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
     tracing::info!("System restart requested via API");
 
-    // Save all configs before restarting
+    // Save main config first
     if let Err(e) = state.save_to_file(&state.config_path).await {
         tracing::warn!("Failed to save config before restart: {}", e);
     }
-    if let Err(e) = state.save_platforms_config().await {
-        tracing::warn!("Failed to save platforms config before restart: {}", e);
-    }
 
-    // Shutdown all platform adapters gracefully
+    // Shutdown all platform adapters gracefully first — this syncs
+    // any updated credentials (e.g. from WeChat re-login) from the
+    // API state into the adapter's config, so persist_config_hint()
+    // will return the latest values.
     {
         let mut pm = state.platform_manager.write().await;
         pm.shutdown_all().await;
+    }
+
+    // Now persist any updated credentials from adapters
+    state.persist_adapter_credentials().await;
+
+    // Save platform configs (which now contain synced credentials)
+    if let Err(e) = state.save_platforms_config().await {
+        tracing::warn!("Failed to save platforms config before restart: {}", e);
     }
 
     // Spawn the restart in a separate task so we can respond first
@@ -4583,9 +4611,15 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
     let session = state.debug_session.read().await;
 
     let dto = DebugSessionDto {
+        persona_mode: match session.persona_mode {
+            crate::api::state::PersonaMode::Default => "default".to_string(),
+            crate::api::state::PersonaMode::None => "none".to_string(),
+            crate::api::state::PersonaMode::Custom => "custom".to_string(),
+        },
         persona: session.persona.as_ref().map(Into::into),
         providers: session.providers.iter().map(Into::into).collect(),
         active_provider: session.active_provider.clone(),
+        provider_id: session.provider_id.clone(),
         temperature: session.temperature,
         max_tokens: session.max_tokens,
         custom_error_message: session.custom_error_message.clone(),
@@ -4602,69 +4636,91 @@ async fn update_debug_session(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateDebugSessionRequest>,
 ) -> Result<Json<DebugSessionDto>, (StatusCode, Json<Value>)> {
-    let mut session = state.debug_session.write().await;
+    // Apply updates and build the DTO inside the write lock
+    let dto = {
+        let mut session = state.debug_session.write().await;
 
-    if let Some(persona) = req.persona {
-        session.persona = Some(crate::api::state::EmbeddedPersona::from(&persona));
-    }
-    if let Some(providers) = req.providers {
-        session.providers = providers
-            .iter()
-            .map(|p| crate::api::state::EmbeddedProvider::from(p))
-            .collect();
-    }
-    if let Some(active_provider) = req.active_provider {
-        session.active_provider = active_provider;
-    }
-    if let Some(temperature) = req.temperature {
-        session.temperature = temperature;
-    }
-    if let Some(max_tokens) = req.max_tokens {
-        session.max_tokens = max_tokens;
-    }
-    if let Some(custom_error_message) = req.custom_error_message {
-        session.custom_error_message = custom_error_message;
-    }
-    if let Some(knowledge_base_ids) = req.knowledge_base_ids {
-        session.knowledge_base_ids = knowledge_base_ids;
-    }
-    if let Some(skills) = req.skills {
-        session.skills = skills
-            .iter()
-            .map(|s| crate::api::state::EmbeddedSkill::from(s))
-            .collect();
-    }
-    if let Some(active_skill_names) = req.active_skill_names {
-        session.active_skill_names = active_skill_names;
-    }
+        if let Some(persona_mode) = req.persona_mode {
+            session.persona_mode = match persona_mode.as_str() {
+                "none" => crate::api::state::PersonaMode::None,
+                "custom" => crate::api::state::PersonaMode::Custom,
+                _ => crate::api::state::PersonaMode::Default,
+            };
+        }
+        if let Some(persona) = req.persona {
+            session.persona = Some(crate::api::state::EmbeddedPersona::from(&persona));
+        }
+        if let Some(providers) = req.providers {
+            session.providers = providers
+                .iter()
+                .map(|p| crate::api::state::EmbeddedProvider::from(p))
+                .collect();
+        }
+        if let Some(active_provider) = req.active_provider {
+            session.active_provider = active_provider;
+        }
+        if let Some(provider_id) = req.provider_id {
+            session.provider_id = provider_id;
+        }
+        if let Some(temperature) = req.temperature {
+            session.temperature = temperature;
+        }
+        if let Some(max_tokens) = req.max_tokens {
+            session.max_tokens = max_tokens;
+        }
+        if let Some(custom_error_message) = req.custom_error_message {
+            session.custom_error_message = custom_error_message;
+        }
+        if let Some(knowledge_base_ids) = req.knowledge_base_ids {
+            session.knowledge_base_ids = knowledge_base_ids;
+        }
+        if let Some(skills) = req.skills {
+            session.skills = skills
+                .iter()
+                .map(|s| crate::api::state::EmbeddedSkill::from(s))
+                .collect();
+        }
+        if let Some(active_skill_names) = req.active_skill_names {
+            session.active_skill_names = active_skill_names;
+        }
 
-    // Save debug session to file
+        // Build DTO while still holding the lock, then drop the lock
+        let dto = DebugSessionDto {
+            persona_mode: match session.persona_mode {
+                crate::api::state::PersonaMode::Default => "default".to_string(),
+                crate::api::state::PersonaMode::None => "none".to_string(),
+                crate::api::state::PersonaMode::Custom => "custom".to_string(),
+            },
+            persona: session
+                .persona
+                .as_ref()
+                .map(|p| EmbeddedPersonaDto::from(p)),
+            providers: session
+                .providers
+                .iter()
+                .map(|p| EmbeddedProviderDto::from(p))
+                .collect(),
+            active_provider: session.active_provider.clone(),
+            provider_id: session.provider_id.clone(),
+            temperature: session.temperature,
+            max_tokens: session.max_tokens,
+            custom_error_message: session.custom_error_message.clone(),
+            knowledge_base_ids: session.knowledge_base_ids.clone(),
+            skills: session
+                .skills
+                .iter()
+                .map(|s| EmbeddedSkillDto::from(s))
+                .collect(),
+            active_skill_names: session.active_skill_names.clone(),
+        };
+
+        dto
+    }; // write lock is dropped here
+
+    // Now save to file — safe because the write lock has been released
     state.save_debug_session().await;
 
     tracing::info!("Debug session configuration updated");
-
-    let dto = DebugSessionDto {
-        persona: session
-            .persona
-            .as_ref()
-            .map(|p| EmbeddedPersonaDto::from(p)),
-        providers: session
-            .providers
-            .iter()
-            .map(|p| EmbeddedProviderDto::from(p))
-            .collect(),
-        active_provider: session.active_provider.clone(),
-        temperature: session.temperature,
-        max_tokens: session.max_tokens,
-        custom_error_message: session.custom_error_message.clone(),
-        knowledge_base_ids: session.knowledge_base_ids.clone(),
-        skills: session
-            .skills
-            .iter()
-            .map(|s| EmbeddedSkillDto::from(s))
-            .collect(),
-        active_skill_names: session.active_skill_names.clone(),
-    };
 
     Ok(Json(dto))
 }

@@ -6,7 +6,6 @@ import Sidebar from "./components/Sidebar.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
 import LocaleSwitcher from "./components/LocaleSwitcher.vue";
 import UserMenu from "./components/UserMenu.vue";
-import StatusBar from "./components/StatusBar.vue";
 import ruriAvatar from "../assets/ruri-avatar.png";
 
 const route = useRoute();
@@ -63,7 +62,6 @@ onMounted(() => {
 
                 <!-- Right side: Locale, Theme Toggle & User Menu -->
                 <div class="flex items-center gap-3">
-                    <StatusBar />
                     <LocaleSwitcher />
                     <ThemeToggle />
                     <UserMenu />

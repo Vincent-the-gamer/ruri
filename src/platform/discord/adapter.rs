@@ -667,6 +667,7 @@ impl DiscordAdapter {
             let max_retries = 10u32;
             let mut retry_count = 0u32;
             let base_delay_secs = 5u64;
+            let mut session_state: Option<SessionState> = None;
 
             loop {
                 if *shutdown_rx.borrow() {
@@ -683,18 +684,44 @@ impl DiscordAdapter {
                     pre_response_reactions,
                     &reaction_emojis,
                     &mut shutdown_rx,
+                    session_state.clone(),
                 )
                 .await
                 {
-                    Ok(()) => {
+                    GatewayExit::Clean(state) => {
                         log::info!(platform_id = %platform_id, "Discord custom gateway closed normally");
+                        // Preserve session state for potential resume
+                        session_state = Some(state);
                         retry_count = 0;
                         if *shutdown_rx.borrow() {
                             return;
                         }
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                     }
-                    Err(e) => {
+                    GatewayExit::Reconnect(state) => {
+                        log::info!(platform_id = %platform_id, "Discord gateway requested reconnect, will RESUME");
+                        // Preserve session state for resume on new connection
+                        session_state = Some(state);
+                        retry_count = 0;
+                        // Small delay before reconnecting as per Discord docs
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                    GatewayExit::InvalidSession { state, can_resume } => {
+                        if can_resume {
+                            log::info!(platform_id = %platform_id, "Session invalidated, will RESUME on new connection");
+                            session_state = Some(state);
+                        } else {
+                            log::info!(platform_id = %platform_id, "Session invalidated, will IDENTIFY on new connection");
+                            session_state = None;
+                        }
+                        retry_count += 1;
+                        // Invalid session uses a fixed 1-5s delay per Discord docs
+                        let delay = 1u64 + (retry_count as u64 % 5);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
+                    }
+                    GatewayExit::Fatal(e) => {
+                        // Fatal error: clear session state, we cannot resume
+                        session_state = None;
                         retry_count += 1;
                         if retry_count >= max_retries {
                             log::error!(
@@ -743,6 +770,30 @@ impl DiscordAdapter {
 // ─── Discord Gateway protocol types ──────────────────────────────────────────
 
 /// Gateway opcodes.
+/// Session state carried across gateway reconnections for RESUME support.
+#[derive(Clone)]
+struct SessionState {
+    session_id: Option<String>,
+    last_seq: Option<u64>,
+    self_id: String,
+}
+
+/// Result of a single gateway connection attempt.
+enum GatewayExit {
+    /// Clean disconnect (e.g. WebSocket close frame), session can be resumed.
+    Clean(SessionState),
+    /// Reconnect requested (op=7), session should be resumed on new connection.
+    Reconnect(SessionState),
+    /// Session invalidated. If `can_resume` is true, RESUME on new connection;
+    /// otherwise IDENTIFY fresh.
+    InvalidSession {
+        state: SessionState,
+        can_resume: bool,
+    },
+    /// Fatal / unexpected error, session state is not recoverable.
+    Fatal(anyhow::Error),
+}
+
 mod op {
     pub const DISPATCH: u64 = 0;
     pub const HEARTBEAT: u64 = 1;
@@ -983,42 +1034,64 @@ async fn run_custom_gateway_once(
     pre_response_reactions: bool,
     reaction_emojis: &[String],
     shutdown_rx: &mut watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+    resume_state: Option<SessionState>,
+) -> GatewayExit {
     // 1. Get Gateway URL
-    let ws_url = fetch_gateway_url(http, token).await?;
+    let ws_url = match fetch_gateway_url(http, token).await {
+        Ok(url) => url,
+        Err(e) => return GatewayExit::Fatal(e),
+    };
     log::info!(url = %ws_url, "Fetched Discord gateway URL");
 
     // 2. Connect WebSocket through proxy
-    let ws = connect_ws_with_proxy(&ws_url, proxy_url).await?;
+    let ws = match connect_ws_with_proxy(&ws_url, proxy_url).await {
+        Ok(ws) => ws,
+        Err(e) => return GatewayExit::Fatal(e),
+    };
     let (mut ws_sink, mut ws_stream) = ws.split();
 
     log::info!("Discord custom gateway WebSocket connected");
 
     // 3. Receive Hello (op=10) → extract heartbeat_interval
     let heartbeat_interval = {
-        let msg = ws_stream
-            .next()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("No Hello received from gateway"))?
-            .map_err(|e| anyhow::anyhow!("WebSocket read error waiting for Hello: {}", e))?;
+        let msg = match ws_stream.next().await {
+            Some(Ok(m)) => m,
+            Some(Err(e)) => {
+                return GatewayExit::Fatal(anyhow::anyhow!(
+                    "WebSocket read error waiting for Hello: {}",
+                    e
+                ));
+            }
+            None => return GatewayExit::Fatal(anyhow::anyhow!("No Hello received from gateway")),
+        };
 
         let text = match msg {
             tokio_tungstenite::tungstenite::Message::Text(t) => t,
             other => {
-                anyhow::bail!("Expected text frame for Hello, got: {:?}", other);
+                return GatewayExit::Fatal(anyhow::anyhow!(
+                    "Expected text frame for Hello, got: {:?}",
+                    other
+                ));
             }
         };
 
-        let payload: serde_json::Value = serde_json::from_str(&text)?;
-        let gw = GatewayPayload::from_value(payload)?;
+        let payload: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => return GatewayExit::Fatal(e.into()),
+        };
+        let gw = match GatewayPayload::from_value(payload) {
+            Ok(gw) => gw,
+            Err(e) => return GatewayExit::Fatal(e),
+        };
 
         if gw.op != op::HELLO {
-            anyhow::bail!("Expected Hello (op=10), got op={}", gw.op);
+            return GatewayExit::Fatal(anyhow::anyhow!("Expected Hello (op=10), got op={}", gw.op));
         }
 
-        gw.d["heartbeat_interval"]
-            .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("No heartbeat_interval in Hello"))?
+        match gw.d["heartbeat_interval"].as_u64() {
+            Some(v) => v,
+            None => return GatewayExit::Fatal(anyhow::anyhow!("No heartbeat_interval in Hello")),
+        }
     };
 
     log::info!(
@@ -1026,33 +1099,82 @@ async fn run_custom_gateway_once(
         "Received Hello from Discord gateway"
     );
 
-    // 4. Send Identify
-    let identify = serde_json::json!({
-        "op": op::IDENTIFY,
-        "d": {
-            "token": token,
-            "intents": INTENTS,
-            "properties": {
-                "os": std::env::consts::OS,
-                "browser": "ruri",
-                "device": "ruri"
+    // 4. Send Identify or Resume
+    // Initialize local state from resume_state or start fresh
+    let mut self_id = resume_state
+        .as_ref()
+        .map(|s| s.self_id.clone())
+        .unwrap_or_default();
+    let mut session_id = resume_state.as_ref().and_then(|s| s.session_id.clone());
+    let mut last_seq = resume_state.as_ref().and_then(|s| s.last_seq);
+
+    if let Some(ref state) = resume_state {
+        if let (Some(sid), Some(seq)) = (&state.session_id, &state.last_seq) {
+            log::info!("Resuming existing Discord session (seq={})", seq);
+            let resume = serde_json::json!({
+                "op": op::RESUME,
+                "d": {
+                    "token": token,
+                    "session_id": sid,
+                    "seq": seq
+                }
+            });
+            if let Err(e) = ws_sink
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    resume.to_string().into(),
+                ))
+                .await
+            {
+                return GatewayExit::Fatal(anyhow::anyhow!("Failed to send Resume: {}", e));
+            }
+        } else {
+            // No valid session to resume, identify fresh
+            let identify = serde_json::json!({
+                "op": op::IDENTIFY,
+                "d": {
+                    "token": token,
+                    "intents": INTENTS,
+                    "properties": {
+                        "os": std::env::consts::OS,
+                        "browser": "ruri",
+                        "device": "ruri"
+                    }
+                }
+            });
+            if let Err(e) = ws_sink
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    identify.to_string().into(),
+                ))
+                .await
+            {
+                return GatewayExit::Fatal(anyhow::anyhow!("Failed to send Identify: {}", e));
             }
         }
-    });
+    } else {
+        let identify = serde_json::json!({
+            "op": op::IDENTIFY,
+            "d": {
+                "token": token,
+                "intents": INTENTS,
+                "properties": {
+                    "os": std::env::consts::OS,
+                    "browser": "ruri",
+                    "device": "ruri"
+                }
+            }
+        });
+        if let Err(e) = ws_sink
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                identify.to_string().into(),
+            ))
+            .await
+        {
+            return GatewayExit::Fatal(anyhow::anyhow!("Failed to send Identify: {}", e));
+        }
+        log::info!("Sent Identify to Discord gateway");
+    }
 
-    ws_sink
-        .send(tokio_tungstenite::tungstenite::Message::Text(
-            identify.to_string().into(),
-        ))
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to send Identify: {}", e))?;
-
-    log::info!("Sent Identify to Discord gateway");
-
-    // 5. Wait for Ready (op=0, t=READY) and dispatch events
-    let mut self_id = String::new();
-    let mut session_id: Option<String> = None;
-    let mut last_seq: Option<u64> = None;
+    // 5. Wait for Ready/Resumed (op=0, t=READY/RESUMED) and dispatch events
     let mut heartbeat_ack_received = true; // Assume true initially
 
     // Spawn heartbeat task
@@ -1087,7 +1209,11 @@ async fn run_custom_gateway_once(
                             tokio_tungstenite::tungstenite::Message::Text(t) => t,
                             tokio_tungstenite::tungstenite::Message::Close(_) => {
                                 log::info!("Discord gateway WebSocket close frame received");
-                                break Ok(());
+                                break GatewayExit::Clean(SessionState {
+                                    session_id: session_id.clone(),
+                                    last_seq,
+                                    self_id: self_id.clone(),
+                                });
                             }
                             tokio_tungstenite::tungstenite::Message::Ping(data) => {
                                 let _ = ws_sink.send(tokio_tungstenite::tungstenite::Message::Pong(data)).await;
@@ -1119,9 +1245,11 @@ async fn run_custom_gateway_once(
 
                         match gw.op {
                             op::DISPATCH => {
-                                // Handle Ready event
-                                if gw.t.as_deref() == Some("READY") {
-                                    if let Some(user) = gw.d.get("user") {
+                                // Handle Ready/Resumed event
+                                if gw.t.as_deref() == Some("READY") || gw.t.as_deref() == Some("RESUMED") {
+                                    if gw.t.as_deref() == Some("RESUMED") {
+                                        log::info!("Discord session resumed successfully");
+                                    } else if let Some(user) = gw.d.get("user") {
                                         self_id = user
                                             .get("id")
                                             .and_then(|v| v.as_str())
@@ -1137,11 +1265,14 @@ async fn run_custom_gateway_once(
                                             "Discord bot is ready (custom gateway)"
                                         );
                                     }
-                                    session_id = gw
-                                        .d
-                                        .get("session_id")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string());
+                                    // Only extract session_id from READY, not RESUMED
+                                    if gw.t.as_deref() == Some("READY") {
+                                        session_id = gw
+                                            .d
+                                            .get("session_id")
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string());
+                                    }
 
                                     // Send status event
                                     let event = PlatformEvent::StatusChanged {
@@ -1150,7 +1281,11 @@ async fn run_custom_gateway_once(
                                     };
                                     if event_sender.send(event).await.is_err() {
                                         log::warn!("Event channel closed");
-                                        break Ok(());
+                                        break GatewayExit::Clean(SessionState {
+                                            session_id: session_id.clone(),
+                                            last_seq,
+                                            self_id: self_id.clone(),
+                                        });
                                     }
                                 }
 
@@ -1183,7 +1318,11 @@ async fn run_custom_gateway_once(
                                         let event = PlatformEvent::Message(platform_msg);
                                         if event_sender.send(event).await.is_err() {
                                             log::warn!("Event channel closed");
-                                            break Ok(());
+                                            break GatewayExit::Clean(SessionState {
+                                                session_id: session_id.clone(),
+                                                last_seq,
+                                                self_id: self_id.clone(),
+                                            });
                                         }
                                     }
                                 }
@@ -1201,39 +1340,43 @@ async fn run_custom_gateway_once(
                                     .await
                                 {
                                     log::warn!(error = %e, "Failed to send heartbeat");
-                                    break Err(anyhow::anyhow!("Failed to send heartbeat: {}", e));
+                                    break GatewayExit::Fatal(anyhow::anyhow!("Failed to send heartbeat: {}", e));
                                 }
                                 log::debug!("Sent heartbeat (requested by server)");
                             }
                             op::RECONNECT => {
                                 log::info!("Discord gateway requested reconnect (op=7)");
-                                break Err(anyhow::anyhow!("Gateway requested reconnect"));
+                                // Don't clear session state — we can RESUME on the new connection
+                                break GatewayExit::Reconnect(SessionState {
+                                    session_id: session_id.clone(),
+                                    last_seq,
+                                    self_id: self_id.clone(),
+                                });
                             }
                             op::INVALID_SESSION => {
                                 let can_resume = gw.d.as_bool().unwrap_or(false);
-                                if can_resume && session_id.is_some() && last_seq.is_some() {
-                                    log::info!("Invalid session, attempting resume");
-                                    let resume = serde_json::json!({
-                                        "op": op::RESUME,
-                                        "d": {
-                                            "token": token,
-                                            "session_id": session_id,
-                                            "seq": last_seq
-                                        }
-                                    });
-                                    if let Err(e) = ws_sink
-                                        .send(tokio_tungstenite::tungstenite::Message::Text(
-                                            resume.to_string().into(),
-                                        ))
-                                        .await
-                                    {
-                                        log::warn!(error = %e, "Failed to send Resume");
-                                        break Err(anyhow::anyhow!("Failed to send Resume: {}", e));
-                                    }
+                                if can_resume {
+                                    log::info!("Invalid session, can resume — will RESUME on new connection");
+                                    // Don't try to RESUME on this (invalidated) socket;
+                                    // close and let the outer loop open a new connection.
+                                    break GatewayExit::InvalidSession {
+                                        state: SessionState {
+                                            session_id: session_id.clone(),
+                                            last_seq,
+                                            self_id: self_id.clone(),
+                                        },
+                                        can_resume: true,
+                                    };
                                 } else {
-                                    log::info!("Invalid session, will re-identify on next connection");
-                                    let _ = session_id.take();
-                                    break Err(anyhow::anyhow!("Invalid session, cannot resume"));
+                                    log::info!("Invalid session, cannot resume — will IDENTIFY on new connection");
+                                    break GatewayExit::InvalidSession {
+                                        state: SessionState {
+                                            session_id: None,
+                                            last_seq: None,
+                                            self_id: self_id.clone(),
+                                        },
+                                        can_resume: false,
+                                    };
                                 }
                             }
                             op::HEARTBEAT_ACK => {
@@ -1246,10 +1389,14 @@ async fn run_custom_gateway_once(
                         }
                     }
                     Some(Err(e)) => {
-                        break Err(anyhow::anyhow!("WebSocket read error: {}", e));
+                        break GatewayExit::Fatal(anyhow::anyhow!("WebSocket read error: {}", e));
                     }
                     None => {
-                        break Ok(());
+                        break GatewayExit::Clean(SessionState {
+                            session_id: session_id.clone(),
+                            last_seq,
+                            self_id: self_id.clone(),
+                        });
                     }
                 }
             }
@@ -1257,7 +1404,7 @@ async fn run_custom_gateway_once(
                 // Send heartbeat
                 if !heartbeat_ack_received {
                     log::warn!("No heartbeat ACK received since last heartbeat, connection may be dead");
-                    break Err(anyhow::anyhow!("Heartbeat timeout"));
+                    break GatewayExit::Fatal(anyhow::anyhow!("Heartbeat timeout"));
                 }
                 heartbeat_ack_received = false;
 
@@ -1269,7 +1416,7 @@ async fn run_custom_gateway_once(
                     .send(tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into()))
                     .await
                 {
-                    break Err(anyhow::anyhow!("Failed to send heartbeat: {}", e));
+                    break GatewayExit::Fatal(anyhow::anyhow!("Failed to send heartbeat: {}", e));
                 }
                 log::debug!("Sent heartbeat");
             }
@@ -1277,7 +1424,11 @@ async fn run_custom_gateway_once(
                 if *shutdown_rx.borrow() {
                     log::info!(platform_id = %platform_id, "Shutdown signal, closing Discord gateway WebSocket");
                     let _ = ws_sink.close().await;
-                    break Ok(());
+                    break GatewayExit::Clean(SessionState {
+                        session_id: session_id.clone(),
+                        last_seq,
+                        self_id: self_id.clone(),
+                    });
                 }
             }
         }

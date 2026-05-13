@@ -7,6 +7,7 @@ import { useProviderStore } from "../stores/provider";
 import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import { useAuthStore } from "../stores/auth";
+import { useDebugSessionStore } from "../stores/debugSession";
 import type { AttachedFile } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
 import ChatInput from "../components/ChatInput.vue";
@@ -19,6 +20,7 @@ const providerStore = useProviderStore();
 const personaStore = usePersonaStore();
 const configStore = useConfigStore();
 const authStore = useAuthStore();
+const debugSessionStore = useDebugSessionStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
 const showConfigModal = ref(false);
@@ -26,25 +28,25 @@ const chatConfigModal = ref<InstanceType<typeof ChatConfigModal> | null>(null);
 const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
-const effectivePersona = computed(() => personaStore.activePersona);
+const effectivePersona = computed(() => {
+    // Persona is independent from config profile
+    const selectedId = chatConfigModal.value?.selectedPersonaId;
+    if (!selectedId) return null;
+    return (
+        personaStore.personas.find((p) => p.id === selectedId) ||
+        personaStore.activePersona
+    );
+});
 
 const effectiveProvider = computed(() => {
-    // Priority: chat config modal selection → config profile provider_id → active provider
-    if (chatConfigModal.value?.selectedProviderId) {
-        return (
-            providerStore.providers.find(
-                (p) => p.id === chatConfigModal.value!.selectedProviderId,
-            ) || providerStore.activeProvider
-        );
+    // Only use explicit selection from debug session — no automatic fallback
+    const id =
+        chatConfigModal.value?.selectedProviderId ??
+        debugSessionStore.providerId;
+    if (id) {
+        return providerStore.providers.find((p) => p.id === id) || null;
     }
-    const profileProviderId = configStore.activeConfigProfile?.provider_id;
-    if (profileProviderId) {
-        return (
-            providerStore.providers.find((p) => p.id === profileProviderId) ||
-            providerStore.activeProvider
-        );
-    }
-    return providerStore.activeProvider;
+    return null;
 });
 
 const hasAnyProvider = computed(() => providerStore.providers.length > 0);
@@ -58,6 +60,7 @@ onMounted(async () => {
     // then syncs with DB in the background — no need to await it
     chatStore.fetchHistory();
     await Promise.all([
+        debugSessionStore.fetchDebugSession(),
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
@@ -103,33 +106,57 @@ async function handleSend(
         chatConfigModal.value?.temperature ?? temperature.value;
     const effectiveMaxTokens =
         chatConfigModal.value?.maxTokens ?? maxTokens.value;
-    // Resolve provider_id: from chat config modal selection, then config profile, then active provider
+    // Resolve provider_id: only from explicit user selection or debug session
+    // No automatic fallback to profile or global active provider — user must explicitly choose
     const effectiveProviderId =
         chatConfigModal.value?.selectedProviderId ??
-        profile?.provider_id ??
-        providerStore.activeProvider?.id ??
+        debugSessionStore.providerId ??
         undefined;
-    await chatStore.sendMessage({
-        message,
-        images: images.length > 0 ? images : undefined,
-        files: files.length > 0 ? files : undefined,
-        provider_id: effectiveProviderId,
-        persona_id:
-            chatConfigModal.value?.selectedPersonaId ??
-            personaStore.activePersona?.id,
-        temperature: effectiveTemp,
-        max_tokens: effectiveMaxTokens,
-        knowledge_base_ids: chatConfigModal.value?.selectedKbIds?.length
-            ? chatConfigModal.value.selectedKbIds
-            : profile?.active_knowledge_base_ids?.length
-              ? profile.active_knowledge_base_ids
-              : undefined,
-        custom_error_message:
-            chatConfigModal.value?.customErrorMessage ||
-            profile?.custom_error_message ||
-            undefined,
-        user_id: authStore.user?.id || undefined,
-    });
+
+    if (!effectiveProviderId) {
+        // No provider selected — show error message in chat
+        messages.value.push({
+            role: "user",
+            content: message,
+        });
+        messages.value.push({
+            role: "assistant",
+            content: t(
+                "chat.noProviderSelected",
+                "⚠️ No provider selected. Please select a model provider in chat config (⚙️ icon).",
+            ),
+        });
+        scrollToBottom();
+        return;
+    }
+
+    // Resolve persona_id: null means "no persona", otherwise use selected persona id
+    const effectivePersonaId =
+        chatConfigModal.value?.selectedPersonaId ?? "none";
+
+    try {
+        await chatStore.sendMessage({
+            message,
+            images: images.length > 0 ? images : undefined,
+            files: files.length > 0 ? files : undefined,
+            provider_id: effectiveProviderId,
+            persona_id: effectivePersonaId,
+            temperature: effectiveTemp,
+            max_tokens: effectiveMaxTokens,
+            knowledge_base_ids: chatConfigModal.value?.selectedKbIds?.length
+                ? chatConfigModal.value.selectedKbIds
+                : profile?.active_knowledge_base_ids?.length
+                  ? profile.active_knowledge_base_ids
+                  : undefined,
+            custom_error_message:
+                chatConfigModal.value?.customErrorMessage ||
+                profile?.custom_error_message ||
+                undefined,
+            user_id: authStore.user?.id || undefined,
+        });
+    } catch {
+        // Error already added to chat messages by the store; no need to re-throw
+    }
     scrollToBottom();
 }
 
