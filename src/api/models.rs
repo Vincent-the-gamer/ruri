@@ -197,8 +197,6 @@ pub struct ChatRequestDto {
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u64>,
     #[serde(default)]
@@ -322,10 +320,55 @@ pub struct UpdateAcpConfigRequest {
 
 // ─── Persona Models ──────────────────────────────────────────────
 
-/// Persona configuration returned to the client.
+/// DTO for embedded persona configuration.
+/// Each config profile and debug session owns its persona data inline —
+/// no global persona references.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddedPersonaDto {
+    /// The display name of the persona
+    pub name: String,
+    /// A short description of the persona's role.
+    pub description: String,
+    /// The full system prompt that defines the persona's behavior.
+    pub prompt: String,
+}
+
+impl From<&crate::api::state::EmbeddedPersona> for EmbeddedPersonaDto {
+    fn from(p: &crate::api::state::EmbeddedPersona) -> Self {
+        Self {
+            name: p.name.clone(),
+            description: p.description.clone(),
+            prompt: p.prompt.clone(),
+        }
+    }
+}
+
+impl From<EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
+    fn from(dto: EmbeddedPersonaDto) -> Self {
+        Self {
+            name: dto.name,
+            description: dto.description,
+            prompt: dto.prompt,
+        }
+    }
+}
+
+impl From<&EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
+    fn from(dto: &EmbeddedPersonaDto) -> Self {
+        Self {
+            name: dto.name.clone(),
+            description: dto.description.clone(),
+            prompt: dto.prompt.clone(),
+        }
+    }
+}
+
+// ─── Persona Library Models ────────────────────────────────────────
+
+/// Persona template returned to the client (from the persona library).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersonaDto {
-    /// Unique identifier for this persona.
+    /// Unique identifier for this persona template.
     pub id: String,
     /// The display name of the persona (e.g., "Assistant", "Coder", "Teacher").
     pub name: String,
@@ -335,7 +378,7 @@ pub struct PersonaDto {
     pub prompt: String,
 }
 
-/// Request body for creating or updating a persona.
+/// Request body for creating a new persona template.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePersonaRequest {
     /// The display name of the persona.
@@ -346,7 +389,7 @@ pub struct CreatePersonaRequest {
     pub prompt: String,
 }
 
-/// Request body for partially updating a persona.
+/// Request body for partially updating a persona template.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdatePersonaRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -534,7 +577,7 @@ pub struct ConfigProfileDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<String>,
+    pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     pub active_skill_names: Vec<String>,
@@ -568,7 +611,7 @@ pub struct CreateConfigProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<String>,
+    pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     #[serde(default)]
@@ -603,7 +646,7 @@ pub struct UpdateConfigProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<Option<String>>,
+    pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -632,12 +675,6 @@ pub struct UpdateConfigProfileRequest {
 pub struct ConfigProfileProviderResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<ProviderDto>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigProfilePersonaResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona: Option<PersonaDto>,
 }
 
 // ─── Web Search Config Models ─────────────────────────────────────
@@ -1002,7 +1039,7 @@ pub struct EmbeddedSkillDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugSessionDto {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<String>,
+    pub embedded_persona: Option<EmbeddedPersonaDto>,
     #[serde(default)]
     pub providers: Vec<EmbeddedProviderDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1033,7 +1070,7 @@ pub struct DebugSessionDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDebugSessionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_id: Option<Option<String>>,
+    pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<Vec<EmbeddedProviderDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]

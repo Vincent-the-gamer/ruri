@@ -135,18 +135,9 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
-  async function getConfigProfilePersona(profileId: string) {
-    try {
-      return await api.getConfigProfilePersona(profileId)
-    } catch (e: unknown) {
-      console.warn('Failed to get config profile persona:', e)
-      return null
-    }
-  }
-
   // Get active configuration values
   const activeProviderId = computed(() => activeConfigProfile.value?.provider_id || null)
-  const activePersonaId = computed(() => activeConfigProfile.value?.persona_id || null)
+  const activeEmbeddedPersona = computed(() => activeConfigProfile.value?.embedded_persona || null)
   const webSearchEnabled = computed(() => activeConfigProfile.value?.web_search_enabled ?? false)
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
 
@@ -170,7 +161,7 @@ export const useConfigStore = defineStore('config', () => {
     activeConfigProfile,
     activeProfileId,
     activeProviderId,
-    activePersonaId,
+    activeEmbeddedPersona,
     webSearchEnabled,
     computerUseEnabled,
     activeSkillNames,
@@ -187,6 +178,5 @@ export const useConfigStore = defineStore('config', () => {
     activateConfigProfile,
     deactivateConfigProfile,
     getConfigProfileProvider,
-    getConfigProfilePersona,
   }
 })

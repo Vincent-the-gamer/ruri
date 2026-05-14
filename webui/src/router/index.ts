@@ -53,12 +53,6 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/personas',
-      name: 'Personas',
-      component: () => import('../views/Personas.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/acp-config',
       name: 'ACP Config',
       component: () => import('../views/AcpConfig.vue'),

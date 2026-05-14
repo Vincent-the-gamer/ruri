@@ -2,11 +2,11 @@
 import { ref, watch, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useProviderStore } from "../stores/provider";
-import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useConfigStore } from "../stores/config";
+import { usePersonaStore } from "../stores/persona";
 import { getBuiltinCommands } from "../api";
 import {
     type ProxyRuleType,
@@ -35,18 +35,22 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>();
 const { t } = useI18n();
 const providerStore = useProviderStore();
-const personaStore = usePersonaStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
 const configStore = useConfigStore();
 const kbStore = useKnowledgeBaseStore();
+const personaStore = usePersonaStore();
 
 const formData = ref<{
     name: string;
     description: string;
     enable: boolean;
     provider_id: string | null;
-    persona_id: string | null;
+    embedded_persona: {
+        name: string;
+        description: string;
+        prompt: string;
+    } | null;
     command_prefix: string;
     enabled_commands: string[];
     command_admin_required: Record<string, boolean>;
@@ -72,7 +76,7 @@ const formData = ref<{
     description: "",
     enable: true,
     provider_id: null,
-    persona_id: null,
+    embedded_persona: null,
     command_prefix: "/",
     enabled_commands: [],
     command_admin_required: {},
@@ -104,7 +108,7 @@ watch(
                 description: newConfig.description || "",
                 enable: newConfig.enable ?? true,
                 provider_id: newConfig.provider_id || null,
-                persona_id: newConfig.persona_id || null,
+                embedded_persona: newConfig.embedded_persona || null,
                 command_prefix: newConfig.command_prefix || "/",
                 enabled_commands: [...(newConfig.enabled_commands || [])],
                 command_admin_required: {
@@ -141,7 +145,7 @@ watch(
                 description: "",
                 enable: true,
                 provider_id: null,
-                persona_id: null,
+                embedded_persona: null,
                 command_prefix: "/",
                 enabled_commands: [],
                 command_admin_required: {},
@@ -173,6 +177,7 @@ const builtinCommands = ref<BuiltinCommand[]>([]);
 const commandsLoading = ref(false);
 
 onMounted(async () => {
+    personaStore.fetchPersonas();
     commandsLoading.value = true;
     try {
         builtinCommands.value = await getBuiltinCommands();
@@ -565,21 +570,102 @@ function handleSubmit() {
                         <label class="form-label">{{
                             t("config.form.selectPersona")
                         }}</label>
-                        <select
-                            v-model="formData.persona_id"
-                            class="form-select"
+                        <div
+                            v-if="formData.embedded_persona"
+                            class="persona-editor"
                         >
-                            <option :value="null">
-                                {{ t("config.form.noPersona") }}
-                            </option>
-                            <option
-                                v-for="persona in personaStore.personas"
-                                :key="persona.id"
-                                :value="persona.id"
+                            <div class="persona-header">
+                                <span class="persona-name">{{
+                                    formData.embedded_persona.name
+                                }}</span>
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-danger"
+                                    @click="formData.embedded_persona = null"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <input
+                                v-model="formData.embedded_persona.name"
+                                class="form-input"
+                                :placeholder="'Name'"
+                            />
+                            <input
+                                v-model="formData.embedded_persona.description"
+                                class="form-input"
+                                :placeholder="'Description'"
+                            />
+                            <textarea
+                                v-model="formData.embedded_persona.prompt"
+                                class="form-textarea"
+                                rows="3"
+                                :placeholder="'System Prompt'"
+                            ></textarea>
+                        </div>
+                        <div v-else class="persona-add-buttons">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-secondary"
+                                @click="
+                                    formData.embedded_persona = {
+                                        name: '',
+                                        description: '',
+                                        prompt: '',
+                                    }
+                                "
                             >
-                                {{ persona.name }}
-                            </option>
-                        </select>
+                                +
+                                {{
+                                    t(
+                                        "config.form.addPersonaManual",
+                                        "Add Manually",
+                                    )
+                                }}
+                            </button>
+                            <select
+                                v-if="personaStore.personas.length > 0"
+                                class="form-select"
+                                @change="
+                                    (e) => {
+                                        const id = (
+                                            e.target as HTMLSelectElement
+                                        ).value;
+                                        if (id) {
+                                            const p =
+                                                personaStore.personas.find(
+                                                    (p) => p.id === id,
+                                                );
+                                            if (p) {
+                                                formData.embedded_persona = {
+                                                    name: p.name,
+                                                    description: p.description,
+                                                    prompt: p.prompt,
+                                                };
+                                            }
+                                        }
+                                        (e.target as HTMLSelectElement).value =
+                                            '';
+                                    }
+                                "
+                            >
+                                <option value="">
+                                    {{
+                                        t(
+                                            "config.form.selectPersonaFromLibrary",
+                                            "📋 From Library...",
+                                        )
+                                    }}
+                                </option>
+                                <option
+                                    v-for="persona in personaStore.personas"
+                                    :key="persona.id"
+                                    :value="persona.id"
+                                >
+                                    {{ persona.name }}
+                                </option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1431,6 +1517,18 @@ function handleSubmit() {
 .form-textarea {
     resize: vertical;
     min-height: 60px;
+}
+
+.persona-add-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.persona-add-buttons .form-select {
+    flex: 1;
+    min-width: 160px;
 }
 
 /* Toggle Row */

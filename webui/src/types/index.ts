@@ -170,7 +170,6 @@ export interface ChatRequest {
   images?: string[]  // base64 data URLs or HTTP URLs
   files?: AttachedFile[]  // attached files
   provider_id?: string
-  persona_id?: string
   temperature?: number
   max_tokens?: number
   knowledge_base_ids?: string[]
@@ -329,6 +328,7 @@ export interface UpdateWebSearchConfigRequest {
 
 // ─── Persona Types ───────────────────────────────────────────────
 
+/** A persona template in the persona library (not active/global — just a reusable template) */
 export interface Persona {
   id: string
   name: string
@@ -348,6 +348,13 @@ export interface UpdatePersonaRequest {
   prompt?: string
 }
 
+/** Embedded persona configuration — owned inline by a config profile or debug session */
+export interface EmbeddedPersona {
+  name: string
+  description: string
+  prompt: string
+}
+
 // ─── Config Profile Types ───────────────────────────────────────
 
 export interface ConfigProfile {
@@ -360,7 +367,7 @@ export interface ConfigProfile {
   updated_at: string
   // 关联的配置
   provider_id: string | null
-  persona_id: string | null
+  embedded_persona: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
   // 技能配置
@@ -385,7 +392,7 @@ export interface CreateConfigProfileRequest {
   description: string
   enable: boolean
   provider_id: string | null
-  persona_id: string | null
+  embedded_persona?: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
   active_skill_names: string[]
@@ -403,7 +410,7 @@ export interface UpdateConfigProfileRequest {
   description?: string
   enable?: boolean
   provider_id?: string | null
-  persona_id?: string | null
+  embedded_persona?: EmbeddedPersona | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
   active_skill_names?: string[]
@@ -788,7 +795,7 @@ export interface EmbeddedSkill {
 }
 
 export interface DebugSession {
-  persona_id: string | null
+  embedded_persona: EmbeddedPersona | null
   providers: EmbeddedProvider[]
   active_provider: string | null
   provider_id: string | null
@@ -803,7 +810,7 @@ export interface DebugSession {
 }
 
 export interface UpdateDebugSessionRequest {
-  persona_id?: string | null
+  embedded_persona?: EmbeddedPersona | null
   providers?: EmbeddedProvider[]
   active_provider?: string | null
   provider_id?: string | null

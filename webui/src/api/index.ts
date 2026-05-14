@@ -12,10 +12,10 @@ import type {
   CreateConfigProfileRequest,
   CreateKnowledgeBaseRequest,
   CreateMcpServerRequest,
+  CreatePersonaRequest,
   CreatePlatformRequest,
   CreateProviderRequest,
   CreateSkillRequest,
-  CreatePersonaRequest,
   DebugSession,
   KbDocument,
   KnowledgeBase,
@@ -331,7 +331,7 @@ export async function updateWebSearchConfig(data: UpdateWebSearchConfigRequest):
   return res.data
 }
 
-// ─── Personas ─────────────────────────────────────────────────────
+// ─── Persona Library ──────────────────────────────────────────────
 
 export async function getPersonas(): Promise<Persona[]> {
   const res = await client.get('/api/personas')
@@ -396,11 +396,6 @@ export async function deactivateConfigProfile(id: string): Promise<ConfigProfile
 export async function getConfigProfileProvider(profileId: string): Promise<Provider | null> {
   const res = await client.get(`/api/config-profiles/${profileId}/provider`)
   return res.data.provider || null
-}
-
-export async function getConfigProfilePersona(profileId: string): Promise<Persona | null> {
-  const res = await client.get(`/api/config-profiles/${profileId}/persona`)
-  return res.data.persona || null
 }
 
 // ─── MCP ─────────────────────────────────────────────────────────

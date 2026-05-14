@@ -4,7 +4,6 @@ import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
 import { useConfigStore } from "../stores/config";
 import { useProviderStore } from "../stores/provider";
-import { usePersonaStore } from "../stores/persona";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
@@ -14,7 +13,6 @@ import type { ConfigProfile } from "../types";
 const { t } = useI18n();
 const configStore = useConfigStore();
 const providerStore = useProviderStore();
-const personaStore = usePersonaStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
 const kbStore = useKnowledgeBaseStore();
@@ -29,7 +27,6 @@ onMounted(async () => {
     await Promise.all([
         configStore.fetchConfigProfiles(),
         providerStore.fetchProviders(),
-        personaStore.fetchPersonas(),
         kbStore.fetchKnowledgeBases(),
         skillStore.fetchSkills(),
         platformStore.fetchInstances(),
@@ -113,10 +110,8 @@ function getProviderName(providerId: string | null): string {
     return provider ? provider.name : t("config.unknown");
 }
 
-function getPersonaName(personaId: string | null): string {
-    if (!personaId) return t("config.none");
-    const persona = personaStore.personas.find((p) => p.id === personaId);
-    return persona ? persona.name : t("config.unknown");
+function getPersonaName(config: ConfigProfile): string {
+    return config.embedded_persona?.name || t("config.none");
 }
 </script>
 
@@ -334,7 +329,7 @@ function getPersonaName(personaId: string | null): string {
                                         <circle cx="12" cy="7" r="4"></circle>
                                     </svg>
                                     <span class="info-text">{{
-                                        getPersonaName(config.persona_id)
+                                        getPersonaName(config)
                                     }}</span>
                                 </div>
                                 <div class="card-tags">

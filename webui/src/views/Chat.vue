@@ -4,7 +4,6 @@ import { onMounted, onActivated, ref, nextTick, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore } from "../stores/chat";
 import { useProviderStore } from "../stores/provider";
-import { usePersonaStore } from "../stores/persona";
 import { useConfigStore } from "../stores/config";
 import { useAuthStore } from "../stores/auth";
 import { useDebugSessionStore } from "../stores/debugSession";
@@ -18,7 +17,6 @@ import ChatConfigModal from "../components/ChatConfigModal.vue";
 const { t } = useI18n();
 const chatStore = useChatStore();
 const providerStore = useProviderStore();
-const personaStore = usePersonaStore();
 const configStore = useConfigStore();
 const authStore = useAuthStore();
 const debugSessionStore = useDebugSessionStore();
@@ -31,13 +29,11 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 const effectivePersona = computed(() => {
-    // Try modal selection first, then debug session config
-    const selectedId =
-        chatConfigModal.value?.selectedPersonaId ?? debugSessionStore.personaId;
-    if (!selectedId) return null;
+    // Use the persona form if set, then debug session's embedded persona, then active config profile's
     return (
-        personaStore.personas.find((p) => p.id === selectedId) ||
-        personaStore.activePersona
+        chatConfigModal.value?.personaForm ??
+        debugSessionStore.embeddedPersona ??
+        configStore.activeEmbeddedPersona
     );
 });
 
@@ -65,7 +61,6 @@ onMounted(async () => {
     await Promise.all([
         debugSessionStore.fetchDebugSession(),
         providerStore.fetchProviders(),
-        personaStore.fetchPersonas(),
         configStore.fetchConfigProfiles(),
         kbStore.fetchKnowledgeBases(),
     ]);
@@ -134,19 +129,12 @@ async function handleSend(
         return;
     }
 
-    // Resolve persona_id: from modal selection or debug session config
-    const effectivePersonaId =
-        chatConfigModal.value?.selectedPersonaId ??
-        debugSessionStore.personaId ??
-        undefined;
-
     try {
         await chatStore.sendMessage({
             message,
             images: images.length > 0 ? images : undefined,
             files: files.length > 0 ? files : undefined,
             provider_id: effectiveProviderId,
-            persona_id: effectivePersonaId,
             temperature: effectiveTemp,
             max_tokens: effectiveMaxTokens,
             knowledge_base_ids: chatConfigModal.value?.selectedKbIds?.length

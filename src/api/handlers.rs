@@ -135,7 +135,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/chat/stop", post(stop_chat_generation))
         // Agent status
         .route("/api/agent/status", get(get_status))
-        // Personas
+        // Persona library (reusable templates — not active/global config)
         .route("/api/personas", get(list_personas).post(create_persona))
         .route(
             "/api/personas/{id}",
@@ -163,10 +163,6 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/config-profiles/{id}/provider",
             get(get_config_profile_provider),
-        )
-        .route(
-            "/api/config-profiles/{id}/persona",
-            get(get_config_profile_persona),
         )
         // ACP config
         .route(
@@ -904,7 +900,6 @@ async fn send_chat_message(
     tracing::info!(
         message_len = req.message.len(),
         provider_id = ?req.provider_id,
-        persona_id = ?req.persona_id,
         user_id = ?req.user_id,
         session_id = ?req.session_id,
         source = "webui",
@@ -963,7 +958,6 @@ async fn send_chat_message(
         .build_agent_with_context_extended(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
-            req.persona_id.as_deref(),
             req.provider_id.as_deref(),
             true, // use_debug_session: true - WebUI chat uses its own config
             None, // profile_id: None - let debug session resolve itself
@@ -1229,7 +1223,6 @@ async fn stream_chat_message(
     tracing::info!(
         message_len = req.message.len(),
         provider_id = ?req.provider_id,
-        persona_id = ?req.persona_id,
         user_id = ?req.user_id,
         session_id = ?req.session_id,
         source = "webui-stream",
@@ -1290,7 +1283,6 @@ async fn stream_chat_message(
         .build_agent_with_context_extended(
             req.user_id.as_deref(),
             req.session_id.as_deref(),
-            req.persona_id.as_deref(),
             req.provider_id.as_deref(),
             true, // use_debug_session: true - WebUI chat uses its own config
             None, // profile_id: None - let debug session resolve itself
@@ -1973,9 +1965,9 @@ async fn update_web_search_config(
     Ok(Json(dto))
 }
 
-// ─── Persona Handlers ─────────────────────────────────────────────
+// ─── Persona Library Handlers ─────────────────────────────────────
 
-/// List all personas.
+/// List all persona templates in the library.
 async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaDto>> {
     let personas = state.personas.read().await;
     let list: Vec<PersonaDto> = personas
@@ -1990,7 +1982,7 @@ async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaDt
     Json(list)
 }
 
-/// Get a specific persona by ID.
+/// Get a specific persona template by ID.
 async fn get_persona(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -2007,7 +1999,7 @@ async fn get_persona(
     }
 }
 
-/// Create a new persona with an auto-generated UUID.
+/// Create a new persona template with an auto-generated UUID.
 async fn create_persona(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreatePersonaRequest>,
@@ -2045,7 +2037,7 @@ async fn create_persona(
     tracing::info!(
         persona_id = %id,
         persona_name = %req.name,
-        "Persona created"
+        "Persona template created"
     );
 
     state.auto_save().await;
@@ -2058,7 +2050,7 @@ async fn create_persona(
     }))
 }
 
-/// Update an existing persona by ID.
+/// Update an existing persona template by ID.
 async fn update_persona(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -2105,7 +2097,7 @@ async fn update_persona(
         prompt: persona.prompt.clone(),
     };
 
-    tracing::info!(persona_id = %id, "Persona updated");
+    tracing::info!(persona_id = %id, "Persona template updated");
 
     drop(personas);
     state.auto_save().await;
@@ -2113,14 +2105,14 @@ async fn update_persona(
     Ok(Json(dto))
 }
 
-/// Delete a persona by ID.
+/// Delete a persona template by ID.
 async fn delete_persona(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     let mut personas = state.personas.write().await;
     if personas.remove(&id).is_some() {
-        tracing::info!(persona_id = %id, "Persona deleted");
+        tracing::info!(persona_id = %id, "Persona template deleted");
         drop(personas);
         state.auto_save().await;
         Ok(StatusCode::NO_CONTENT)
@@ -2148,7 +2140,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             created_at: p.created_at.to_rfc3339().to_string(),
             updated_at: p.updated_at.to_rfc3339().to_string(),
             provider_id: p.provider_id.clone(),
-            persona_id: p.persona_id.clone(),
+            embedded_persona: p.embedded_persona.as_ref().map(EmbeddedPersonaDto::from),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
             active_skill_names: p.active_skill_names.clone(),
@@ -2180,7 +2172,7 @@ async fn get_config_profile(
             created_at: p.created_at.to_rfc3339().to_string(),
             updated_at: p.updated_at.to_rfc3339().to_string(),
             provider_id: p.provider_id.clone(),
-            persona_id: p.persona_id.clone(),
+            embedded_persona: p.embedded_persona.as_ref().map(EmbeddedPersonaDto::from),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
             active_skill_names: p.active_skill_names.clone(),
@@ -2220,8 +2212,10 @@ async fn create_config_profile(
         created_at: now,
         updated_at: now,
         provider_id: req.provider_id.clone(),
-        persona_id: req.persona_id.clone(),
-        embedded_persona: None,
+        embedded_persona: req
+            .embedded_persona
+            .as_ref()
+            .map(|dto| crate::api::state::EmbeddedPersona::from(dto)),
         embedded_providers: Vec::new(),
         active_embedded_provider: None,
         embedded_skills: Vec::new(),
@@ -2292,7 +2286,7 @@ async fn create_config_profile(
         created_at: now.to_rfc3339().to_string(),
         updated_at: now.to_rfc3339().to_string(),
         provider_id: req.provider_id,
-        persona_id: req.persona_id,
+        embedded_persona: req.embedded_persona.clone(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
         active_skill_names: req.active_skill_names,
@@ -2382,9 +2376,10 @@ async fn update_config_profile(
             tracing::info!(profile_id = %id, provider_id = ?provider_id, "Updating profile provider_id");
             profile.provider_id = provider_id;
         }
-        if let Some(persona_id) = req.persona_id {
-            tracing::info!(profile_id = %id, persona_id = ?persona_id, "Updating profile persona_id");
-            profile.persona_id = persona_id;
+        if let Some(embedded_persona) = req.embedded_persona {
+            tracing::info!(profile_id = %id, "Updating profile embedded_persona");
+            profile.embedded_persona =
+                embedded_persona.map(|dto| crate::api::state::EmbeddedPersona::from(&dto));
         }
         if let Some(web_search_enabled) = req.web_search_enabled {
             profile.web_search_enabled = web_search_enabled;
@@ -2430,7 +2425,10 @@ async fn update_config_profile(
             created_at: profile.created_at.to_rfc3339().to_string(),
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
-            persona_id: profile.persona_id.clone(),
+            embedded_persona: profile
+                .embedded_persona
+                .as_ref()
+                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -2563,7 +2561,10 @@ async fn activate_config_profile(
             created_at: profile.created_at.to_rfc3339().to_string(),
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
-            persona_id: profile.persona_id.clone(),
+            embedded_persona: profile
+                .embedded_persona
+                .as_ref()
+                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -2648,7 +2649,10 @@ async fn deactivate_config_profile(
             created_at: profile.created_at.to_rfc3339().to_string(),
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
-            persona_id: profile.persona_id.clone(),
+            embedded_persona: profile
+                .embedded_persona
+                .as_ref()
+                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -2770,28 +2774,6 @@ async fn get_config_profile_provider(
         .map(|p| stored_provider_to_dto(p, active_provider_id.as_deref()));
 
     Json(ConfigProfileProviderResponse { provider })
-}
-
-/// Get the persona associated with a config profile
-async fn get_config_profile_persona(
-    State(state): State<Arc<AppState>>,
-    Path(profile_id): Path<String>,
-) -> Json<ConfigProfilePersonaResponse> {
-    let profiles = state.config_profiles.read().await;
-    let personas = state.personas.read().await;
-
-    let persona = profiles
-        .get(&profile_id)
-        .and_then(|p| p.persona_id.as_ref())
-        .and_then(|persona_id| personas.get(persona_id))
-        .map(|p| PersonaDto {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            description: p.description.clone(),
-            prompt: p.prompt.clone(),
-        });
-
-    Json(ConfigProfilePersonaResponse { persona })
 }
 
 /// WebSocket日志推送处理器
@@ -4815,7 +4797,10 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
     let session = state.debug_session.read().await;
 
     let dto = DebugSessionDto {
-        persona_id: session.persona_id.clone(),
+        embedded_persona: session
+            .embedded_persona
+            .as_ref()
+            .map(EmbeddedPersonaDto::from),
         providers: session.providers.iter().map(Into::into).collect(),
         active_provider: session.active_provider.clone(),
         provider_id: session.provider_id.clone(),
@@ -4841,8 +4826,9 @@ async fn update_debug_session(
     let dto = {
         let mut session = state.debug_session.write().await;
 
-        if let Some(persona_id) = req.persona_id {
-            session.persona_id = persona_id;
+        if let Some(embedded_persona) = req.embedded_persona {
+            session.embedded_persona =
+                embedded_persona.map(|dto| crate::api::state::EmbeddedPersona::from(&dto));
         }
         if let Some(providers) = req.providers {
             session.providers = providers
@@ -4886,7 +4872,10 @@ async fn update_debug_session(
 
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
-            persona_id: session.persona_id.clone(),
+            embedded_persona: session
+                .embedded_persona
+                .as_ref()
+                .map(EmbeddedPersonaDto::from),
             providers: session
                 .providers
                 .iter()

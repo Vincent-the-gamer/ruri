@@ -2,9 +2,9 @@
 import { onMounted, ref, computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
-import { usePersonaStore } from "../stores/persona";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useProviderStore } from "../stores/provider";
+import { usePersonaStore } from "../stores/persona";
 import { useDebugSessionStore } from "../stores/debugSession";
 import { useSkillStore } from "../stores/skill";
 import { ProxyRuleTypeLabels } from "../types";
@@ -35,11 +35,11 @@ function onOverlayClick(e: MouseEvent) {
 
 const { t } = useI18n();
 const configStore = useConfigStore();
-const personaStore = usePersonaStore();
 const kbStore = useKnowledgeBaseStore();
 const providerStore = useProviderStore();
 const debugSessionStore = useDebugSessionStore();
 const skillStore = useSkillStore();
+const personaStore = usePersonaStore();
 
 // ── Model Provider Selection ──
 const selectedProviderId = ref<string | null>(null);
@@ -57,13 +57,17 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 // ── Persona Selection ──
-const selectedPersonaId = ref<string | null>(null);
-const personas = computed(() => personaStore.personas);
+const personaForm = ref<{
+    name: string;
+    description: string;
+    prompt: string;
+} | null>(null);
 const activePersona = computed(() => {
-    if (!selectedPersonaId.value) return null;
+    // Use the persona form if set, otherwise the debug session's embedded persona, otherwise the active config profile's
     return (
-        personaStore.personas.find((p) => p.id === selectedPersonaId.value) ||
-        null
+        personaForm.value ??
+        debugSessionStore.embeddedPersona ??
+        configStore.activeEmbeddedPersona
     );
 });
 
@@ -236,7 +240,9 @@ function debouncedSave() {
 async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
-            persona_id: selectedPersonaId.value || null,
+            embedded_persona: personaForm.value
+                ? { ...personaForm.value }
+                : null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -255,8 +261,12 @@ watch(
     () => debugSessionStore.debugSession,
     (session) => {
         if (session) {
-            // Sync persona directly from persona_id
-            selectedPersonaId.value = session.persona_id ?? null;
+            // Sync embedded persona
+            if (session.embedded_persona) {
+                personaForm.value = { ...session.embedded_persona };
+            } else {
+                personaForm.value = null;
+            }
             selectedProviderId.value =
                 session.provider_id || session.active_provider || null;
             temperature.value = session.temperature ?? 0.7;
@@ -296,12 +306,9 @@ watch(
 
 watch([temperature, maxTokens], () => {});
 
-watch(
-    [selectedProviderId, selectedPersonaId, customErrorMessage, commandPrefix],
-    () => {
-        debouncedSave();
-    },
-);
+watch([selectedProviderId, customErrorMessage, commandPrefix], () => {
+    debouncedSave();
+});
 
 watch(
     () => proxyConfig.enabled,
@@ -338,7 +345,7 @@ defineExpose({
     temperature,
     maxTokens,
     selectedProviderId,
-    selectedPersonaId,
+    personaForm,
     activeProviderForChat,
     customErrorMessage,
     selectedKbIds,
@@ -538,21 +545,104 @@ defineExpose({
                         </p>
 
                         <div class="form-field">
-                            <select
-                                v-model="selectedPersonaId"
-                                class="select-input"
-                            >
-                                <option :value="null">
-                                    {{ t("chatConfig.personaDefault") }}
-                                </option>
-                                <option
-                                    v-for="persona in personas"
-                                    :key="persona.id"
-                                    :value="persona.id"
+                            <div v-if="personaForm" class="persona-editor">
+                                <div class="persona-editor-header">
+                                    <input
+                                        v-model="personaForm.name"
+                                        class="text-input"
+                                        :placeholder="'Name'"
+                                    />
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-danger"
+                                        @click="
+                                            personaForm = null;
+                                            debouncedSave();
+                                        "
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <input
+                                    v-model="personaForm.description"
+                                    class="text-input"
+                                    :placeholder="'Description'"
+                                />
+                                <textarea
+                                    v-model="personaForm.prompt"
+                                    class="text-input"
+                                    rows="3"
+                                    :placeholder="'System Prompt'"
+                                    @input="debouncedSave()"
+                                ></textarea>
+                            </div>
+                            <div v-else class="persona-add-buttons">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-secondary"
+                                    @click="
+                                        personaForm = {
+                                            name: '',
+                                            description: '',
+                                            prompt: '',
+                                        };
+                                        debouncedSave();
+                                    "
                                 >
-                                    {{ persona.name }}
-                                </option>
-                            </select>
+                                    +
+                                    {{
+                                        t(
+                                            "chatConfig.addPersonaManual",
+                                            "Add Manually",
+                                        )
+                                    }}
+                                </button>
+                                <select
+                                    v-if="personaStore.personas.length > 0"
+                                    class="select-input"
+                                    @change="
+                                        (e) => {
+                                            const id = (
+                                                e.target as HTMLSelectElement
+                                            ).value;
+                                            if (id) {
+                                                const p =
+                                                    personaStore.personas.find(
+                                                        (p) => p.id === id,
+                                                    );
+                                                if (p) {
+                                                    personaForm = {
+                                                        name: p.name,
+                                                        description:
+                                                            p.description,
+                                                        prompt: p.prompt,
+                                                    };
+                                                    debouncedSave();
+                                                }
+                                            }
+                                            (
+                                                e.target as HTMLSelectElement
+                                            ).value = '';
+                                        }
+                                    "
+                                >
+                                    <option value="">
+                                        {{
+                                            t(
+                                                "chatConfig.selectPersonaFromLibrary",
+                                                "📋 From Library...",
+                                            )
+                                        }}
+                                    </option>
+                                    <option
+                                        v-for="persona in personaStore.personas"
+                                        :key="persona.id"
+                                        :value="persona.id"
+                                    >
+                                        {{ persona.name }}
+                                    </option>
+                                </select>
+                            </div>
                         </div>
 
                         <div v-if="!activePersona" class="persona-preview">
@@ -1519,6 +1609,39 @@ defineExpose({
 }
 
 /* ── Persona Preview ── */
+.persona-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.persona-add-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.persona-add-buttons .select-input {
+    flex: 1;
+    min-width: 160px;
+}
+
+.persona-editor-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.persona-editor-header input {
+    flex: 1;
+}
+
+.persona-editor textarea {
+    resize: vertical;
+    min-height: 4rem;
+}
+
 .persona-preview {
     margin-top: 0.75rem;
     padding: 1rem;

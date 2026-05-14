@@ -1,20 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Persona, CreatePersonaRequest, UpdatePersonaRequest } from '../types'
+import type { Persona, CreatePersonaRequest, UpdatePersonaRequest, EmbeddedPersona } from '../types'
 import * as api from '../api'
 import { useConfigStore } from './config'
 
 export const usePersonaStore = defineStore('persona', () => {
+  // Persona library templates
   const personas = ref<Persona[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // Derive active persona from the active config profile's persona_id
-  const activePersona = computed(() => {
+  // Derive active embedded persona from the active config profile
+  const activePersona = computed<EmbeddedPersona | null>(() => {
     const configStore = useConfigStore()
-    const personaId = configStore.activePersonaId
-    if (!personaId) return null
-    return personas.value.find(p => p.id === personaId) || null
+    return configStore.activeEmbeddedPersona
   })
 
   async function fetchPersonas() {

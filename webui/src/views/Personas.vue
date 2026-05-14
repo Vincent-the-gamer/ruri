@@ -70,7 +70,6 @@ async function handleDelete(id: string) {
     if (!confirm(t("personas.deleteConfirm"))) return;
     try {
         await personaStore.deletePersona(id);
-        await personaStore.fetchPersonas();
     } catch {
         // error is in store
     }
@@ -220,19 +219,9 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
                 v-for="(persona, index) in personaStore.personas"
                 :key="persona.id"
                 class="persona-card"
-                :class="{
-                    'persona-card--active':
-                        personaStore.activePersona?.id === persona.id,
-                }"
                 :style="{ animationDelay: `${index * 50}ms` }"
             >
-                <div
-                    class="card-glow"
-                    :class="{
-                        'card-glow--active':
-                            personaStore.activePersona?.id === persona.id,
-                    }"
-                ></div>
+                <div class="card-glow"></div>
                 <div class="card-content">
                     <div class="card-info">
                         <div class="card-icon">
@@ -241,16 +230,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
                         <div class="card-details">
                             <div class="card-title-row">
                                 <h3 class="card-title">{{ persona.name }}</h3>
-                                <span
-                                    v-if="
-                                        personaStore.activePersona?.id ===
-                                        persona.id
-                                    "
-                                    class="status-badge status-badge--active"
-                                >
-                                    <span class="status-dot"></span>
-                                    {{ t("personas.inUse") }}
-                                </span>
                             </div>
                             <div class="card-desc" v-if="persona.description">
                                 {{ persona.description }}
@@ -413,7 +392,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     }
 }
 
-/* Page Header */
 .page-header {
     display: flex;
     justify-content: space-between;
@@ -458,7 +436,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     margin: 0;
 }
 
-/* Buttons */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -514,45 +491,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     font-size: 0.8rem;
 }
 
-/* Status Badge */
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 9999px;
-    font-size: 0.7rem;
-    font-weight: 600;
-}
-
-.status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-}
-
-.status-badge--active {
-    background: hsl(var(--primary) / 0.1);
-    color: hsl(var(--primary));
-    border: 1px solid hsl(var(--primary) / 0.2);
-}
-
-.status-badge--active .status-dot {
-    background: hsl(var(--primary));
-    box-shadow: 0 0 6px hsl(var(--primary) / 0.5);
-}
-
-.status-badge--inactive {
-    background: hsl(var(--muted) / 0.3);
-    color: hsl(var(--muted-foreground));
-    border: 1px solid hsl(var(--border) / 0.3);
-}
-
-.status-badge--inactive .status-dot {
-    background: hsl(var(--muted-foreground));
-}
-
-/* Error Banner */
 .error-banner {
     display: flex;
     align-items: center;
@@ -566,7 +504,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     margin-bottom: 1rem;
 }
 
-/* Loading State */
 .loading-state {
     display: flex;
     flex-direction: column;
@@ -595,7 +532,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     font-size: 0.875rem;
 }
 
-/* Empty State */
 .empty-state {
     display: flex;
     flex-direction: column;
@@ -649,13 +585,11 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     right: 15%;
     animation-delay: 0s;
 }
-
 .deco-dot-2 {
     bottom: 15%;
     left: 10%;
     animation-delay: 1s;
 }
-
 .deco-dot-3 {
     top: 50%;
     right: 5%;
@@ -688,7 +622,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     max-width: 24rem;
 }
 
-/* Card List */
 .card-list {
     display: flex;
     flex-direction: column;
@@ -734,22 +667,9 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     mask-composite: exclude;
 }
 
-.card-glow--active {
-    background: linear-gradient(
-        135deg,
-        hsl(var(--primary) / 0.4) 0%,
-        transparent 50%,
-        hsl(var(--primary) / 0.3) 100%
-    );
-}
-
 .persona-card:hover {
     transform: translateY(-2px);
     transition: transform 0.2s ease;
-}
-
-.persona-card--active {
-    box-shadow: 0 4px 16px hsl(var(--primary) / 0.1);
 }
 
 .card-content {
@@ -840,14 +760,12 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     white-space: nowrap;
 }
 
-/* Card Actions */
 .card-actions {
     display: flex;
     gap: 0.35rem;
     flex-shrink: 0;
 }
 
-/* Modal */
 .persona-modal-overlay {
     position: fixed;
     inset: 0;
@@ -876,32 +794,6 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
 }
 
 @keyframes modalSlideIn {
-    from {
-        opacity: 0;
-        transform: scale(0.95) translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1) translateY(0);
-    }
-}
-
-.modal-content {
-    width: 100%;
-    max-width: 480px;
-    background: linear-gradient(
-        180deg,
-        hsl(var(--card) / 0.98) 0%,
-        hsl(var(--card) / 0.92) 100%
-    );
-    backdrop-filter: blur(20px);
-    border: 1px solid hsl(var(--border) / 0.3);
-    border-radius: 1rem;
-    box-shadow: 0 8px 32px hsl(var(--foreground) / 0.1);
-    animation: modalSlide 0.3s ease-out;
-}
-
-@keyframes modalSlide {
     from {
         opacity: 0;
         transform: scale(0.95) translateY(10px);
@@ -997,24 +889,19 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
     border-top: 1px solid hsl(var(--border) / 0.2);
 }
 
-/* Responsive */
 @media (max-width: 640px) {
     .page {
         padding: 1rem;
     }
-
     .page-header {
         flex-direction: column;
         align-items: flex-start;
     }
-
     .card-content {
         flex-direction: column;
     }
-
     .card-actions {
-        width: 100%;
-        justify-content: flex-end;
+        align-self: flex-end;
     }
 }
 </style>

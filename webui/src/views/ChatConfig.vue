@@ -2,7 +2,6 @@
 import { onMounted, ref, computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
-import { usePersonaStore } from "../stores/persona";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useProviderStore } from "../stores/provider";
 import { useDebugSessionStore } from "../stores/debugSession";
@@ -17,7 +16,6 @@ import type {
 
 const { t } = useI18n();
 const configStore = useConfigStore();
-const personaStore = usePersonaStore();
 const kbStore = useKnowledgeBaseStore();
 const providerStore = useProviderStore();
 const debugSessionStore = useDebugSessionStore();
@@ -31,13 +29,17 @@ const maxTokens = ref(4096);
 const selectedProviderId = ref<string | null>(null);
 
 // ── Persona Selection ──
-const selectedPersonaId = ref<string | null>(null);
-const personas = computed(() => personaStore.personas);
+const personaForm = ref<{
+    name: string;
+    description: string;
+    prompt: string;
+} | null>(null);
 const activePersona = computed(() => {
-    if (!selectedPersonaId.value) return null;
+    // Use local form, then debug session's embedded persona, then active config profile's
     return (
-        personaStore.personas.find((p) => p.id === selectedPersonaId.value) ||
-        null
+        personaForm.value ??
+        debugSessionStore.embeddedPersona ??
+        configStore.activeEmbeddedPersona
     );
 });
 
@@ -215,7 +217,9 @@ function debouncedSave() {
 async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
-            persona_id: selectedPersonaId.value || null,
+            embedded_persona: personaForm.value
+                ? { ...personaForm.value }
+                : null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -241,8 +245,12 @@ watch(
     () => debugSessionStore.debugSession,
     (session) => {
         if (session) {
-            // Sync persona directly from persona_id
-            selectedPersonaId.value = session.persona_id ?? null;
+            // Sync embedded persona
+            if (session.embedded_persona) {
+                personaForm.value = { ...session.embedded_persona };
+            } else {
+                personaForm.value = null;
+            }
             selectedProviderId.value =
                 session.provider_id || session.active_provider || null;
             temperature.value = session.temperature ?? 0.7;
@@ -285,7 +293,7 @@ watch([temperature, maxTokens], () => {
     // but if we wanted to persist we could call debouncedSave() here
 });
 
-watch([selectedProviderId, selectedPersonaId, customErrorMessage], () => {
+watch([selectedProviderId, customErrorMessage], () => {
     debouncedSave();
 });
 
@@ -314,7 +322,6 @@ onMounted(async () => {
     await Promise.all([
         debugSessionStore.fetchDebugSession(),
         configStore.fetchConfigProfiles(),
-        personaStore.fetchPersonas(),
         kbStore.fetchKnowledgeBases(),
         skillStore.fetchSkills(),
         providerStore.fetchProviders(),
@@ -496,18 +503,48 @@ onMounted(async () => {
             </p>
 
             <div class="form-field">
-                <select v-model="selectedPersonaId" class="select-input">
-                    <option :value="null">
-                        {{ t("chatConfig.personaDefault") }}
-                    </option>
-                    <option
-                        v-for="persona in personas"
-                        :key="persona.id"
-                        :value="persona.id"
-                    >
-                        {{ persona.name }}
-                    </option>
-                </select>
+                <div v-if="personaForm" class="persona-editor">
+                    <div class="persona-editor-header">
+                        <input
+                            v-model="personaForm.name"
+                            class="text-input"
+                            :placeholder="'Name'"
+                        />
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-danger"
+                            @click="
+                                personaForm = null;
+                                debouncedSave();
+                            "
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <input
+                        v-model="personaForm.description"
+                        class="text-input"
+                        :placeholder="'Description'"
+                    />
+                    <textarea
+                        v-model="personaForm.prompt"
+                        class="text-input"
+                        rows="3"
+                        :placeholder="'System Prompt'"
+                        @input="debouncedSave()"
+                    ></textarea>
+                </div>
+                <button
+                    v-else
+                    type="button"
+                    class="btn btn-sm btn-secondary"
+                    @click="
+                        personaForm = { name: '', description: '', prompt: '' };
+                        debouncedSave();
+                    "
+                >
+                    + Configure Persona
+                </button>
             </div>
 
             <div v-if="!activePersona" class="persona-preview">
