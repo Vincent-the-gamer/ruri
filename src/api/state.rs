@@ -254,6 +254,13 @@ pub struct DebugSessionConfig {
     /// Active embedded skill names for debug sessions
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    /// Built-in command prefix for debug session (default: "/").
+    #[serde(default = "default_command_prefix")]
+    pub command_prefix: String,
+    /// List of enabled built-in command names for debug session.
+    /// Empty means all commands enabled.
+    #[serde(default)]
+    pub enabled_commands: Vec<String>,
 }
 
 // ─── Internal Helper Types ───────────────────────────────────────

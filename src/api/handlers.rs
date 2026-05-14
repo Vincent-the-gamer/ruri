@@ -917,6 +917,12 @@ async fn send_chat_message(
     // (no prefix, prefix-only, or unrecognized command) we fall through
     // to the agent / LLM.
     {
+        // Resolve per-context prefix and enabled_commands from the debug session
+        // (WebUI chat is independent of config profiles).
+        let (ctx_prefix, ctx_enabled_commands) = {
+            let debug = state.debug_session.read().await;
+            (debug.command_prefix.clone(), debug.enabled_commands.clone())
+        };
         let dispatcher = state.command_dispatcher.read().await;
         let user_id = req.user_id.clone().unwrap_or_default();
         let session_id = req.session_id.clone().unwrap_or_default();
@@ -924,7 +930,8 @@ async fn send_chat_message(
             raw_message: req.message.clone(),
             command_name: String::new(),
             args: String::new(),
-            prefix: dispatcher.prefix().to_string(),
+            prefix: ctx_prefix,
+            enabled_commands: ctx_enabled_commands,
             session_id: session_id.clone(),
             user_id: user_id.clone(),
             platform_id: "webui".to_string(),
@@ -1238,6 +1245,12 @@ async fn stream_chat_message(
     // (no prefix, prefix-only, or unrecognized command) we fall through
     // to the agent / LLM.
     {
+        // Resolve per-context prefix and enabled_commands from the debug session
+        // (WebUI chat is independent of config profiles).
+        let (ctx_prefix, ctx_enabled_commands) = {
+            let debug = state.debug_session.read().await;
+            (debug.command_prefix.clone(), debug.enabled_commands.clone())
+        };
         let dispatcher = state.command_dispatcher.read().await;
         let user_id = req.user_id.clone().unwrap_or_default();
         let session_id = req.session_id.clone().unwrap_or_default();
@@ -1245,7 +1258,8 @@ async fn stream_chat_message(
             raw_message: req.message.clone(),
             command_name: String::new(),
             args: String::new(),
-            prefix: dispatcher.prefix().to_string(),
+            prefix: ctx_prefix,
+            enabled_commands: ctx_enabled_commands,
             session_id: session_id.clone(),
             user_id: user_id.clone(),
             platform_id: "webui".to_string(),
@@ -4783,6 +4797,8 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
         knowledge_base_ids: session.knowledge_base_ids.clone(),
         skills: session.skills.iter().map(Into::into).collect(),
         active_skill_names: session.active_skill_names.clone(),
+        command_prefix: session.command_prefix.clone(),
+        enabled_commands: session.enabled_commands.clone(),
     };
 
     Json(dto)
@@ -4840,6 +4856,12 @@ async fn update_debug_session(
         if let Some(active_skill_names) = req.active_skill_names {
             session.active_skill_names = active_skill_names;
         }
+        if let Some(command_prefix) = req.command_prefix {
+            session.command_prefix = command_prefix;
+        }
+        if let Some(enabled_commands) = req.enabled_commands {
+            session.enabled_commands = enabled_commands;
+        }
 
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
@@ -4869,6 +4891,8 @@ async fn update_debug_session(
                 .map(|s| EmbeddedSkillDto::from(s))
                 .collect(),
             active_skill_names: session.active_skill_names.clone(),
+            command_prefix: session.command_prefix.clone(),
+            enabled_commands: session.enabled_commands.clone(),
         };
 
         dto

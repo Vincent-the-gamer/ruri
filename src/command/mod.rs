@@ -41,6 +41,10 @@ pub struct CommandContext {
     /// Populated by the dispatcher so that command handlers can use the
     /// correct prefix in messages (usage hints, help text, etc.).
     pub prefix: String,
+    /// List of enabled built-in command names for the active profile.
+    /// If non-empty, only commands in this list are considered enabled;
+    /// if empty, all commands are considered enabled (fallback).
+    pub enabled_commands: Vec<String>,
     /// Session ID of the current conversation.
     pub session_id: String,
     /// User ID of the message sender.
@@ -138,6 +142,7 @@ impl CommandDispatcher {
     }
 
     /// Get the current prefix.
+    #[allow(dead_code)]
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
@@ -153,6 +158,7 @@ impl CommandDispatcher {
     }
 
     /// Check if a command is enabled.
+    #[allow(dead_code)]
     pub fn is_command_enabled(&self, command_name: &str) -> bool {
         self.enabled_commands.contains(&command_name.to_string())
     }
@@ -176,12 +182,12 @@ impl CommandDispatcher {
     pub async fn dispatch(&self, ctx: CommandContext) -> Option<CommandResult> {
         let message = ctx.raw_message.trim();
 
-        if !message.starts_with(&self.prefix) {
+        if !message.starts_with(&ctx.prefix) {
             return None;
         }
 
         // Strip the prefix
-        let without_prefix = &message[self.prefix.len()..];
+        let without_prefix = &message[ctx.prefix.len()..];
 
         // Split into command name and arguments
         let (cmd_name, args) = if let Some(space_pos) = without_prefix.find(char::is_whitespace) {
@@ -225,8 +231,14 @@ impl CommandDispatcher {
             }
         };
 
-        // Check if this command is enabled
-        if !self.is_command_enabled(cmd_name) {
+        // Check if this command is enabled (per-context)
+        let is_enabled = if ctx.enabled_commands.is_empty() {
+            // Empty enabled_commands means "all commands enabled" (backward compat / default behavior)
+            true
+        } else {
+            ctx.enabled_commands.iter().any(|c| c == cmd_name)
+        };
+        if !is_enabled {
             tracing::info!(
                 command = %cmd_name,
                 user_id = %ctx.user_id,
@@ -269,7 +281,8 @@ impl CommandDispatcher {
             raw_message: ctx.raw_message.clone(),
             command_name: cmd_name.to_string(),
             args: args.to_string(),
-            prefix: self.prefix.clone(),
+            prefix: ctx.prefix.clone(),
+            enabled_commands: ctx.enabled_commands.clone(),
             session_id: ctx.session_id,
             user_id: ctx.user_id,
             platform_id: ctx.platform_id,
@@ -384,15 +397,15 @@ impl CommandDispatcher {
                     .find(|p| p.is_active && p.enable && p.platform_ids.contains(&ctx.platform_id))
                     .or_else(|| profiles.values().find(|p| p.is_active && p.enable));
 
-                let active_names = active_profile.map(|p| p.active_skill_names.as_slice()).unwrap_or(&[]);
+                let active_names = active_profile
+                    .map(|p| p.active_skill_names.as_slice())
+                    .unwrap_or(&[]);
 
                 skills
                     .iter()
                     .filter(|(_, s)| s.is_active)
                     .filter(|(name, _)| active_names.contains(name))
-                    .map(|(name, s)| {
-                        (name.clone(), s.description.clone(), s.config.clone())
-                    })
+                    .map(|(name, s)| (name.clone(), s.description.clone(), s.config.clone()))
                     .collect()
             }
         };
@@ -405,7 +418,9 @@ impl CommandDispatcher {
 
             // Check if this skill is user_invocable and disable_model_invocation
             let user_invocable = config["user_invocable"].as_bool().unwrap_or(true);
-            let disable_model_invocation = config["disable_model_invocation"].as_bool().unwrap_or(false);
+            let disable_model_invocation = config["disable_model_invocation"]
+                .as_bool()
+                .unwrap_or(false);
 
             if !user_invocable || !disable_model_invocation {
                 continue;
@@ -420,11 +435,8 @@ impl CommandDispatcher {
             );
 
             // Build the skill from config
-            let skill = SkillPackageSkill::from_config(
-                skill_name.clone(),
-                description.clone(),
-                config,
-            );
+            let skill =
+                SkillPackageSkill::from_config(skill_name.clone(), description.clone(), config);
 
             // Execute the skill's shell command if defined
             let mut result_parts = Vec::new();
@@ -432,7 +444,11 @@ impl CommandDispatcher {
             // Run hooks
             let hook_outputs = skill.run_hooks().await;
             if !hook_outputs.is_empty() {
-                result_parts.push(format!("📦 Skill '{}':\n{}", skill_name, hook_outputs.join("\n\n")));
+                result_parts.push(format!(
+                    "📦 Skill '{}':\n{}",
+                    skill_name,
+                    hook_outputs.join("\n\n")
+                ));
             }
 
             // Run the shell command if defined

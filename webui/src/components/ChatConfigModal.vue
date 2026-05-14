@@ -68,6 +68,9 @@ const activePersona = computed(() => {
     );
 });
 
+// ── Command Prefix ──
+const commandPrefix = ref("/");
+
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
 
@@ -234,7 +237,7 @@ function debouncedSave() {
 async function handleSave() {
     try {
         // Persona is independent from config profile
-        // selectedPersonaId === null means "no persona" (persona_mode = 'none')
+        // selectedPersonaId === null means "use profile default" (persona_mode = 'default')
         // selectedPersonaId has a value means "use this persona" (persona_mode = 'custom')
         const personaData = selectedPersonaId.value
             ? (() => {
@@ -252,7 +255,7 @@ async function handleSave() {
             : null;
         const effectivePersonaMode: PersonaMode = selectedPersonaId.value
             ? "custom"
-            : "none";
+            : "default";
 
         await debugSessionStore.updateDebugSessionConfig({
             persona_mode: effectivePersonaMode,
@@ -263,6 +266,7 @@ async function handleSave() {
             knowledge_base_ids: selectedKbIds.value,
             active_skill_names: selectedSkillNames.value,
             provider_id: selectedProviderId.value,
+            command_prefix: commandPrefix.value || "/",
         });
     } catch {
         // Auto-save errors are silently ignored
@@ -288,6 +292,7 @@ watch(
             temperature.value = session.temperature ?? 0.7;
             maxTokens.value = session.max_tokens ?? 4096;
             customErrorMessage.value = session.custom_error_message || "";
+            commandPrefix.value = session.command_prefix || "/";
             selectedKbIds.value = [...(session.knowledge_base_ids || [])];
             selectedSkillNames.value = [...(session.active_skill_names || [])];
         }
@@ -321,9 +326,12 @@ watch(
 
 watch([temperature, maxTokens], () => {});
 
-watch([selectedProviderId, selectedPersonaId, customErrorMessage], () => {
-    debouncedSave();
-});
+watch(
+    [selectedProviderId, selectedPersonaId, customErrorMessage, commandPrefix],
+    () => {
+        debouncedSave();
+    },
+);
 
 watch(
     () => proxyConfig.enabled,
@@ -364,6 +372,7 @@ defineExpose({
     activeProviderForChat,
     customErrorMessage,
     selectedKbIds,
+    commandPrefix,
 });
 </script>
 
@@ -626,7 +635,34 @@ defineExpose({
                         </div>
                     </section>
 
-                    <!-- Section 4: Knowledge Base Selection -->
+                    <!-- Section 4: Command Prefix -->
+                    <section class="config-section">
+                        <h2 class="section-title">
+                            <span class="section-icon">⌨️</span>
+                            {{
+                                t("chatConfig.commandPrefix", "Command Prefix")
+                            }}
+                        </h2>
+                        <div class="form-field">
+                            <input
+                                v-model="commandPrefix"
+                                type="text"
+                                class="text-input"
+                                :placeholder="'/'"
+                                maxlength="5"
+                            />
+                            <p class="input-hint">
+                                {{
+                                    t(
+                                        "chatConfig.commandPrefixHint",
+                                        "Prefix for built-in commands (e.g. / for /help, /reset). Default: /",
+                                    )
+                                }}
+                            </p>
+                        </div>
+                    </section>
+
+                    <!-- Section 5: Knowledge Base Selection -->
                     <section class="config-section">
                         <h2 class="section-title">
                             <span class="section-icon">📚</span>

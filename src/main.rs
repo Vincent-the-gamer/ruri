@@ -260,12 +260,28 @@ async fn main() -> anyhow::Result<()> {
                     // the LLM. Otherwise (no prefix, prefix-only, or unrecognized
                     // command) we fall through to the agent / LLM.
                     {
+                        // Resolve per-context prefix and enabled_commands from the
+                        // config profile that owns this platform instance.
+                        let (ctx_prefix, ctx_enabled_commands) = {
+                            let profiles = state_for_platform.config_profiles.read().await;
+                            profiles
+                                .values()
+                                .filter(|p| {
+                                    p.is_active
+                                        && p.enable
+                                        && p.platform_ids.contains(&msg.platform_id)
+                                })
+                                .next()
+                                .map(|p| (p.command_prefix.clone(), p.enabled_commands.clone()))
+                                .unwrap_or_else(|| ("/".to_string(), Vec::new()))
+                        };
                         let dispatcher = state_for_platform.command_dispatcher.read().await;
                         let cmd_ctx = command::CommandContext {
                             raw_message: msg.message_str.clone(),
                             command_name: String::new(), // filled by dispatch()
                             args: String::new(),
-                            prefix: dispatcher.prefix().to_string(),
+                            prefix: ctx_prefix,
+                            enabled_commands: ctx_enabled_commands,
                             session_id: msg.session_id.clone(),
                             user_id: msg.sender.user_id.clone(),
                             platform_id: msg.platform_id.clone(),

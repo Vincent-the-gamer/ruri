@@ -16,6 +16,8 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
   const knowledgeBaseIds = computed(() => debugSession.value?.knowledge_base_ids ?? [])
   const activeProvider = computed(() => debugSession.value?.active_provider ?? null)
   const providerId = computed(() => debugSession.value?.provider_id ?? null)
+  const commandPrefix = computed(() => debugSession.value?.command_prefix ?? '/')
+  const enabledCommands = computed(() => debugSession.value?.enabled_commands ?? [])
 
   async function fetchDebugSession() {
     loading.value = true
@@ -56,6 +58,8 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
     knowledgeBaseIds,
     activeProvider,
     providerId,
+    commandPrefix,
+    enabledCommands,
     fetchDebugSession,
     updateDebugSessionConfig,
   }

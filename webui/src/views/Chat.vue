@@ -134,9 +134,9 @@ async function handleSend(
         return;
     }
 
-    // Resolve persona_id: null means "no persona", otherwise use selected persona id
+    // Resolve persona_id: null/empty means "use profile default", otherwise use selected persona id
     const effectivePersonaId =
-        chatConfigModal.value?.selectedPersonaId ?? "none";
+        chatConfigModal.value?.selectedPersonaId || undefined;
 
     try {
         await chatStore.sendMessage({

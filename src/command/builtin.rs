@@ -61,8 +61,13 @@ impl Command for HelpCommand {
             if cmd.hidden() {
                 continue;
             }
-            // Only show enabled commands
-            if !dispatcher.is_command_enabled(cmd.name()) {
+            // Only show enabled commands (per-context)
+            let is_enabled = if ctx.enabled_commands.is_empty() {
+                true
+            } else {
+                ctx.enabled_commands.iter().any(|c| c == cmd.name())
+            };
+            if !is_enabled {
                 continue;
             }
             visible_count += 1;

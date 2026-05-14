@@ -1024,6 +1024,12 @@ pub struct DebugSessionDto {
     pub skills: Vec<EmbeddedSkillDto>,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    /// Built-in command prefix for debug session (default: "/").
+    #[serde(default = "default_command_prefix_dto")]
+    pub command_prefix: String,
+    /// List of enabled built-in command names.
+    #[serde(default)]
+    pub enabled_commands: Vec<String>,
 }
 
 fn default_persona_mode_dto() -> String {
@@ -1055,6 +1061,10 @@ pub struct UpdateDebugSessionRequest {
     pub skills: Option<Vec<EmbeddedSkillDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled_commands: Option<Vec<String>>,
 }
 
 impl From<&crate::api::state::EmbeddedPersona> for EmbeddedPersonaDto {

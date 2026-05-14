@@ -814,6 +814,8 @@ export interface DebugSession {
   knowledge_base_ids: string[]
   skills: EmbeddedSkill[]
   active_skill_names: string[]
+  command_prefix: string
+  enabled_commands: string[]
 }
 
 export interface UpdateDebugSessionRequest {
@@ -828,6 +830,8 @@ export interface UpdateDebugSessionRequest {
   knowledge_base_ids?: string[]
   skills?: EmbeddedSkill[]
   active_skill_names?: string[]
+  command_prefix?: string
+  enabled_commands?: string[]
 }
 
 
