@@ -188,6 +188,7 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
             file_size INTEGER NOT NULL DEFAULT 0,
             file_type TEXT NOT NULL DEFAULT '',
             content_hash TEXT NOT NULL DEFAULT '',
+            tags TEXT,
             chunk_count INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
             error_message TEXT,
@@ -200,6 +201,27 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create kb_documents table")?;
+
+    // ─── KB Documents: tags migration ─────────────────────────────
+    // Add tags column if it doesn't exist yet
+    {
+        let columns: Vec<String> =
+            sqlx::query_as("SELECT name FROM pragma_table_info('kb_documents')")
+                .fetch_all(pool)
+                .await
+                .context("Failed to check kb_documents table columns")?
+                .into_iter()
+                .map(|row: (String,)| row.0)
+                .collect();
+
+        if !columns.iter().any(|c| c == "tags") {
+            sqlx::query("ALTER TABLE kb_documents ADD COLUMN tags TEXT")
+                .execute(pool)
+                .await
+                .context("Failed to add tags column to kb_documents table")?;
+            info!("Added tags column to kb_documents table");
+        }
+    }
 
     // ─── KB Chunks ────────────────────────────────────────────────
     sqlx::query(

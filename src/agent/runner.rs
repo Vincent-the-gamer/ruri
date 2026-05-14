@@ -88,6 +88,10 @@ pub struct Agent {
     config: AgentConfig,
     /// Conversation history maintained across turns.
     history: Vec<ChatMessage>,
+    /// Whether `initialize_skills()` has been called at least once.
+    /// Prevents duplicate system prompt injection if `initialize_skills()`
+    /// is called explicitly *and* again via the auto-init guard.
+    skills_initialized: bool,
 }
 
 impl Agent {
@@ -102,6 +106,7 @@ impl Agent {
             skills: Vec::new(),
             config,
             history: Vec::new(),
+            skills_initialized: false,
         }
     }
 
@@ -154,6 +159,14 @@ impl Agent {
         &mut self,
         message: ChatMessage,
     ) -> Result<ChatResponse, crate::provider::ProviderError> {
+        // Auto-initialize skills on first call if not done explicitly.
+        // This ensures persona and skill system prompts are always injected,
+        // even if the caller forgot to call `initialize_skills()`.
+        if !self.skills_initialized {
+            tracing::info!("Skills not yet initialized, auto-initializing before first chat");
+            self.initialize_skills().await;
+        }
+
         // Add user message to history
         self.history.push(message);
 
@@ -282,6 +295,14 @@ impl Agent {
     /// messages **after** any existing system messages in the history, so
     /// that previously loaded system prompts keep their relative order.
     pub async fn initialize_skills(&mut self) {
+        if self.skills_initialized {
+            tracing::debug!(
+                skills_count = self.skills.len(),
+                "Skills already initialized, skipping duplicate initialization"
+            );
+            return;
+        }
+
         for skill in &self.skills {
             let system_messages = skill.on_attach().await;
             tracing::info!(
@@ -302,6 +323,8 @@ impl Agent {
                 self.history.insert(insert_pos + i, msg);
             }
         }
+
+        self.skills_initialized = true;
     }
 
     /// Run skill pre-processing on user messages.
@@ -382,6 +405,12 @@ impl AgentStreamer {
             let result = AssertUnwindSafe(async {
                 let mut agent = self.agent;
                 let user_message = self.user_message;
+
+                // Auto-initialize skills on first call if not done explicitly.
+                if !agent.skills_initialized {
+                    tracing::info!("Skills not yet initialized, auto-initializing before first stream");
+                    agent.initialize_skills().await;
+                }
 
                 // Add user message to history
                 agent.history.push(user_message);

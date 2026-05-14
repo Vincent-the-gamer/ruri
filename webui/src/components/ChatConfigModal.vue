@@ -13,7 +13,6 @@ import type {
     ProxyMode,
     ProxyRule,
     ProxyRuleType,
-    PersonaMode,
 } from "../types";
 
 const props = defineProps<{
@@ -236,30 +235,8 @@ function debouncedSave() {
 
 async function handleSave() {
     try {
-        // Persona is independent from config profile
-        // selectedPersonaId === null means "use profile default" (persona_mode = 'default')
-        // selectedPersonaId has a value means "use this persona" (persona_mode = 'custom')
-        const personaData = selectedPersonaId.value
-            ? (() => {
-                  const p = personaStore.personas.find(
-                      (p) => p.id === selectedPersonaId.value,
-                  );
-                  return p
-                      ? {
-                            name: p.name,
-                            description: p.description,
-                            prompt: p.prompt,
-                        }
-                      : null;
-              })()
-            : null;
-        const effectivePersonaMode: PersonaMode = selectedPersonaId.value
-            ? "custom"
-            : "default";
-
         await debugSessionStore.updateDebugSessionConfig({
-            persona_mode: effectivePersonaMode,
-            persona: personaData,
+            persona_id: selectedPersonaId.value || null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -278,15 +255,8 @@ watch(
     () => debugSessionStore.debugSession,
     (session) => {
         if (session) {
-            // Sync persona: if persona_mode is 'custom' and persona exists, find by name
-            if (session.persona_mode === "custom" && session.persona?.name) {
-                const matched = personaStore.personas.find(
-                    (p) => p.name === session.persona!.name,
-                );
-                selectedPersonaId.value = matched?.id ?? null;
-            } else {
-                selectedPersonaId.value = null;
-            }
+            // Sync persona directly from persona_id
+            selectedPersonaId.value = session.persona_id ?? null;
             selectedProviderId.value =
                 session.provider_id || session.active_provider || null;
             temperature.value = session.temperature ?? 0.7;

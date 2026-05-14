@@ -760,6 +760,7 @@ export default {
       noPlatformsAvailable: '暂无可用平台',
       restartPlatform: '重启',
       platformUsedBy: '使用者为',
+      platformAlreadySelected: '每个配置文件只能选择一个平台',
       platformStatus: '状态',
       // 代理配置
       proxyConfig: '代理配置',

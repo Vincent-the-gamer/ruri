@@ -31,8 +31,9 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 const effectivePersona = computed(() => {
-    // Persona is independent from config profile
-    const selectedId = chatConfigModal.value?.selectedPersonaId;
+    // Try modal selection first, then debug session config
+    const selectedId =
+        chatConfigModal.value?.selectedPersonaId ?? debugSessionStore.personaId;
     if (!selectedId) return null;
     return (
         personaStore.personas.find((p) => p.id === selectedId) ||
@@ -105,7 +106,6 @@ async function handleSend(
     images: string[] = [],
     files: AttachedFile[] = [],
 ) {
-    const profile = configStore.activeConfigProfile;
     const effectiveTemp =
         chatConfigModal.value?.temperature ?? temperature.value;
     const effectiveMaxTokens =
@@ -134,9 +134,11 @@ async function handleSend(
         return;
     }
 
-    // Resolve persona_id: null/empty means "use profile default", otherwise use selected persona id
+    // Resolve persona_id: from modal selection or debug session config
     const effectivePersonaId =
-        chatConfigModal.value?.selectedPersonaId || undefined;
+        chatConfigModal.value?.selectedPersonaId ??
+        debugSessionStore.personaId ??
+        undefined;
 
     try {
         await chatStore.sendMessage({
@@ -149,12 +151,12 @@ async function handleSend(
             max_tokens: effectiveMaxTokens,
             knowledge_base_ids: chatConfigModal.value?.selectedKbIds?.length
                 ? chatConfigModal.value.selectedKbIds
-                : profile?.active_knowledge_base_ids?.length
-                  ? profile.active_knowledge_base_ids
+                : debugSessionStore.knowledgeBaseIds.length
+                  ? debugSessionStore.knowledgeBaseIds
                   : undefined,
             custom_error_message:
                 chatConfigModal.value?.customErrorMessage ||
-                profile?.custom_error_message ||
+                debugSessionStore.customErrorMessage ||
                 undefined,
             user_id: authStore.user?.id || undefined,
         });
@@ -230,18 +232,13 @@ function handleStop() {
                     }}</span>
                 </div>
                 <div
-                    v-if="
-                        configStore.activeConfigProfile
-                            ?.active_knowledge_base_ids?.length
-                    "
+                    v-if="debugSessionStore.knowledgeBaseIds.length"
                     class="model-badge kb-badge"
                 >
                     <span class="badge-icon">📚</span>
                     <span>{{
                         t("chat.kbBadge", {
-                            count:
-                                configStore.activeConfigProfile
-                                    ?.active_knowledge_base_ids?.length || 0,
+                            count: debugSessionStore.knowledgeBaseIds.length,
                         })
                     }}</span>
                 </div>

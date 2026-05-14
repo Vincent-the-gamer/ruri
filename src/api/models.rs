@@ -854,6 +854,8 @@ pub struct KbDocumentDto {
     pub file_size: i64,
     pub file_type: String,
     pub content_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<String>,
     pub chunk_count: usize,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -879,6 +881,8 @@ pub struct SearchResultDto {
     pub score: f64,
     pub source: String,
     pub chunk_index: usize,
+    /// Expanded context including neighboring chunks, if available.
+    pub context: Option<String>,
 }
 
 // ─── Knowledge Base From impls ──────────────────────────────────
@@ -952,6 +956,7 @@ impl From<crate::knowledge::KbDocument> for KbDocumentDto {
             file_size: doc.file_size,
             file_type: doc.file_type,
             content_hash: doc.content_hash,
+            tags: doc.tags,
             chunk_count: doc.chunk_count,
             status: doc.status,
             error_message: doc.error_message,
@@ -968,19 +973,12 @@ impl From<crate::knowledge::SearchResult> for SearchResultDto {
             score: result.score as f64,
             source: result.document_filename,
             chunk_index: result.chunk.chunk_index,
+            context: result.context,
         }
     }
 }
 
 // ─── Debug Session Models ───────────────────────────────────────
-
-/// DTO for embedded persona in debug session
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddedPersonaDto {
-    pub name: String,
-    pub description: String,
-    pub prompt: String,
-}
 
 /// DTO for embedded provider in debug session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1003,9 +1001,8 @@ pub struct EmbeddedSkillDto {
 /// Response DTO for debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugSessionDto {
-    #[serde(default = "default_persona_mode_dto")]
-    pub persona_mode: String,
-    pub persona: Option<EmbeddedPersonaDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
     #[serde(default)]
     pub providers: Vec<EmbeddedProviderDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1032,17 +1029,11 @@ pub struct DebugSessionDto {
     pub enabled_commands: Vec<String>,
 }
 
-fn default_persona_mode_dto() -> String {
-    "default".to_string()
-}
-
 /// Request DTO for updating debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDebugSessionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub persona: Option<EmbeddedPersonaDto>,
+    pub persona_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<Vec<EmbeddedProviderDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1065,26 +1056,6 @@ pub struct UpdateDebugSessionRequest {
     pub command_prefix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled_commands: Option<Vec<String>>,
-}
-
-impl From<&crate::api::state::EmbeddedPersona> for EmbeddedPersonaDto {
-    fn from(p: &crate::api::state::EmbeddedPersona) -> Self {
-        Self {
-            name: p.name.clone(),
-            description: p.description.clone(),
-            prompt: p.prompt.clone(),
-        }
-    }
-}
-
-impl From<&EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
-    fn from(dto: &EmbeddedPersonaDto) -> Self {
-        Self {
-            name: dto.name.clone(),
-            description: dto.description.clone(),
-            prompt: dto.prompt.clone(),
-        }
-    }
 }
 
 impl From<&crate::api::state::EmbeddedProvider> for EmbeddedProviderDto {

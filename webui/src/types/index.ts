@@ -771,22 +771,7 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
-// ─── Persona Mode Types ──────────────────────────────────────────
-
-/** Controls how persona is resolved for a debug session.
- * - 'default': use the existing fallback chain (embedded persona → profile persona → global persona)
- * - 'none': never inject any persona, regardless of profile or global settings
- * - 'custom': use the embedded persona from the debug session only
- */
-export type PersonaMode = 'default' | 'none' | 'custom'
-
 // ─── Debug Session Types ─────────────────────────────────────────
-
-export interface EmbeddedPersona {
-  name: string
-  description: string
-  prompt: string
-}
 
 export interface EmbeddedProvider {
   id: string
@@ -803,8 +788,7 @@ export interface EmbeddedSkill {
 }
 
 export interface DebugSession {
-  persona_mode: PersonaMode
-  persona: EmbeddedPersona | null
+  persona_id: string | null
   providers: EmbeddedProvider[]
   active_provider: string | null
   provider_id: string | null
@@ -819,8 +803,7 @@ export interface DebugSession {
 }
 
 export interface UpdateDebugSessionRequest {
-  persona_mode?: PersonaMode
-  persona?: EmbeddedPersona | null
+  persona_id?: string | null
   providers?: EmbeddedProvider[]
   active_provider?: string | null
   provider_id?: string | null

@@ -2238,6 +2238,18 @@ async fn create_config_profile(
         platform_ids: req.platform_ids.clone().unwrap_or_default(),
     };
 
+    // Validate platform_ids: only one platform per profile allowed
+    if let Some(ref platform_ids) = req.platform_ids {
+        if platform_ids.len() > 1 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Only one platform can be selected per config profile to prevent conflicts",
+                })),
+            ));
+        }
+    }
+
     // Insert the profile
     let mut profiles = state.config_profiles.write().await;
 
@@ -2308,6 +2320,16 @@ async fn update_config_profile(
 ) -> Result<Json<ConfigProfileDto>, (StatusCode, Json<Value>)> {
     // Validate platform_ids before acquiring mutable borrow
     if let Some(ref platform_ids) = req.platform_ids {
+        // Only one platform per profile allowed
+        if platform_ids.len() > 1 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Only one platform can be selected per config profile to prevent conflicts",
+                })),
+            ));
+        }
+
         let profiles = state.config_profiles.read().await;
         // Check that the profile exists first
         if !profiles.contains_key(&id) {
@@ -2357,9 +2379,11 @@ async fn update_config_profile(
             }
         }
         if let Some(provider_id) = req.provider_id {
+            tracing::info!(profile_id = %id, provider_id = ?provider_id, "Updating profile provider_id");
             profile.provider_id = provider_id;
         }
         if let Some(persona_id) = req.persona_id {
+            tracing::info!(profile_id = %id, persona_id = ?persona_id, "Updating profile persona_id");
             profile.persona_id = persona_id;
         }
         if let Some(web_search_enabled) = req.web_search_enabled {
@@ -4131,7 +4155,7 @@ fn extract_attached_file_text(name: &str, mime_type: &str, content: &str) -> Opt
         let truncated = if content.len() > 100_000 {
             format!(
                 "{}\n\n... (truncated, original size: {} bytes)",
-                &content[..100_000],
+                &content[..content.floor_char_boundary(100_000)],
                 content.len()
             )
         } else {
@@ -4167,7 +4191,10 @@ fn extract_attached_file_text(name: &str, mime_type: &str, content: &str) -> Opt
         match pdf_extract::extract_text_from_mem(&data) {
             Ok(text) => {
                 let truncated = if text.len() > 100_000 {
-                    format!("{}\n\n... (truncated)", &text[..100_000])
+                    format!(
+                        "{}\n\n... (truncated)",
+                        &text[..text.floor_char_boundary(100_000)]
+                    )
                 } else {
                     text
                 };
@@ -4182,7 +4209,10 @@ fn extract_attached_file_text(name: &str, mime_type: &str, content: &str) -> Opt
         match extract_excel_text(&data) {
             Ok(text) => {
                 let truncated = if text.len() > 100_000 {
-                    format!("{}\n\n... (truncated)", &text[..100_000])
+                    format!(
+                        "{}\n\n... (truncated)",
+                        &text[..text.floor_char_boundary(100_000)]
+                    )
                 } else {
                     text
                 };
@@ -4197,7 +4227,10 @@ fn extract_attached_file_text(name: &str, mime_type: &str, content: &str) -> Opt
         match extract_docx_text(&data) {
             Ok(text) => {
                 let truncated = if text.len() > 100_000 {
-                    format!("{}\n\n... (truncated)", &text[..100_000])
+                    format!(
+                        "{}\n\n... (truncated)",
+                        &text[..text.floor_char_boundary(100_000)]
+                    )
                 } else {
                     text
                 };
@@ -4761,7 +4794,7 @@ async fn search_knowledge_base(
         }
     };
     let results = service
-        .search(&kb_id, &req.query, req.top_k)
+        .search(&kb_id, &req.query, req.top_k, 0, None)
         .await
         .map_err(|e| {
             error!("{e:#}");
@@ -4782,12 +4815,7 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
     let session = state.debug_session.read().await;
 
     let dto = DebugSessionDto {
-        persona_mode: match session.persona_mode {
-            crate::api::state::PersonaMode::Default => "default".to_string(),
-            crate::api::state::PersonaMode::None => "none".to_string(),
-            crate::api::state::PersonaMode::Custom => "custom".to_string(),
-        },
-        persona: session.persona.as_ref().map(Into::into),
+        persona_id: session.persona_id.clone(),
         providers: session.providers.iter().map(Into::into).collect(),
         active_provider: session.active_provider.clone(),
         provider_id: session.provider_id.clone(),
@@ -4813,15 +4841,8 @@ async fn update_debug_session(
     let dto = {
         let mut session = state.debug_session.write().await;
 
-        if let Some(persona_mode) = req.persona_mode {
-            session.persona_mode = match persona_mode.as_str() {
-                "none" => crate::api::state::PersonaMode::None,
-                "custom" => crate::api::state::PersonaMode::Custom,
-                _ => crate::api::state::PersonaMode::Default,
-            };
-        }
-        if let Some(persona) = req.persona {
-            session.persona = Some(crate::api::state::EmbeddedPersona::from(&persona));
+        if let Some(persona_id) = req.persona_id {
+            session.persona_id = persona_id;
         }
         if let Some(providers) = req.providers {
             session.providers = providers
@@ -4865,15 +4886,7 @@ async fn update_debug_session(
 
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
-            persona_mode: match session.persona_mode {
-                crate::api::state::PersonaMode::Default => "default".to_string(),
-                crate::api::state::PersonaMode::None => "none".to_string(),
-                crate::api::state::PersonaMode::Custom => "custom".to_string(),
-            },
-            persona: session
-                .persona
-                .as_ref()
-                .map(|p| EmbeddedPersonaDto::from(p)),
+            persona_id: session.persona_id.clone(),
             providers: session
                 .providers
                 .iter()

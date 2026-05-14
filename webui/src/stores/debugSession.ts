@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { DebugSession, UpdateDebugSessionRequest, PersonaMode } from '../types'
+import type { DebugSession, UpdateDebugSessionRequest } from '../types'
 import * as api from '../api'
 
 export const useDebugSessionStore = defineStore('debugSession', () => {
@@ -9,13 +9,13 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
   const error = ref<string | null>(null)
 
   // Computed accessors
-  const personaMode = computed<PersonaMode>(() => debugSession.value?.persona_mode ?? 'default')
   const temperature = computed(() => debugSession.value?.temperature ?? null)
   const maxTokens = computed(() => debugSession.value?.max_tokens ?? null)
   const customErrorMessage = computed(() => debugSession.value?.custom_error_message ?? null)
   const knowledgeBaseIds = computed(() => debugSession.value?.knowledge_base_ids ?? [])
   const activeProvider = computed(() => debugSession.value?.active_provider ?? null)
   const providerId = computed(() => debugSession.value?.provider_id ?? null)
+  const personaId = computed(() => debugSession.value?.persona_id ?? null)
   const commandPrefix = computed(() => debugSession.value?.command_prefix ?? '/')
   const enabledCommands = computed(() => debugSession.value?.enabled_commands ?? [])
 
@@ -51,13 +51,13 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
     debugSession,
     loading,
     error,
-    personaMode,
     temperature,
     maxTokens,
     customErrorMessage,
     knowledgeBaseIds,
     activeProvider,
     providerId,
+    personaId,
     commandPrefix,
     enabledCommands,
     fetchDebugSession,

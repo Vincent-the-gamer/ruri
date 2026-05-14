@@ -21,26 +21,6 @@ fn default_command_prefix() -> String {
     "/".to_string()
 }
 
-/// Controls how persona is resolved for a debug session or config profile.
-/// - `"default"`: use the existing fallback chain (embedded persona → profile persona → global persona)
-/// - `"none"`: never inject any persona, regardless of other settings
-/// - `"custom"`: use the embedded persona from the debug session only
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum PersonaMode {
-    /// Use the existing fallback chain (embedded persona → profile persona → global persona)
-    #[default]
-    Default,
-    /// Never inject any persona, regardless of profile or global settings
-    None,
-    /// Use the embedded persona from the debug session / profile only
-    Custom,
-}
-
-fn default_persona_mode() -> PersonaMode {
-    PersonaMode::Default
-}
-
 // ─── Persisted Config Structures (serde-friendly) ────────────────
 
 /// Serializable version of StoredProvider for config file persistence.
@@ -130,12 +110,11 @@ pub struct PersistedConfigProfile {
     /// New profiles should use `embedded_providers` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
-    /// Legacy field: references a global persona by ID.
-    /// New profiles should use `embedded_persona` instead.
+    /// References a global persona by ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub persona_id: Option<String>,
-    /// Embedded persona configuration - independent copy for this profile.
-    /// Takes priority over persona_id if both are set.
+    /// Deprecated: embedded persona. Kept for backward compat with config files.
+    /// persona_id is now the single source of truth.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations - independent copies for this profile.
@@ -219,14 +198,9 @@ pub struct PersistedConfig {
 /// This is completely separate from Config Profiles.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugSessionConfig {
-    /// Controls how persona is resolved for this debug session.
-    /// - "default": use the existing fallback chain (embedded persona → profile persona → global persona)
-    /// - "none": never inject any persona
-    /// - "custom": use the embedded persona only
-    #[serde(default = "default_persona_mode")]
-    pub persona_mode: PersonaMode,
-    /// The persona configuration for debug/chat sessions
-    pub persona: Option<EmbeddedPersona>,
+    /// Persona ID — if set, inject this persona's prompt.
+    #[serde(default)]
+    pub persona_id: Option<String>,
     /// Embedded provider configurations for debug sessions
     #[serde(default)]
     pub providers: Vec<EmbeddedProvider>,
@@ -279,13 +253,8 @@ struct ResolvedConfigContext {
     /// Legacy provider_id from the profile, used as fallback when no embedded providers.
     /// References a global provider by ID.
     provider_id: Option<String>,
-    /// Embedded persona configuration
-    embedded_persona: Option<EmbeddedPersona>,
-    /// Legacy persona_id from the profile, used as fallback when no embedded persona.
-    /// References a global persona by ID.
+    /// Persona ID from the profile or debug session. If set, inject this persona.
     persona_id: Option<String>,
-    /// Persona mode: controls how persona is resolved
-    persona_mode: PersonaMode,
     /// Embedded skill configurations
     embedded_skills: Vec<EmbeddedSkill>,
     /// Active embedded skill names
@@ -314,9 +283,10 @@ pub struct StoredConfigProfile {
     pub updated_at: DateTime<Utc>,
     /// Legacy field: references a global provider by ID
     pub provider_id: Option<String>,
-    /// Legacy field: references a global persona by ID
+    /// References a global persona by ID.
     pub persona_id: Option<String>,
-    /// Embedded persona - independent copy for this profile
+    /// Deprecated: embedded persona. Kept for backward compat with persisted config files.
+    /// persona_id is now the single source of truth.
     pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded providers - independent copies for this profile
     pub embedded_providers: Vec<EmbeddedProvider>,
@@ -1794,9 +1764,7 @@ impl AppState {
                     embedded_providers: debug.providers.clone(),
                     active_embedded_provider: debug.active_provider.clone(),
                     provider_id: None,
-                    embedded_persona: debug.persona.clone(),
-                    persona_id: None,
-                    persona_mode: debug.persona_mode,
+                    persona_id: debug.persona_id.clone(),
                     embedded_skills: debug.skills.clone(),
                     active_embedded_skill_names: debug.active_skill_names.clone(),
                     active_skill_names: Vec::new(), // debug session uses embedded skills only
@@ -1820,9 +1788,7 @@ impl AppState {
                     embedded_providers: profile.embedded_providers.clone(),
                     active_embedded_provider: profile.active_embedded_provider.clone(),
                     provider_id: profile.provider_id.clone(),
-                    embedded_persona: profile.embedded_persona.clone(),
                     persona_id: profile.persona_id.clone(),
-                    persona_mode: default_persona_mode(),
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                     active_skill_names: profile.active_skill_names.clone(),
@@ -1844,9 +1810,7 @@ impl AppState {
                 embedded_providers: profile.embedded_providers.clone(),
                 active_embedded_provider: profile.active_embedded_provider.clone(),
                 provider_id: profile.provider_id.clone(),
-                embedded_persona: profile.embedded_persona.clone(),
                 persona_id: profile.persona_id.clone(),
-                persona_mode: default_persona_mode(),
                 embedded_skills: profile.embedded_skills.clone(),
                 active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                 active_skill_names: profile.active_skill_names.clone(),
@@ -2074,117 +2038,43 @@ impl AppState {
         tracing::info!("Successfully added {} skills to agent", num_skills);
 
         // ── Inject persona system prompt ──
-        // The persona_mode from the resolved context controls how persona is resolved:
-        // - PersonaMode::None: never inject any persona
-        // - PersonaMode::Custom: use the embedded persona from the context only
-        // - PersonaMode::Default: embedded persona → profile's persona_id lookup
+        // Simple rule: resolve a persona_id, look it up, inject if found.
         //
-        // Additionally, if persona_id is explicitly "none", skip persona injection completely.
-        // If persona_id is a real ID, look up the stored persona directly.
-        let persona_injected = if let Some(pid) = persona_id {
+        // Resolution priority:
+        // 1. Explicit persona_id argument (from API call) — but "none" means skip
+        // 2. Context's persona_id (from debug session or config profile)
+        //
+        // If resolved persona_id is set and found in stored personas → inject.
+        // If not set or not found → skip (no persona).
+        let effective_persona_id = if let Some(pid) = persona_id {
             if pid == "none" {
-                // Explicit "none" sentinel - skip persona injection completely
-                tracing::info!("persona_id=\"none\" received, skipping persona injection");
-                false
+                None // explicit "none" = skip
             } else {
-                // Explicit persona_id provided (not "none") - look up in stored personas
-                let personas = self.personas.read().await;
-                if let Some(p) = personas.get(pid) {
-                    if !p.prompt.is_empty() {
-                        tracing::info!(persona_id = %p.id, persona_name = %p.name, "Injecting explicit persona system prompt");
-                        agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                        drop(personas);
-                        true
-                    } else {
-                        drop(personas);
-                        false
-                    }
-                } else {
-                    tracing::warn!(persona_id = %pid, "Requested persona not found");
-                    drop(personas);
-                    false
-                }
-            }
-        } else if let Some(ctx) = &context {
-            // Resolve persona based on persona_mode from the context
-            match ctx.persona_mode {
-                PersonaMode::None => {
-                    // Never inject any persona
-                    tracing::info!(source = %ctx.source, "PersonaMode::None - skipping persona injection");
-                    false
-                }
-                PersonaMode::Custom => {
-                    // Use the embedded persona only, no fallback
-                    if let Some(ref persona) = ctx.embedded_persona {
-                        if !persona.prompt.is_empty() {
-                            tracing::info!(persona_name = %persona.name, source = %ctx.source, "Injecting embedded persona (PersonaMode::Custom)");
-                            agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
-                            true
-                        } else {
-                            tracing::info!(source = %ctx.source, "Embedded persona has empty prompt, skipping");
-                            false
-                        }
-                    } else {
-                        tracing::info!(source = %ctx.source, "PersonaMode::Custom but no embedded persona, skipping");
-                        false
-                    }
-                }
-                PersonaMode::Default => {
-                    // Fallback chain: embedded persona → profile's persona_id (stored persona)
-                    if let Some(ref persona) = ctx.embedded_persona {
-                        if !persona.prompt.is_empty() {
-                            tracing::info!(persona_name = %persona.name, source = %ctx.source, "Injecting embedded persona (PersonaMode::Default)");
-                            agent.add_skill(Arc::new(SystemPromptSkill::new(&persona.prompt)));
-                            true
-                        } else if let Some(ref pid) = ctx.persona_id {
-                            // Fall back to stored persona via profile's persona_id
-                            let personas = self.personas.read().await;
-                            if let Some(p) = personas.get(pid) {
-                                if !p.prompt.is_empty() {
-                                    tracing::info!(persona_id = %p.id, persona_name = %p.name, source = %ctx.source, "Injecting profile-linked persona via persona_id");
-                                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                                    drop(personas);
-                                    true
-                                } else {
-                                    drop(personas);
-                                    false
-                                }
-                            } else {
-                                tracing::warn!(persona_id = %pid, source = %ctx.source, "Profile's persona_id not found");
-                                drop(personas);
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else if let Some(ref pid) = ctx.persona_id {
-                        // No embedded persona — use profile's persona_id directly
-                        let personas = self.personas.read().await;
-                        if let Some(p) = personas.get(pid) {
-                            if !p.prompt.is_empty() {
-                                tracing::info!(persona_id = %p.id, persona_name = %p.name, source = %ctx.source, "Injecting profile-linked persona via persona_id");
-                                agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
-                                drop(personas);
-                                true
-                            } else {
-                                drop(personas);
-                                false
-                            }
-                        } else {
-                            tracing::warn!(persona_id = %pid, source = %ctx.source, "Profile's persona_id not found");
-                            drop(personas);
-                            false
-                        }
-                    } else {
-                        tracing::info!(source = %ctx.source, "No persona configured in profile, skipping persona injection");
-                        false
-                    }
-                }
+                Some(pid.to_string()) // explicit ID
             }
         } else {
-            false
+            context.as_ref().and_then(|c| c.persona_id.clone())
         };
-        let _ = persona_injected;
+
+        if let Some(pid) = effective_persona_id {
+            let personas = self.personas.read().await;
+            if let Some(p) = personas.get(&pid) {
+                if !p.prompt.is_empty() {
+                    tracing::info!(
+                        persona_id = %p.id,
+                        persona_name = %p.name,
+                        "Injecting persona system prompt"
+                    );
+                    agent.add_skill(Arc::new(SystemPromptSkill::new(&p.prompt)));
+                } else {
+                    tracing::warn!(persona_id = %pid, "Persona has empty prompt, skipping");
+                }
+            } else {
+                tracing::warn!(persona_id = %pid, "Persona not found");
+            }
+        } else {
+            tracing::info!("No persona configured, skipping persona injection");
+        }
 
         // Check computer use configuration and register tools accordingly
         let computer_use_config = self.computer_use_config.read().await;
@@ -2331,15 +2221,23 @@ impl AppState {
             );
         }
 
-        // Add Knowledge Base skill if configured (from embedded context or resolved config)
+        // Add Knowledge Base skill and search tool if configured (from embedded context or resolved config)
         if !kb_ids.is_empty() {
             let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
+                kb_ids.clone(),
+                crate::knowledge::skill::KnowledgeBaseRetrievalMode::ToolBased,
                 self.knowledge_base_service.clone(),
-                kb_ids,
-                5, // top_k
             );
             agent.add_skill(std::sync::Arc::new(kb_skill));
-            tracing::info!("KnowledgeBaseSkill added to agent");
+
+            let kb_search_tool = crate::knowledge::KnowledgeBaseSearchTool::new(
+                self.knowledge_base_service.clone(),
+                kb_ids,
+                crate::knowledge::skill::DEFAULT_KB_SEARCH_TOP_K,
+            );
+            agent.register_tool(std::sync::Arc::new(kb_search_tool));
+
+            tracing::info!("KnowledgeBaseSkill and KnowledgeBaseSearchTool added to agent");
         }
 
         // Load chat history from database if conversation exists
@@ -2349,12 +2247,16 @@ impl AppState {
             if let Some(db) = conv_db.as_ref() {
                 if let Ok(messages) = db.get_conversation_messages(conv_id).await {
                     if !messages.is_empty() {
+                        // Load chat history, but strip out system messages.
+                        // System messages are dynamically generated by skills/personas
+                        // via `initialize_skills()` and should NOT persist across
+                        // sessions — otherwise they accumulate on every rebuild.
                         let chat_messages: Vec<ChatMessage> = messages
                             .iter()
+                            .filter(|m| m.role != "system")
                             .map(|m| {
                                 let role = match m.role.as_str() {
                                     "assistant" => crate::types::MessageRole::Assistant,
-                                    "system" => crate::types::MessageRole::System,
                                     _ => crate::types::MessageRole::User,
                                 };
                                 ChatMessage {
@@ -2370,8 +2272,8 @@ impl AppState {
                             .collect();
                         agent.set_history(chat_messages);
                         // Always initialize skills (even with existing history)
-                        // so that system prompts from skills like KnowledgeBase
-                        // are injected into the conversation.
+                        // so that system prompts from skills/personas are freshly
+                        // injected into the conversation.
                         agent.initialize_skills().await;
                     } else {
                         agent.initialize_skills().await;

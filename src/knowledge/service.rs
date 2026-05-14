@@ -25,6 +25,9 @@ pub struct KnowledgeBaseService {
 /// Batch size for embedding API calls.
 const EMBEDDING_BATCH_SIZE: usize = 32;
 
+/// Rough approximation: 1 token ≈ 4 characters for mixed Chinese/English text.
+const CHARS_PER_TOKEN: usize = 4;
+
 impl KnowledgeBaseService {
     pub fn new(store: Arc<KnowledgeBaseStore>) -> Self {
         Self { store }
@@ -130,6 +133,7 @@ impl KnowledgeBaseService {
             file_size: content.len() as i64,
             file_type: file_type.clone(),
             content_hash: content_hash.clone(),
+            tags: None,
         };
 
         let document = self
@@ -286,11 +290,15 @@ impl KnowledgeBaseService {
         knowledge_base_id: &str,
         query: &str,
         top_k: usize,
+        context_window: usize,
+        tag_filter: Option<Vec<String>>,
     ) -> Result<Vec<SearchResult>> {
         tracing::info!(
             knowledge_base_id,
             query_len = query.len(),
             top_k,
+            context_window,
+            tag_count = tag_filter.as_ref().map(|t| t.len()).unwrap_or(0),
             "Searching knowledge base"
         );
 
@@ -308,12 +316,19 @@ impl KnowledgeBaseService {
             .await
             .context("Failed to embed query")?;
 
+        let tag_filter_ref = tag_filter.as_deref();
+
         // 3. If rerank is configured, fetch wider results then rerank
         if let Some(ref rerank_config) = kb.rerank_provider_config {
             let wider_top_k = top_k * 3;
             let results = self
                 .store
-                .search(knowledge_base_id, query_embedding, wider_top_k)
+                .search(
+                    knowledge_base_id,
+                    query_embedding,
+                    wider_top_k,
+                    tag_filter_ref,
+                )
                 .await
                 .context("Vector search failed")?;
 
@@ -347,12 +362,17 @@ impl KnowledgeBaseService {
                 result_count = reranked.len(),
                 "Search with rerank completed"
             );
+
+            // Expand context window for reranked results
+            self.expand_context_window(&mut reranked, context_window)
+                .await?;
+
             Ok(reranked)
         } else {
             // No rerank — just return top_k directly
-            let results = self
+            let mut results = self
                 .store
-                .search(knowledge_base_id, query_embedding, top_k)
+                .search(knowledge_base_id, query_embedding, top_k, tag_filter_ref)
                 .await
                 .context("Vector search failed")?;
 
@@ -361,8 +381,59 @@ impl KnowledgeBaseService {
                 result_count = results.len(),
                 "Search completed"
             );
+
+            // Expand context window for results
+            self.expand_context_window(&mut results, context_window)
+                .await?;
+
             Ok(results)
         }
+    }
+
+    /// Expand the context window for search results by fetching neighboring chunks.
+    ///
+    /// For each result whose `context` field is still `None`, this fetches
+    /// the surrounding chunks (up to `context_window` before/after) from the
+    /// same document and concatenates their content into the `context` field.
+    async fn expand_context_window(
+        &self,
+        results: &mut [SearchResult],
+        context_window: usize,
+    ) -> Result<()> {
+        if context_window == 0 {
+            return Ok(());
+        }
+
+        for result in results.iter_mut() {
+            if result.context.is_some() {
+                continue;
+            }
+
+            let chunk_index = result.chunk.chunk_index as i64;
+            match self
+                .store
+                .get_neighbor_chunks(&result.chunk.document_id, chunk_index, context_window)
+                .await
+            {
+                Ok(neighbors) => {
+                    if neighbors.is_empty() {
+                        result.context = Some(result.chunk.content.clone());
+                    } else {
+                        result.context = Some(neighbors.join("\n\n"));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        chunk_id = %result.chunk.id,
+                        error = %e,
+                        "Failed to fetch neighbor chunks, using chunk content as-is"
+                    );
+                    result.context = Some(result.chunk.content.clone());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Retrieve relevant context for a query across specified knowledge bases.
@@ -370,16 +441,26 @@ impl KnowledgeBaseService {
     /// Used by the RAG skill to inject context into the agent's conversation.
     /// Searches each knowledge base, deduplicates, and formats results as a
     /// context string.
+    ///
+    /// `context_window` controls how many neighboring chunks to include
+    /// around each match (1 = one chunk before and after). Pass 0 for
+    /// no expansion.
     pub async fn retrieve_context(
         &self,
         knowledge_base_ids: &[String],
         query: &str,
         top_k: usize,
+        context_window: usize,
+        max_context_tokens: usize,
+        tag_filter: Option<Vec<String>>,
     ) -> Result<String> {
         tracing::info!(
             kb_count = knowledge_base_ids.len(),
             query_len = query.len(),
             top_k,
+            context_window,
+            max_context_tokens,
+            tag_count = tag_filter.as_ref().map(|t| t.len()).unwrap_or(0),
             "Retrieving context across knowledge bases"
         );
 
@@ -391,7 +472,16 @@ impl KnowledgeBaseService {
         let per_kb_limit = top_k * 2;
 
         for kb_id in knowledge_base_ids {
-            match self.search(kb_id, query, per_kb_limit).await {
+            match self
+                .search(
+                    kb_id,
+                    query,
+                    per_kb_limit,
+                    context_window,
+                    tag_filter.clone(),
+                )
+                .await
+            {
                 Ok(results) => {
                     for result in results {
                         if seen_chunk_ids.insert(result.chunk.id.clone()) {
@@ -420,15 +510,24 @@ impl KnowledgeBaseService {
         // while still avoiding overwhelming the model with too much content
         all_results.truncate(top_k * 2);
 
+        // Apply token budget: trim results that would exceed the max context tokens.
+        let max_context_chars = max_context_tokens.saturating_mul(CHARS_PER_TOKEN);
+        let mut accumulated_chars = 0usize;
+        all_results.retain(|result| {
+            let content = result.context.as_deref().unwrap_or(&result.chunk.content);
+            accumulated_chars += content.len();
+            accumulated_chars <= max_context_chars
+        });
+
         if all_results.is_empty() {
             return Ok(String::new());
         }
 
-        // Format as context string
+        // Format as context string — prefer expanded context when available
         let mut context = String::from("--- Relevant Knowledge ---\n");
         for result in &all_results {
             context.push_str(&format!("[Source: {}]\n", result.document_filename));
-            context.push_str(&result.chunk.content);
+            context.push_str(result.context.as_deref().unwrap_or(&result.chunk.content));
             context.push_str("\n\n");
         }
         context.push_str("--- End of Knowledge ---");

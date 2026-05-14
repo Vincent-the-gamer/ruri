@@ -353,12 +353,29 @@ function togglePlatform(id: string) {
     if (index >= 0) {
         formData.value.platform_ids.splice(index, 1);
     } else {
-        formData.value.platform_ids.push(id);
+        // Enforce single-platform-per-profile: when selecting a new platform,
+        // clear any previously selected platform to prevent conflicts
+        formData.value.platform_ids = [id];
     }
 }
 
 function isPlatformActive(id: string) {
     return formData.value.platform_ids.includes(id);
+}
+
+/**
+ * Whether a platform should be disabled for selection.
+ * A platform is disabled when:
+ * 1. It is used by another config profile (exclusive ownership), OR
+ * 2. A different platform is already selected in this profile (single-platform constraint)
+ */
+function isPlatformDisabled(id: string): boolean {
+    // If this platform is already selected, it's never disabled
+    if (isPlatformActive(id)) return false;
+    // If a different platform is already selected, disable all others
+    if (formData.value.platform_ids.length > 0) return true;
+    // If used by another profile, disable
+    return isPlatformUsedByOtherProfile(id);
 }
 
 function toggleKb(id: string) {
@@ -384,11 +401,13 @@ function isPlatformRunning(id: string) {
 }
 
 function isPlatformUsedByOtherProfile(id: string): boolean {
-    const usedIds = configStore.usedPlatformIds;
-    // When editing an existing config, exclude its own platforms from conflict check
-    if (props.config && formData.value.platform_ids.includes(id)) return false;
-    // When creating a new config, check if any profile already uses this platform
-    return usedIds.has(id);
+    // Check if any OTHER profile uses this platform
+    const profile = configStore.configProfiles.find(
+        (p) =>
+            (!props.config || p.id !== props.config.id) &&
+            (p.platform_ids || []).includes(id),
+    );
+    return !!profile;
 }
 
 function getPlatformUsedByProfileName(id: string): string | null {
@@ -814,13 +833,11 @@ function handleSubmit() {
                             'item-card',
                             { active: isPlatformActive(platform.id) },
                             {
-                                disabled: isPlatformUsedByOtherProfile(
-                                    platform.id,
-                                ),
+                                disabled: isPlatformDisabled(platform.id),
                             },
                         ]"
                         @click="
-                            !isPlatformUsedByOtherProfile(platform.id) &&
+                            !isPlatformDisabled(platform.id) &&
                             togglePlatform(platform.id)
                         "
                     >
@@ -847,12 +864,21 @@ function handleSubmit() {
                                 }})</span
                             >
                             <span
-                                v-if="getPlatformUsedByProfileName(platform.id)"
+                                v-if="
+                                    isPlatformDisabled(platform.id) &&
+                                    !isPlatformActive(platform.id)
+                                "
                                 class="platform-used-badge"
                                 :title="
-                                    t('config.form.platformUsedBy') +
-                                    ' ' +
                                     getPlatformUsedByProfileName(platform.id)
+                                        ? t('config.form.platformUsedBy') +
+                                          ' ' +
+                                          getPlatformUsedByProfileName(
+                                              platform.id,
+                                          )
+                                        : t(
+                                              'config.form.platformAlreadySelected',
+                                          )
                                 "
                             >
                                 🔒

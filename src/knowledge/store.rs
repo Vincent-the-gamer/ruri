@@ -37,6 +37,8 @@ pub struct KbDocument {
     pub file_size: i64,
     pub file_type: String,
     pub content_hash: String,
+    /// JSON array of tag strings, e.g. `["important","faq"]`
+    pub tags: Option<String>,
     pub chunk_count: usize,
     pub status: String,
     pub error_message: Option<String>,
@@ -62,6 +64,9 @@ pub struct SearchResult {
     pub chunk: KbChunk,
     pub score: f32,
     pub document_filename: String,
+    /// Expanded context: content from neighboring chunks concatenated.
+    /// Includes the matched chunk's content plus previous/next chunks' content.
+    pub context: Option<String>,
 }
 
 // ─── Request types ─────────────────────────────────────────────────────
@@ -95,6 +100,8 @@ pub struct AddDocumentRequest {
     pub file_size: i64,
     pub file_type: String,
     pub content_hash: String,
+    /// JSON array of tag strings, e.g. `["important","faq"]`
+    pub tags: Option<String>,
 }
 
 // ─── Embedding serialization helpers ───────────────────────────────────
@@ -352,9 +359,9 @@ impl KnowledgeBaseStore {
         sqlx::query(
             r#"
             INSERT INTO kb_documents
-                (id, knowledge_base_id, filename, file_size, file_type, content_hash,
+                (id, knowledge_base_id, filename, file_size, file_type, content_hash, tags,
                  chunk_count, status, error_message, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 'pending', NULL, ?7, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 'pending', NULL, ?8, ?8)
             "#,
         )
         .bind(&id)
@@ -363,6 +370,7 @@ impl KnowledgeBaseStore {
         .bind(req.file_size)
         .bind(&req.file_type)
         .bind(&req.content_hash)
+        .bind(&req.tags)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -382,7 +390,7 @@ impl KnowledgeBaseStore {
     pub async fn list_documents(&self, knowledge_base_id: &str) -> Result<Vec<KbDocument>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, knowledge_base_id, filename, file_size, file_type, content_hash,
+            SELECT id, knowledge_base_id, filename, file_size, file_type, content_hash, tags,
                    chunk_count, status, error_message, created_at, updated_at
             FROM kb_documents
             WHERE knowledge_base_id = ?1
@@ -405,7 +413,7 @@ impl KnowledgeBaseStore {
     pub async fn get_document(&self, id: &str) -> Result<KbDocument> {
         let row = sqlx::query(
             r#"
-            SELECT id, knowledge_base_id, filename, file_size, file_type, content_hash,
+            SELECT id, knowledge_base_id, filename, file_size, file_type, content_hash, tags,
                    chunk_count, status, error_message, created_at, updated_at
             FROM kb_documents
             WHERE id = ?1
@@ -565,22 +573,40 @@ impl KnowledgeBaseStore {
         knowledge_base_id: &str,
         query_embedding: Vec<f32>,
         top_k: usize,
+        tag_filter: Option<&[String]>,
     ) -> Result<Vec<SearchResult>> {
-        // Query all chunks with embeddings from the knowledge base, joined with document filename
-        let rows = sqlx::query(
-            r#"
+        // Build query with optional tag filtering
+        let base_query = r#"
             SELECT c.id, c.document_id, c.knowledge_base_id, c.content, c.chunk_index,
                    c.start_char, c.end_char, c.embedding, c.created_at,
                    d.filename AS document_filename
             FROM kb_chunks c
             JOIN kb_documents d ON c.document_id = d.id
             WHERE c.knowledge_base_id = ?1 AND c.embedding IS NOT NULL
-            "#,
-        )
-        .bind(knowledge_base_id)
-        .fetch_all(&self.pool)
-        .await
-        .with_context(|| {
+            "#;
+
+        let (query_sql, tag_params) = match tag_filter {
+            Some(tags) if !tags.is_empty() => {
+                // Build LIKE conditions for each tag: d.tags LIKE ?
+                let conditions: Vec<String> =
+                    tags.iter().map(|_| "d.tags LIKE ?".to_string()).collect();
+                let where_clause = format!(" AND ({})", conditions.join(" OR "));
+                let like_values: Vec<String> = tags.iter().map(|tag| format!("%{tag}%")).collect();
+                (format!("{base_query}{where_clause}"), Some(like_values))
+            }
+            _ => (base_query.to_string(), None),
+        };
+
+        let mut sql_query = sqlx::query(&query_sql).bind(knowledge_base_id);
+
+        // Bind tag filter parameters
+        if let Some(ref params) = tag_params {
+            for param in params {
+                sql_query = sql_query.bind(param.clone());
+            }
+        }
+
+        let rows = sql_query.fetch_all(&self.pool).await.with_context(|| {
             format!(
                 "Failed to search chunks in knowledge base '{}' from database",
                 knowledge_base_id
@@ -601,6 +627,7 @@ impl KnowledgeBaseStore {
                     chunk,
                     score,
                     document_filename,
+                    context: None,
                 })
             })
             .collect();
@@ -616,6 +643,47 @@ impl KnowledgeBaseStore {
         results.truncate(top_k);
 
         Ok(results)
+    }
+
+    /// Fetch the content of chunks adjacent to a given chunk within the same document.
+    /// `window_size` is how many chunks before/after to include (0 = no expansion).
+    pub async fn get_neighbor_chunks(
+        &self,
+        document_id: &str,
+        chunk_index: i64,
+        window_size: usize,
+    ) -> Result<Vec<String>> {
+        if window_size == 0 {
+            return Ok(vec![]);
+        }
+
+        let start_index = chunk_index.saturating_sub(window_size as i64);
+        let end_index = chunk_index + window_size as i64;
+
+        let rows = sqlx::query(
+            r#"
+            SELECT content
+            FROM kb_chunks
+            WHERE document_id = ?1 AND chunk_index BETWEEN ?2 AND ?3
+            ORDER BY chunk_index
+            "#,
+        )
+        .bind(document_id)
+        .bind(start_index)
+        .bind(end_index)
+        .fetch_all(&self.pool)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to fetch neighbor chunks for document '{}', chunk_index {}",
+                document_id, chunk_index
+            )
+        })?;
+
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("content").ok())
+            .collect())
     }
 
     // ─── Internal helpers ─────────────────────────────────────────
@@ -685,6 +753,7 @@ impl KnowledgeBaseStore {
             file_size: row.try_get("file_size")?,
             file_type: row.try_get("file_type")?,
             content_hash: row.try_get("content_hash")?,
+            tags: row.try_get("tags").ok(),
             chunk_count: row.try_get::<i64, _>("chunk_count")? as usize,
             status: row.try_get("status")?,
             error_message: row.try_get("error_message").ok(),

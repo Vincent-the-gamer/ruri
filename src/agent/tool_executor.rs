@@ -81,7 +81,8 @@ impl ToolExecutor {
             Ok(content) => {
                 // Log success with result preview (truncate if too long)
                 let preview = if content.len() > 500 {
-                    format!("{}... ({} chars total)", &content[..500], content.len())
+                    let end = content.floor_char_boundary(500);
+                    format!("{}... ({} chars total)", &content[..end], content.len())
                 } else {
                     content.clone()
                 };

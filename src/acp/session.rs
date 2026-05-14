@@ -23,7 +23,7 @@ pub struct AcpSession {
 
 impl AcpSession {
     /// Create a new ACP session with ACP tools applied.
-    pub fn new_with_skills_and_acp(
+    pub async fn new_with_skills_and_acp(
         provider: Box<dyn Provider>,
         _cwd: String,
         skills: Vec<Arc<dyn Skill>>,
@@ -172,19 +172,29 @@ impl AcpSession {
             )));
         }
 
-        // Add Knowledge Base skill if active_knowledge_base_ids is not empty
+        // Add Knowledge Base skill and search tool if active_knowledge_base_ids is not empty
         if !active_knowledge_base_ids.is_empty() {
             let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
-                knowledge_base_service,
                 active_knowledge_base_ids.clone(),
-                20, // top_k - increased to retrieve more context across all knowledge bases
+                crate::knowledge::skill::KnowledgeBaseRetrievalMode::ToolBased,
+                Arc::clone(&knowledge_base_service),
             );
             agent.add_skill(Arc::new(kb_skill));
+
+            let kb_search_tool = crate::knowledge::KnowledgeBaseSearchTool::new(
+                knowledge_base_service,
+                active_knowledge_base_ids.clone(),
+                crate::knowledge::skill::DEFAULT_KB_SEARCH_TOP_K,
+            );
+            agent.register_tool(Arc::new(kb_search_tool));
+
             tracing::info!(
                 kb_count = active_knowledge_base_ids.len(),
-                "KnowledgeBaseSkill added to ACP agent"
+                "KnowledgeBaseSkill and KnowledgeBaseSearchTool added to ACP agent"
             );
         }
+
+        agent.initialize_skills().await;
 
         Self {
             agent,
@@ -283,7 +293,8 @@ impl SessionManager {
             self.computer_use_config.clone(),
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
-        );
+        )
+        .await;
         self.sessions
             .write()
             .await
@@ -327,7 +338,8 @@ impl SessionManager {
             self.computer_use_config.clone(),
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
-        );
+        )
+        .await;
         self.sessions.write().await.insert(session_id, session);
         true
     }

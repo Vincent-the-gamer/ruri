@@ -576,6 +576,17 @@ impl Skill for SkillPackageSkill {
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
+        // If this skill has a "when_to_use" directive, skip automatic context injection.
+        // The system prompt from on_attach() already describes when to use this skill,
+        // and the model will apply it based on relevance. Auto-injecting on every
+        // message would be wasteful and noisy.
+        if self.when_to_use.is_some() {
+            return;
+        }
+
+        // Skills without when_to_use are "always-on" context injectors.
+        // Inject context prefix and shell output as before.
+
         // If there's a context prefix, inject it
         if let Some(ref context) = self.context {
             if let Some(last) = messages.last_mut() {

@@ -760,6 +760,7 @@ export default {
       noPlatformsAvailable: 'No platforms available',
       restartPlatform: 'Restart',
       platformUsedBy: 'Used by',
+      platformAlreadySelected: 'Only one platform can be selected per profile',
       platformStatus: 'Status',
       proxyConfig: 'Proxy Configuration',
       proxyConfigDesc: 'Configure proxy settings for this profile',
