@@ -46,6 +46,7 @@ const formData = ref<{
     description: string;
     enable: boolean;
     provider_id: string | null;
+    persona_id: string | null;
     embedded_persona: {
         name: string;
         description: string;
@@ -76,6 +77,7 @@ const formData = ref<{
     description: "",
     enable: true,
     provider_id: null,
+    persona_id: null,
     embedded_persona: null,
     command_prefix: "/",
     enabled_commands: [],
@@ -108,6 +110,7 @@ watch(
                 description: newConfig.description || "",
                 enable: newConfig.enable ?? true,
                 provider_id: newConfig.provider_id || null,
+                persona_id: newConfig.persona_id || null,
                 embedded_persona: newConfig.embedded_persona || null,
                 command_prefix: newConfig.command_prefix || "/",
                 enabled_commands: [...(newConfig.enabled_commands || [])],
@@ -145,6 +148,7 @@ watch(
                 description: "",
                 enable: true,
                 provider_id: null,
+                persona_id: null,
                 embedded_persona: null,
                 command_prefix: "/",
                 enabled_commands: [],
@@ -570,6 +574,44 @@ function handleSubmit() {
                         <label class="form-label">{{
                             t("config.form.selectPersona")
                         }}</label>
+                        <!-- Persona Library Reference -->
+                        <div class="persona-reference">
+                            <label class="form-label-sm">{{
+                                t(
+                                    "config.form.personaLibraryRef",
+                                    "📚 Persona Library Reference (hot-reload)",
+                                )
+                            }}</label>
+                            <select
+                                v-if="personaStore.personas.length > 0"
+                                v-model="formData.persona_id"
+                                class="form-select"
+                            >
+                                <option :value="null">
+                                    {{
+                                        t(
+                                            "config.form.noPersonaRef",
+                                            "— No reference —",
+                                        )
+                                    }}
+                                </option>
+                                <option
+                                    v-for="persona in personaStore.personas"
+                                    :key="persona.id"
+                                    :value="persona.id"
+                                >
+                                    {{ persona.name }}
+                                </option>
+                            </select>
+                            <p class="help-text">
+                                {{
+                                    t(
+                                        "config.form.personaRefHelp",
+                                        "Select a persona from the library. Changes to the library persona will be reflected immediately.",
+                                    )
+                                }}
+                            </p>
+                        </div>
                         <div
                             v-if="formData.embedded_persona"
                             class="persona-editor"

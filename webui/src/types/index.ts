@@ -367,6 +367,8 @@ export interface ConfigProfile {
   updated_at: string
   // 关联的配置
   provider_id: string | null
+  // Persona ID reference to the persona library (hot-reload enabled)
+  persona_id: string | null
   embedded_persona: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
@@ -392,6 +394,7 @@ export interface CreateConfigProfileRequest {
   description: string
   enable: boolean
   provider_id: string | null
+  persona_id?: string | null
   embedded_persona?: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
@@ -410,6 +413,7 @@ export interface UpdateConfigProfileRequest {
   description?: string
   enable?: boolean
   provider_id?: string | null
+  persona_id?: string | null
   embedded_persona?: EmbeddedPersona | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
@@ -795,6 +799,7 @@ export interface EmbeddedSkill {
 }
 
 export interface DebugSession {
+  persona_id: string | null
   embedded_persona: EmbeddedPersona | null
   providers: EmbeddedProvider[]
   active_provider: string | null
@@ -810,6 +815,7 @@ export interface DebugSession {
 }
 
 export interface UpdateDebugSessionRequest {
+  persona_id?: string | null
   embedded_persona?: EmbeddedPersona | null
   providers?: EmbeddedProvider[]
   active_provider?: string | null

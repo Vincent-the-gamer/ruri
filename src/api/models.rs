@@ -576,6 +576,9 @@ pub struct ConfigProfileDto {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// Persona ID reference to the persona library (hot-reload enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
@@ -610,6 +613,9 @@ pub struct CreateConfigProfileRequest {
     pub enable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    /// Persona ID reference to the persona library (hot-reload enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
@@ -645,6 +651,9 @@ pub struct UpdateConfigProfileRequest {
     pub enable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<Option<String>>,
+    /// Persona ID reference to the persona library (hot-reload enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1038,6 +1047,9 @@ pub struct EmbeddedSkillDto {
 /// Response DTO for debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugSessionDto {
+    /// Persona ID reference to the persona library (hot-reload enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     #[serde(default)]
@@ -1069,6 +1081,8 @@ pub struct DebugSessionDto {
 /// Request DTO for updating debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDebugSessionRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]

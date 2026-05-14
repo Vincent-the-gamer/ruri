@@ -7,6 +7,7 @@ import { useProviderStore } from "../stores/provider";
 import { useConfigStore } from "../stores/config";
 import { useAuthStore } from "../stores/auth";
 import { useDebugSessionStore } from "../stores/debugSession";
+import { usePersonaStore } from "../stores/persona";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import type { AttachedFile } from "../types";
 import ChatMessageComp from "../components/ChatMessage.vue";
@@ -20,6 +21,7 @@ const providerStore = useProviderStore();
 const configStore = useConfigStore();
 const authStore = useAuthStore();
 const debugSessionStore = useDebugSessionStore();
+const personaStore = usePersonaStore();
 const kbStore = useKnowledgeBaseStore();
 
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -29,11 +31,25 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 const effectivePersona = computed(() => {
-    // Use the persona form if set, then debug session's embedded persona, then active config profile's
+    // Priority: persona form > persona_id reference (hot-reload) > embedded persona > config profile's
+    if (chatConfigModal.value?.personaForm) {
+        return chatConfigModal.value.personaForm;
+    }
+    // Try to resolve from persona_id reference
+    const pid = debugSessionStore.personaId;
+    if (pid) {
+        const resolved = personaStore.personas.find((p) => p.id === pid);
+        if (resolved) {
+            return {
+                name: resolved.name,
+                description: resolved.description,
+                prompt: resolved.prompt,
+            };
+        }
+    }
+    // Fall back to embedded persona
     return (
-        chatConfigModal.value?.personaForm ??
-        debugSessionStore.embeddedPersona ??
-        configStore.activeEmbeddedPersona
+        debugSessionStore.embeddedPersona ?? configStore.activeEmbeddedPersona
     );
 });
 
@@ -62,6 +78,7 @@ onMounted(async () => {
         debugSessionStore.fetchDebugSession(),
         providerStore.fetchProviders(),
         configStore.fetchConfigProfiles(),
+        personaStore.fetchPersonas(),
         kbStore.fetchKnowledgeBases(),
     ]);
     scrollToBottom();

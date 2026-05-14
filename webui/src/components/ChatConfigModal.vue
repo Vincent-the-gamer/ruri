@@ -62,14 +62,36 @@ const personaForm = ref<{
     description: string;
     prompt: string;
 } | null>(null);
+// Persona ID reference to the persona library (hot-reload enabled)
+const selectedPersonaId = ref<string | null>(null);
 const activePersona = computed(() => {
-    // Use the persona form if set, otherwise the debug session's embedded persona, otherwise the active config profile's
+    // Priority: persona form > persona_id reference > embedded persona > config profile's embedded persona
+    if (personaForm.value) {
+        return personaForm.value;
+    }
+    // If persona_id is set, try to resolve from library
+    if (selectedPersonaId.value) {
+        const resolved = personaStore.personas.find(
+            (p) => p.id === selectedPersonaId.value,
+        );
+        if (resolved) {
+            return {
+                name: resolved.name,
+                description: resolved.description,
+                prompt: resolved.prompt,
+            };
+        }
+    }
+    // Fall back to debug session's embedded persona or config profile's
     return (
-        personaForm.value ??
-        debugSessionStore.embeddedPersona ??
-        configStore.activeEmbeddedPersona
+        debugSessionStore.embeddedPersona ?? configStore.activeEmbeddedPersona
     );
 });
+
+function selectPersonaFromLibrary(personaId: string | null) {
+    selectedPersonaId.value = personaId;
+    debouncedSave();
+}
 
 // ── Command Prefix ──
 const commandPrefix = ref("/");
@@ -240,6 +262,7 @@ function debouncedSave() {
 async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
+            persona_id: selectedPersonaId.value,
             embedded_persona: personaForm.value
                 ? { ...personaForm.value }
                 : null,
@@ -261,6 +284,8 @@ watch(
     () => debugSessionStore.debugSession,
     (session) => {
         if (session) {
+            // Sync persona_id reference
+            selectedPersonaId.value = session.persona_id || null;
             // Sync embedded persona
             if (session.embedded_persona) {
                 personaForm.value = { ...session.embedded_persona };
@@ -545,6 +570,58 @@ defineExpose({
                         </p>
 
                         <div class="form-field">
+                            <!-- Persona Library Reference Selector -->
+                            <div class="persona-reference-selector">
+                                <label class="form-label-sm">
+                                    {{
+                                        t(
+                                            "chatConfig.personaLibraryRef",
+                                            "📚 Persona Library Reference (hot-reload enabled)",
+                                        )
+                                    }}
+                                </label>
+                                <select
+                                    v-if="personaStore.personas.length > 0"
+                                    class="select-input"
+                                    :value="selectedPersonaId || ''"
+                                    @change="
+                                        (e) => {
+                                            const id =
+                                                (e.target as HTMLSelectElement)
+                                                    .value || null;
+                                            selectPersonaFromLibrary(id);
+                                        }
+                                    "
+                                >
+                                    <option value="">
+                                        {{
+                                            t(
+                                                "chatConfig.noReference",
+                                                "— No reference —",
+                                            )
+                                        }}
+                                    </option>
+                                    <option
+                                        v-for="persona in personaStore.personas"
+                                        :key="persona.id"
+                                        :value="persona.id"
+                                    >
+                                        {{ persona.name }}
+                                    </option>
+                                </select>
+                                <p
+                                    class="help-text"
+                                    style="margin-top: 4px; font-size: 12px"
+                                >
+                                    {{
+                                        t(
+                                            "chatConfig.personaRefHelp",
+                                            "Select a persona from the library. Changes to the library persona will be reflected immediately.",
+                                        )
+                                    }}
+                                </p>
+                            </div>
+
                             <div v-if="personaForm" class="persona-editor">
                                 <div class="persona-editor-header">
                                     <input

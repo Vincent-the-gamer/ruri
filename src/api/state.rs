@@ -112,17 +112,16 @@ pub struct PersistedConfigProfile {
     /// New profiles should use `embedded_providers` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
-    /// Embedded persona configuration. This is the single source of truth
-    /// for persona data within this profile — no global persona references.
+    /// Persona ID reference to the persona library.
+    /// When set, the persona is loaded dynamically from the library at runtime.
+    /// This allows hot-reloading: changes to the persona in the library take effect immediately.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona_id: Option<String>,
+    /// Embedded persona configuration (legacy, for backward compatibility).
+    /// New profiles should use `persona_id` to reference the persona library instead.
+    /// If both are set, `persona_id` takes priority.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersona>,
-    /// Legacy field: references a global persona by ID.
-    /// Kept only for backward-compatible deserialization of old config files.
-    /// During loading, if `persona_id_legacy` is set but `embedded_persona` is not,
-    /// the persona data will be migrated (resolved from global personas and copied inline).
-    /// This field is never serialized to new config files.
-    #[serde(rename = "persona_id", default, skip_serializing)]
-    pub persona_id_legacy: Option<serde_json::Value>,
     /// Embedded provider configurations - independent copies for this profile.
     /// Takes priority over provider_id if both are set.
     #[serde(default)]
@@ -232,6 +231,11 @@ pub struct DebugSessionConfig {
     /// Active knowledge base IDs
     #[serde(default)]
     pub knowledge_base_ids: Vec<String>,
+    /// Persona ID reference to the persona library.
+    /// When set, the persona is loaded dynamically from the library at runtime.
+    /// This allows hot-reloading: changes to the persona in the library take effect immediately.
+    #[serde(default)]
+    pub persona_id: Option<String>,
     /// Embedded skill configurations for debug sessions
     #[serde(default)]
     pub skills: Vec<EmbeddedSkill>,
@@ -263,8 +267,10 @@ struct ResolvedConfigContext {
     /// Legacy provider_id from the profile, used as fallback when no embedded providers.
     /// References a global provider by ID.
     provider_id: Option<String>,
-    /// Embedded persona configuration from the profile or debug session.
-    /// This is the single source of truth — no global persona lookup needed.
+    /// Persona ID reference to the persona library.
+    /// When set, the persona is loaded dynamically from the library at runtime.
+    persona_id: Option<String>,
+    /// Embedded persona configuration from the profile or debug session (legacy fallback).
     embedded_persona: Option<EmbeddedPersona>,
     /// Embedded skill configurations
     embedded_skills: Vec<EmbeddedSkill>,
@@ -294,8 +300,10 @@ pub struct StoredConfigProfile {
     pub updated_at: DateTime<Utc>,
     /// Legacy field: references a global provider by ID
     pub provider_id: Option<String>,
-    /// Embedded persona configuration. This is the single source of truth
-    /// for persona data within this profile — no global persona references.
+    /// Persona ID reference to the persona library.
+    /// When set, the persona is loaded dynamically from the library at runtime.
+    pub persona_id: Option<String>,
+    /// Embedded persona configuration (legacy, for backward compatibility).
     pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded providers - independent copies for this profile
     pub embedded_providers: Vec<EmbeddedProvider>,
@@ -556,40 +564,6 @@ impl AppState {
                             .map(|dt| dt.to_utc())
                             .unwrap_or_else(|_| Utc::now());
 
-                        // Migration: if the profile has a persona_id but no
-                        // embedded_persona, resolve it from the old global
-                        // personas and copy it as embedded_persona.
-                        let embedded_persona = p.embedded_persona.or_else(|| {
-                            // Check for legacy persona_id field that may still
-                            // exist in old config files. We deserialize it
-                            // via a helper since the struct no longer has the field.
-                            let persona_id = p.persona_id_legacy.as_ref()
-                                .and_then(|v| v.as_str());
-                            if let Some(pid) = persona_id {
-                                if let Some(persona) = old_personas.get(pid) {
-                                    tracing::info!(
-                                        profile_id = %id,
-                                        persona_id = %pid,
-                                        "Migrating global persona to embedded_persona"
-                                    );
-                                    Some(EmbeddedPersona {
-                                        name: persona.name.clone(),
-                                        description: persona.description.clone(),
-                                        prompt: persona.prompt.clone(),
-                                    })
-                                } else {
-                                    tracing::warn!(
-                                        profile_id = %id,
-                                        persona_id = %pid,
-                                        "Legacy persona_id references non-existent persona, skipping migration"
-                                    );
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        });
-
                         (
                             id.clone(),
                             StoredConfigProfile {
@@ -601,7 +575,8 @@ impl AppState {
                                 created_at,
                                 updated_at,
                                 provider_id: p.provider_id,
-                                embedded_persona,
+                                persona_id: p.persona_id,
+                                embedded_persona: p.embedded_persona,
                                 embedded_providers: p.embedded_providers,
                                 active_embedded_provider: p.active_embedded_provider,
                                 embedded_skills: p.embedded_skills,
@@ -841,29 +816,6 @@ impl AppState {
                     .map(|dt| dt.to_utc())
                     .unwrap_or_else(|_| Utc::now());
 
-                // Migration: same logic as with_config_path
-                let embedded_persona = p.embedded_persona.or_else(|| {
-                    let persona_id = p.persona_id_legacy.as_ref().and_then(|v| v.as_str());
-                    if let Some(pid) = persona_id {
-                        if let Some(persona) = old_personas.get(pid) {
-                            tracing::info!(
-                                profile_id = %id,
-                                persona_id = %pid,
-                                "Migrating global persona to embedded_persona (reload)"
-                            );
-                            Some(EmbeddedPersona {
-                                name: persona.name.clone(),
-                                description: persona.description.clone(),
-                                prompt: persona.prompt.clone(),
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                });
-
                 (
                     id.clone(),
                     StoredConfigProfile {
@@ -875,7 +827,8 @@ impl AppState {
                         created_at,
                         updated_at,
                         provider_id: p.provider_id,
-                        embedded_persona,
+                        persona_id: p.persona_id,
+                        embedded_persona: p.embedded_persona,
                         embedded_providers: p.embedded_providers,
                         active_embedded_provider: p.active_embedded_provider,
                         embedded_skills: p.embedded_skills,
@@ -1421,8 +1374,8 @@ impl AppState {
                         created_at: p.created_at.to_rfc3339().to_string(),
                         updated_at: p.updated_at.to_rfc3339().to_string(),
                         provider_id: p.provider_id.clone(),
+                        persona_id: p.persona_id.clone(),
                         embedded_persona: p.embedded_persona.clone(),
-                        persona_id_legacy: None, // never serialize legacy field
                         embedded_providers: p.embedded_providers.clone(),
                         active_embedded_provider: p.active_embedded_provider.clone(),
                         embedded_skills: p.embedded_skills.clone(),
@@ -1832,12 +1785,34 @@ impl AppState {
         // 1. Debug session takes highest priority when requested
         if use_debug_session {
             let debug = self.debug_session.read().await;
-            if !debug.providers.is_empty() {
+            // Return debug session context if it has ANY configuration:
+            // - embedded providers, OR
+            // - a provider_id reference, OR
+            // - a persona_id reference, OR
+            // - embedded skills
+            let has_debug_config = !debug.providers.is_empty()
+                || debug
+                    .provider_id
+                    .as_ref()
+                    .map_or(false, |id| !id.is_empty())
+                || debug.persona_id.is_some()
+                || !debug.skills.is_empty();
+
+            if has_debug_config {
+                // Determine the effective provider source for the debug session
+                let effective_provider_id = if debug.providers.is_empty() {
+                    // No embedded providers, use the provider_id reference
+                    debug.provider_id.clone()
+                } else {
+                    None // embedded providers take precedence
+                };
+
                 return Some(ResolvedConfigContext {
                     source: "debug_session".to_string(),
                     embedded_providers: debug.providers.clone(),
                     active_embedded_provider: debug.active_provider.clone(),
-                    provider_id: None,
+                    provider_id: effective_provider_id,
+                    persona_id: debug.persona_id.clone(),
                     embedded_persona: debug.embedded_persona.clone(),
                     embedded_skills: debug.skills.clone(),
                     active_embedded_skill_names: debug.active_skill_names.clone(),
@@ -1859,6 +1834,7 @@ impl AppState {
                     embedded_providers: profile.embedded_providers.clone(),
                     active_embedded_provider: profile.active_embedded_provider.clone(),
                     provider_id: profile.provider_id.clone(),
+                    persona_id: profile.persona_id.clone(),
                     embedded_persona: profile.embedded_persona.clone(),
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
@@ -1877,6 +1853,7 @@ impl AppState {
                 embedded_providers: profile.embedded_providers.clone(),
                 active_embedded_provider: profile.active_embedded_provider.clone(),
                 provider_id: profile.provider_id.clone(),
+                persona_id: profile.persona_id.clone(),
                 embedded_persona: profile.embedded_persona.clone(),
                 embedded_skills: profile.embedded_skills.clone(),
                 active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
@@ -2107,9 +2084,40 @@ impl AppState {
         // to ensure it is the LAST skill added, so its system prompt
         // appears after all other skill system messages and is not
         // overridden by knowledge base or other skill prompts.
-        let deferred_persona: Option<EmbeddedPersona> = context
-            .as_ref()
-            .and_then(|ctx| ctx.embedded_persona.clone());
+        //
+        // Priority: persona_id (dynamic library reference) > embedded_persona (legacy fallback)
+        let deferred_persona: Option<EmbeddedPersona> = if let Some(ctx) = context.as_ref() {
+            // First, try to resolve persona from library by persona_id (hot-reload enabled)
+            if let Some(ref pid) = ctx.persona_id {
+                let personas = self.personas.read().await;
+                let resolved = personas.get(pid).map(|p| EmbeddedPersona {
+                    name: p.name.clone(),
+                    description: p.description.clone(),
+                    prompt: p.prompt.clone(),
+                });
+                drop(personas);
+                if let Some(p) = resolved {
+                    tracing::info!(
+                        persona_id = %pid,
+                        persona_name = %p.name,
+                        "Resolved persona from library (hot-reload enabled)"
+                    );
+                    Some(p)
+                } else {
+                    tracing::warn!(
+                        persona_id = %pid,
+                        "Persona ID not found in library, falling back to embedded_persona"
+                    );
+                    // Fall back to embedded_persona if persona_id is invalid
+                    ctx.embedded_persona.clone()
+                }
+            } else {
+                // No persona_id set, use embedded_persona (legacy fallback)
+                ctx.embedded_persona.clone()
+            }
+        } else {
+            None
+        };
 
         // Check computer use configuration and register tools accordingly
         let computer_use_config = self.computer_use_config.read().await;
