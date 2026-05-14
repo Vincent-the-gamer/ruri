@@ -23,36 +23,77 @@ const endpoints = [
     {
         method: "POST",
         path: "/api/chat",
-        desc: "向智能体发送消息",
+        desc: t("apiTest.endpoints.sendMessage"),
         body: true,
     },
-    { method: "GET", path: "/api/chat/history", desc: "获取聊天记录" },
-    { method: "DELETE", path: "/api/chat/history", desc: "清空聊天记录" },
-    { method: "GET", path: "/api/providers", desc: "列出所有供应商" },
+    {
+        method: "GET",
+        path: "/api/chat/history",
+        desc: t("apiTest.endpoints.getHistory"),
+    },
+    {
+        method: "DELETE",
+        path: "/api/chat/history",
+        desc: t("apiTest.endpoints.clearHistory"),
+    },
+    {
+        method: "GET",
+        path: "/api/providers",
+        desc: t("apiTest.endpoints.listProviders"),
+    },
     {
         method: "POST",
         path: "/api/providers",
-        desc: "创建新供应商",
+        desc: t("apiTest.endpoints.createProvider"),
         body: true,
     },
-    { method: "GET", path: "/api/providers/:id", desc: "获取供应商详情" },
+    {
+        method: "GET",
+        path: "/api/providers/:id",
+        desc: t("apiTest.endpoints.getProvider"),
+    },
     {
         method: "PUT",
         path: "/api/providers/:id",
-        desc: "更新供应商",
+        desc: t("apiTest.endpoints.updateProvider"),
         body: true,
     },
-    { method: "DELETE", path: "/api/providers/:id", desc: "删除供应商" },
+    {
+        method: "DELETE",
+        path: "/api/providers/:id",
+        desc: t("apiTest.endpoints.deleteProvider"),
+    },
     {
         method: "POST",
         path: "/api/providers/:id/activate",
-        desc: "设为活跃供应商",
+        desc: t("apiTest.endpoints.activateProvider"),
     },
-    { method: "GET", path: "/api/skills", desc: "列出所有技能" },
-    { method: "POST", path: "/api/skills", desc: "添加技能", body: true },
-    { method: "DELETE", path: "/api/skills/:name", desc: "移除技能" },
-    { method: "GET", path: "/api/tools", desc: "列出所有已注册工具" },
-    { method: "GET", path: "/api/agent/status", desc: "获取智能体状态" },
+    {
+        method: "GET",
+        path: "/api/skills",
+        desc: t("apiTest.endpoints.listSkills"),
+    },
+    {
+        method: "POST",
+        path: "/api/skills",
+        desc: t("apiTest.endpoints.addSkill"),
+        body: true,
+    },
+    {
+        method: "DELETE",
+        path: "/api/skills/:name",
+        desc: t("apiTest.endpoints.removeSkill"),
+    },
+    {
+        method: "GET",
+        path: "/api/tools",
+        desc: t("apiTest.endpoints.listTools"),
+    },
+    {
+        method: "GET",
+        path: "/api/agent/status",
+        desc: t("apiTest.endpoints.getAgentStatus"),
+    },
 ];
 
 const tabs = [

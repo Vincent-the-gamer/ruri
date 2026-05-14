@@ -2266,9 +2266,12 @@ impl AppState {
 
         // Add Knowledge Base skill and search tool if configured (from embedded context or resolved config)
         if !kb_ids.is_empty() {
+            // Use Hybrid mode: auto-inject knowledge base context AND allow the model
+            // to call the search tool for follow-up queries. This ensures reliable
+            // knowledge base retrieval while still giving the model flexibility.
             let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
                 kb_ids.clone(),
-                crate::knowledge::skill::KnowledgeBaseRetrievalMode::ToolBased,
+                crate::knowledge::skill::KnowledgeBaseRetrievalMode::Hybrid,
                 self.knowledge_base_service.clone(),
             );
             agent.add_skill(std::sync::Arc::new(kb_skill));

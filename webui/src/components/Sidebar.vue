@@ -68,6 +68,11 @@ const navGroups = computed(() => [
                 label: t("nav.providers"),
                 icon: "lucide:server",
             },
+            {
+                path: "/personas",
+                label: t("nav.personas"),
+                icon: "lucide:user-circle",
+            },
         ],
     },
     {

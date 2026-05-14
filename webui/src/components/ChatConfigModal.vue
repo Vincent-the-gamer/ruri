@@ -57,18 +57,9 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 // ── Persona Selection ──
-const personaForm = ref<{
-    name: string;
-    description: string;
-    prompt: string;
-} | null>(null);
 // Persona ID reference to the persona library (hot-reload enabled)
 const selectedPersonaId = ref<string | null>(null);
 const activePersona = computed(() => {
-    // Priority: persona form > persona_id reference > embedded persona > config profile's embedded persona
-    if (personaForm.value) {
-        return personaForm.value;
-    }
     // If persona_id is set, try to resolve from library
     if (selectedPersonaId.value) {
         const resolved = personaStore.personas.find(
@@ -263,9 +254,7 @@ async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
             persona_id: selectedPersonaId.value,
-            embedded_persona: personaForm.value
-                ? { ...personaForm.value }
-                : null,
+            embedded_persona: null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -286,12 +275,6 @@ watch(
         if (session) {
             // Sync persona_id reference
             selectedPersonaId.value = session.persona_id || null;
-            // Sync embedded persona
-            if (session.embedded_persona) {
-                personaForm.value = { ...session.embedded_persona };
-            } else {
-                personaForm.value = null;
-            }
             selectedProviderId.value =
                 session.provider_id || session.active_provider || null;
             temperature.value = session.temperature ?? 0.7;
@@ -370,7 +353,7 @@ defineExpose({
     temperature,
     maxTokens,
     selectedProviderId,
-    personaForm,
+    selectedPersonaId,
     activeProviderForChat,
     customErrorMessage,
     selectedKbIds,
@@ -620,105 +603,6 @@ defineExpose({
                                         )
                                     }}
                                 </p>
-                            </div>
-
-                            <div v-if="personaForm" class="persona-editor">
-                                <div class="persona-editor-header">
-                                    <input
-                                        v-model="personaForm.name"
-                                        class="text-input"
-                                        :placeholder="'Name'"
-                                    />
-                                    <button
-                                        type="button"
-                                        class="btn btn-sm btn-danger"
-                                        @click="
-                                            personaForm = null;
-                                            debouncedSave();
-                                        "
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                                <input
-                                    v-model="personaForm.description"
-                                    class="text-input"
-                                    :placeholder="'Description'"
-                                />
-                                <textarea
-                                    v-model="personaForm.prompt"
-                                    class="text-input"
-                                    rows="3"
-                                    :placeholder="'System Prompt'"
-                                    @input="debouncedSave()"
-                                ></textarea>
-                            </div>
-                            <div v-else class="persona-add-buttons">
-                                <button
-                                    type="button"
-                                    class="btn btn-sm btn-secondary"
-                                    @click="
-                                        personaForm = {
-                                            name: '',
-                                            description: '',
-                                            prompt: '',
-                                        };
-                                        debouncedSave();
-                                    "
-                                >
-                                    +
-                                    {{
-                                        t(
-                                            "chatConfig.addPersonaManual",
-                                            "Add Manually",
-                                        )
-                                    }}
-                                </button>
-                                <select
-                                    v-if="personaStore.personas.length > 0"
-                                    class="select-input"
-                                    @change="
-                                        (e) => {
-                                            const id = (
-                                                e.target as HTMLSelectElement
-                                            ).value;
-                                            if (id) {
-                                                const p =
-                                                    personaStore.personas.find(
-                                                        (p) => p.id === id,
-                                                    );
-                                                if (p) {
-                                                    personaForm = {
-                                                        name: p.name,
-                                                        description:
-                                                            p.description,
-                                                        prompt: p.prompt,
-                                                    };
-                                                    debouncedSave();
-                                                }
-                                            }
-                                            (
-                                                e.target as HTMLSelectElement
-                                            ).value = '';
-                                        }
-                                    "
-                                >
-                                    <option value="">
-                                        {{
-                                            t(
-                                                "chatConfig.selectPersonaFromLibrary",
-                                                "📋 From Library...",
-                                            )
-                                        }}
-                                    </option>
-                                    <option
-                                        v-for="persona in personaStore.personas"
-                                        :key="persona.id"
-                                        :value="persona.id"
-                                    >
-                                        {{ persona.name }}
-                                    </option>
-                                </select>
                             </div>
                         </div>
 

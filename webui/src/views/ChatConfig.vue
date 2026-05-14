@@ -6,6 +6,7 @@ import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useProviderStore } from "../stores/provider";
 import { useDebugSessionStore } from "../stores/debugSession";
 import { useSkillStore } from "../stores/skill";
+import { usePersonaStore } from "../stores/persona";
 import { ProxyRuleTypeLabels } from "../types";
 import type {
     ProxyConfig,
@@ -20,6 +21,7 @@ const kbStore = useKnowledgeBaseStore();
 const providerStore = useProviderStore();
 const debugSessionStore = useDebugSessionStore();
 const skillStore = useSkillStore();
+const personaStore = usePersonaStore();
 
 // ── Model Parameters ──
 const temperature = ref(0.7);
@@ -29,19 +31,32 @@ const maxTokens = ref(4096);
 const selectedProviderId = ref<string | null>(null);
 
 // ── Persona Selection ──
-const personaForm = ref<{
-    name: string;
-    description: string;
-    prompt: string;
-} | null>(null);
+// Persona ID reference to the persona library (hot-reload enabled)
+const selectedPersonaId = ref<string | null>(null);
 const activePersona = computed(() => {
-    // Use local form, then debug session's embedded persona, then active config profile's
+    // If persona_id is set, try to resolve from library
+    if (selectedPersonaId.value) {
+        const resolved = personaStore.personas.find(
+            (p) => p.id === selectedPersonaId.value,
+        );
+        if (resolved) {
+            return {
+                name: resolved.name,
+                description: resolved.description,
+                prompt: resolved.prompt,
+            };
+        }
+    }
+    // Fall back to debug session's embedded persona or config profile's
     return (
-        personaForm.value ??
-        debugSessionStore.embeddedPersona ??
-        configStore.activeEmbeddedPersona
+        debugSessionStore.embeddedPersona ?? configStore.activeEmbeddedPersona
     );
 });
+
+function selectPersonaFromLibrary(personaId: string | null) {
+    selectedPersonaId.value = personaId;
+    debouncedSave();
+}
 
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
@@ -217,9 +232,8 @@ function debouncedSave() {
 async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
-            embedded_persona: personaForm.value
-                ? { ...personaForm.value }
-                : null,
+            persona_id: selectedPersonaId.value,
+            embedded_persona: null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -245,12 +259,8 @@ watch(
     () => debugSessionStore.debugSession,
     (session) => {
         if (session) {
-            // Sync embedded persona
-            if (session.embedded_persona) {
-                personaForm.value = { ...session.embedded_persona };
-            } else {
-                personaForm.value = null;
-            }
+            // Sync persona_id reference
+            selectedPersonaId.value = session.persona_id || null;
             selectedProviderId.value =
                 session.provider_id || session.active_provider || null;
             temperature.value = session.temperature ?? 0.7;
@@ -325,6 +335,7 @@ onMounted(async () => {
         kbStore.fetchKnowledgeBases(),
         skillStore.fetchSkills(),
         providerStore.fetchProviders(),
+        personaStore.fetchPersonas(),
     ]);
 });
 </script>
@@ -503,48 +514,54 @@ onMounted(async () => {
             </p>
 
             <div class="form-field">
-                <div v-if="personaForm" class="persona-editor">
-                    <div class="persona-editor-header">
-                        <input
-                            v-model="personaForm.name"
-                            class="text-input"
-                            :placeholder="'Name'"
-                        />
-                        <button
-                            type="button"
-                            class="btn btn-sm btn-danger"
-                            @click="
-                                personaForm = null;
-                                debouncedSave();
-                            "
+                <!-- Persona Library Reference Selector -->
+                <div class="persona-reference-selector">
+                    <label class="form-label-sm">
+                        {{
+                            t(
+                                "chatConfig.personaLibraryRef",
+                                "📚 Persona Library Reference (hot-reload enabled)",
+                            )
+                        }}
+                    </label>
+                    <select
+                        v-if="personaStore.personas.length > 0"
+                        class="select-input"
+                        :value="selectedPersonaId || ''"
+                        @change="
+                            (e) => {
+                                const id =
+                                    (e.target as HTMLSelectElement).value ||
+                                    null;
+                                selectPersonaFromLibrary(id);
+                            }
+                        "
+                    >
+                        <option value="">
+                            {{
+                                t("chatConfig.noReference", "— No reference —")
+                            }}
+                        </option>
+                        <option
+                            v-for="persona in personaStore.personas"
+                            :key="persona.id"
+                            :value="persona.id"
                         >
-                            ✕
-                        </button>
-                    </div>
-                    <input
-                        v-model="personaForm.description"
-                        class="text-input"
-                        :placeholder="'Description'"
-                    />
-                    <textarea
-                        v-model="personaForm.prompt"
-                        class="text-input"
-                        rows="3"
-                        :placeholder="'System Prompt'"
-                        @input="debouncedSave()"
-                    ></textarea>
+                            {{ persona.name }}
+                        </option>
+                    </select>
+                    <p
+                        class="help-text"
+                        style="margin-top: 4px; font-size: 12px"
+                    >
+                        {{
+                            t(
+                                "chatConfig.personaRefHelp",
+                                "Select a persona from the library. Changes to the library persona will be reflected immediately.",
+                            )
+                        }}
+                    </p>
                 </div>
-                <button
-                    v-else
-                    type="button"
-                    class="btn btn-sm btn-secondary"
-                    @click="
-                        personaForm = { name: '', description: '', prompt: '' };
-                        debouncedSave();
-                    "
-                >
-                    + Configure Persona
-                </button>
             </div>
 
             <div v-if="!activePersona" class="persona-preview">

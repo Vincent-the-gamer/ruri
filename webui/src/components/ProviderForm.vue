@@ -725,7 +725,11 @@ function handleSave() {
                                 <input
                                     v-model="customConfig.response_content_path"
                                     type="text"
-                                    placeholder="choices.0.message.content"
+                                    :placeholder="
+                                        t(
+                                            'providers.form.responseContentPathPlaceholder',
+                                        )
+                                    "
                                     class="form-input-sm"
                                 />
                             </div>
@@ -738,7 +742,11 @@ function handleSave() {
                                         customConfig.response_tool_calls_path
                                     "
                                     type="text"
-                                    placeholder="choices.0.message.tool_calls"
+                                    :placeholder="
+                                        t(
+                                            'providers.form.responseToolCallsPathPlaceholder',
+                                        )
+                                    "
                                     class="form-input-sm"
                                 />
                             </div>
@@ -749,7 +757,11 @@ function handleSave() {
                                 <input
                                     v-model="customConfig.response_model_path"
                                     type="text"
-                                    placeholder="model"
+                                    :placeholder="
+                                        t(
+                                            'providers.form.responseModelPathPlaceholder',
+                                        )
+                                    "
                                     class="form-input-sm"
                                 />
                             </div>
@@ -762,7 +774,11 @@ function handleSave() {
                                         customConfig.response_finish_reason_path
                                     "
                                     type="text"
-                                    placeholder="choices.0.finish_reason"
+                                    :placeholder="
+                                        t(
+                                            'providers.form.responseFinishReasonPathPlaceholder',
+                                        )
+                                    "
                                     class="form-input-sm"
                                 />
                             </div>
@@ -829,7 +845,9 @@ function handleSave() {
                                 v-model="extraHeadersText"
                                 rows="3"
                                 class="form-textarea-sm"
-                                placeholder='{"X-Custom-Header": "value"}'
+                                :placeholder="
+                                    t('providers.form.extraHeadersPlaceholder')
+                                "
                             ></textarea>
                         </div>
                     </template>

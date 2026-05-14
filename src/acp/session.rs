@@ -174,9 +174,10 @@ impl AcpSession {
 
         // Add Knowledge Base skill and search tool if active_knowledge_base_ids is not empty
         if !active_knowledge_base_ids.is_empty() {
+            // Use Hybrid mode for reliable knowledge base retrieval
             let kb_skill = crate::knowledge::KnowledgeBaseSkill::new(
                 active_knowledge_base_ids.clone(),
-                crate::knowledge::skill::KnowledgeBaseRetrievalMode::ToolBased,
+                crate::knowledge::skill::KnowledgeBaseRetrievalMode::Hybrid,
                 Arc::clone(&knowledge_base_service),
             );
             agent.add_skill(Arc::new(kb_skill));

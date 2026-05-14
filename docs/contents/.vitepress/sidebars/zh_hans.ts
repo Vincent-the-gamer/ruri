@@ -14,6 +14,7 @@ export default [
       { text: 'AI 能帮你做什么？', link: '/zh_hans/tools' },
       { text: '技能系统', link: '/zh_hans/skills' },
       { text: '人格系统', link: '/zh_hans/personas' },
+      { text: '网页搜索', link: '/zh_hans/web-search' },
       { text: 'MCP 客户端', link: '/zh_hans/mcp' },
       { text: '指令系统', link: '/zh_hans/commands' },
       { text: '知识库', link: '/zh_hans/knowledge-base' },
@@ -34,6 +35,7 @@ export default [
     collapsed: true,
     items: [
       { text: '配置方案', link: '/zh_hans/config-profiles' },
+      { text: '代理配置', link: '/zh_hans/proxy' },
     ],
   },
   {

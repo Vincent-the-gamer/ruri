@@ -14,6 +14,7 @@ export default [
       { text: 'What Can the AI Do?', link: '/tools' },
       { text: 'Skills', link: '/skills' },
       { text: 'Personas', link: '/personas' },
+      { text: 'Web Search', link: '/web-search' },
       { text: 'MCP Client', link: '/mcp' },
       { text: 'Command System', link: '/commands' },
       { text: 'Knowledge Base', link: '/knowledge-base' },
@@ -34,6 +35,7 @@ export default [
     collapsed: true,
     items: [
       { text: 'Config Profiles', link: '/config-profiles' },
+      { text: 'Proxy Configuration', link: '/proxy' },
     ],
   },
   {

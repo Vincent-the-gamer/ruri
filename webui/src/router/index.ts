@@ -114,6 +114,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/personas',
+      name: 'Personas',
+      component: () => import('../views/Personas.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/builtin-commands',
       name: 'BuiltinCommands',
       component: () => import('../views/BuiltinCommands.vue'),

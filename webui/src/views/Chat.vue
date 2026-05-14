@@ -31,10 +31,7 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 const effectivePersona = computed(() => {
-    // Priority: persona form > persona_id reference (hot-reload) > embedded persona > config profile's
-    if (chatConfigModal.value?.personaForm) {
-        return chatConfigModal.value.personaForm;
-    }
+    // Priority: persona_id reference (hot-reload) > embedded persona > config profile's
     // Try to resolve from persona_id reference
     const pid = debugSessionStore.personaId;
     if (pid) {
@@ -345,8 +342,10 @@ function handleStop() {
                                         stroke-linecap="round"
                                     />
                                 </svg>
-                                <span>琉璃</span>
-                                <span class="thinking-status">思考中...</span>
+                                <span>{{ t("chat.botName") }}</span>
+                                <span class="thinking-status">{{
+                                    t("chat.thinking")
+                                }}</span>
                             </div>
                             <div class="thinking-content">
                                 <div class="thinking-animation">

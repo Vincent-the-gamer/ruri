@@ -27,13 +27,18 @@ pub const DEFAULT_KB_SEARCH_TOP_K: usize = 10;
 
 /// How knowledge base context is injected into the conversation.
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub enum KnowledgeBaseRetrievalMode {
     /// The model decides when to call the `knowledge_base_search` tool.
-    #[default]
+    /// Useful when you want the model to fully control when to search.
+    #[allow(dead_code)]
     ToolBased,
     /// Context is automatically retrieved and injected into each user message.
+    #[default]
     Auto,
+    /// Hybrid mode: Auto-inject context AND allow model to call search tool for follow-up.
+    /// This is the recommended mode for most use cases - it ensures reliable retrieval
+    /// while still giving the model flexibility to search for additional information.
+    Hybrid,
 }
 
 // ─── KnowledgeBaseSearchTool ──────────────────────────────────────
@@ -206,16 +211,26 @@ impl Skill for KnowledgeBaseSkill {
                  your response and always cite the source document when using knowledge base information. \
                  You do NOT need to call the `knowledge_base_search` tool as context is already provided."
             }
+            KnowledgeBaseRetrievalMode::Hybrid => {
+                "You have access to a knowledge base. Relevant knowledge base context is automatically \
+                 injected into user messages when available (prefixed with '--- Relevant Knowledge ---'). \
+                 Use this context to enhance your responses and always cite source documents. \
+                 If you need additional information that wasn't automatically provided, you can call \
+                 the `knowledge_base_search` tool to retrieve more specific context. \
+                 Do NOT call the search tool for casual conversation or when you can answer from \
+                 your own knowledge or the already-provided context."
+            }
         };
         vec![ChatMessage::system(prompt)]
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
+        // Auto and Hybrid modes inject context; ToolBased does not.
         if matches!(self.retrieval_mode, KnowledgeBaseRetrievalMode::ToolBased) {
-            return; // Tool-based mode: no auto-injection
+            return;
         }
 
-        // Auto mode: retrieve context based on user message
+        // Retrieve context based on the last user message
         if let Some(last) = messages.last_mut() {
             if last.role == crate::types::MessageRole::User {
                 if let Some(ref content) = last.content {
@@ -228,7 +243,7 @@ impl Skill for KnowledgeBaseSkill {
                                     &self.knowledge_base_ids,
                                     &text,
                                     DEFAULT_KB_SEARCH_TOP_K,
-                                    1,
+                                    2, // context_window: include 2 neighboring chunks for better coverage
                                     4096,
                                     None,
                                 )
