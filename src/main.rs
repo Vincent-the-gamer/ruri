@@ -255,57 +255,45 @@ async fn main() -> anyhow::Result<()> {
                     );
 
                     // ── Command dispatch ─────────────────────────────
-                    // Check if the message is a built-in command before
-                    // sending it to the AI agent.
+                    // Try to dispatch as a built-in command. If a known command
+                    // matched, `dispatch` returns `Some(result)` and we skip
+                    // the LLM. Otherwise (no prefix, prefix-only, or unrecognized
+                    // command) we fall through to the agent / LLM.
                     {
                         let dispatcher = state_for_platform.command_dispatcher.read().await;
-                        if dispatcher.is_command(&msg.message_str) {
-                            tracing::info!(
-                                prefix = %dispatcher.prefix(),
-                                user_id = %msg.sender.user_id,
-                                session_id = %msg.session_id,
-                                platform = %msg.platform_id,
-                                source = "platform",
-                                "Detected command message, dispatching"
-                            );
-                            let cmd_ctx = command::CommandContext {
-                                raw_message: msg.message_str.clone(),
-                                command_name: String::new(), // filled by dispatch()
-                                args: String::new(),
-                                session_id: msg.session_id.clone(),
-                                user_id: msg.sender.user_id.clone(),
-                                platform_id: msg.platform_id.clone(),
-                                self_id: msg.self_id.clone(),
-                                message_type: msg.message_type,
-                                group_id: msg.group_id.clone(),
-                                state: state_for_platform.clone(),
-                            };
+                        let cmd_ctx = command::CommandContext {
+                            raw_message: msg.message_str.clone(),
+                            command_name: String::new(), // filled by dispatch()
+                            args: String::new(),
+                            prefix: dispatcher.prefix().to_string(),
+                            session_id: msg.session_id.clone(),
+                            user_id: msg.sender.user_id.clone(),
+                            platform_id: msg.platform_id.clone(),
+                            self_id: msg.self_id.clone(),
+                            message_type: msg.message_type,
+                            group_id: msg.group_id.clone(),
+                            state: state_for_platform.clone(),
+                        };
 
-                            match dispatcher.dispatch(cmd_ctx).await {
-                                Some(result) => {
-                                    // Send the command result back
-                                    let pm = platform_manager_ref.read().await;
-                                    if let Err(e) = pm
-                                        .send_text_to_platform(
-                                            &msg.platform_id,
-                                            msg.message_type,
-                                            &msg.session_id,
-                                            &result.reply,
-                                        )
-                                        .await
-                                    {
-                                        tracing::error!(
-                                            error = %e,
-                                            "Failed to send command reply to platform"
-                                        );
-                                    }
-                                    // Command handled, skip agent processing
-                                    continue;
-                                }
-                                None => {
-                                    // Not a recognized command — fall through to agent
-                                }
+                        if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
+                            // A known command was matched — send result back
+                            let pm = platform_manager_ref.read().await;
+                            if let Err(e) = pm
+                                .send_text_to_platform(
+                                    &msg.platform_id,
+                                    msg.message_type,
+                                    &msg.session_id,
+                                    &result.reply,
+                                )
+                                .await
+                            {
+                                tracing::error!(
+                                    error = %e,
+                                    "Failed to send command reply to platform"
+                                );
                             }
+                            // Command handled, skip agent processing
+                            continue;
                         }
                     }
 

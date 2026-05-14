@@ -85,27 +85,18 @@ async function confirmDelete() {
     }
 }
 
-async function handleActivate(config: ConfigProfile) {
-    try {
-        await configStore.activateConfigProfile(config.id);
-    } catch (error) {
-        console.error("Failed to activate config:", error);
-    }
-}
-
-async function handleDeactivate(config: ConfigProfile) {
-    try {
-        await configStore.deactivateConfigProfile(config.id);
-    } catch (error) {
-        console.error("Failed to deactivate config:", error);
-    }
-}
-
 async function handleToggleEnable(config: ConfigProfile) {
     try {
+        const newEnable = !config.enable;
         await configStore.updateConfigProfile(config.id, {
-            enable: !config.enable,
+            enable: newEnable,
         });
+        // When enabling, also activate; when disabling, also deactivate
+        if (newEnable) {
+            await configStore.activateConfigProfile(config.id);
+        } else {
+            await configStore.deactivateConfigProfile(config.id);
+        }
     } catch (error) {
         console.error("Failed to toggle config enable:", error);
     }
@@ -424,46 +415,6 @@ function getPersonaName(personaId: string | null): string {
                             <span class="enable-switch-slider"></span>
                         </label>
                         <button
-                            v-if="!config.is_active"
-                            class="btn btn-sm btn-success"
-                            @click="handleActivate(config)"
-                            :disabled="!config.enable"
-                            :title="
-                                !config.enable
-                                    ? t('config.activateDisabledHint')
-                                    : t('config.activate')
-                            "
-                        >
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <polyline
-                                    points="22 11.08V12a10 10 0 1 1-5.93-9.14"
-                                />
-                                <polyline points="22 4 12 14.01 9 11.01" />
-                            </svg>
-                        </button>
-                        <button
-                            v-else
-                            class="btn btn-sm btn-danger-ghost"
-                            @click="handleDeactivate(config)"
-                            :title="t('config.deactivate')"
-                        >
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="15" y1="9" x2="9" y2="15" />
-                                <line x1="9" y1="9" x2="15" y2="15" />
-                            </svg>
-                        </button>
-                        <button
                             class="btn btn-sm btn-ghost"
                             @click="openEdit(config)"
                             :title="t('common.edit')"
@@ -673,17 +624,6 @@ function getPersonaName(personaId: string | null): string {
 .btn-danger {
     background: hsl(var(--destructive));
     color: hsl(var(--destructive-foreground));
-}
-
-.btn-success {
-    background: transparent;
-    color: hsl(var(--success));
-    border: 1px solid transparent;
-}
-
-.btn-success:hover {
-    background: hsl(var(--success) / 0.1);
-    border-color: hsl(var(--success) / 0.3);
 }
 
 .btn svg {

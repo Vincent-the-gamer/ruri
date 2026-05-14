@@ -414,7 +414,7 @@ impl SkillPackageSkill {
     }
 
     /// Run a shell command and return its output.
-    async fn run_shell_command(command: &str) -> Result<String, String> {
+    pub async fn run_shell_command(command: &str) -> Result<String, String> {
         tracing::info!(command = %command, "Skill executing shell command");
 
         #[cfg(target_os = "windows")]
@@ -454,7 +454,7 @@ impl SkillPackageSkill {
     }
 
     /// Run all hooks and collect outputs.
-    async fn run_hooks(&self) -> Vec<String> {
+    pub async fn run_hooks(&self) -> Vec<String> {
         let mut outputs = Vec::new();
         for hook in &self.hooks {
             match Self::run_shell_command(&hook.command).await {
@@ -509,6 +509,17 @@ impl SkillPackageSkill {
     #[allow(dead_code)]
     pub fn should_disable_model_invocation(&self) -> bool {
         self.disable_model_invocation
+    }
+
+    /// Get the shell command for this skill, if defined.
+    pub fn shell_command(&self) -> &Option<String> {
+        &self.shell
+    }
+
+    /// Whether this skill is user-invocable.
+    #[allow(dead_code)]
+    pub fn is_user_invocable(&self) -> bool {
+        self.user_invocable
     }
 }
 

@@ -67,9 +67,11 @@ impl Command for HelpCommand {
             }
             visible_count += 1;
             let admin_marker = if cmd.require_admin() { " 🔒" } else { "" };
+            // Adapt usage to the configured prefix (replace leading '/' with the prefix)
+            let display_usage = cmd.usage().replacen('/', &ctx.prefix, 1);
             lines.push(format!(
                 "  {} — {}{}",
-                cmd.usage(),
+                display_usage,
                 cmd.description(),
                 admin_marker
             ));
@@ -80,7 +82,10 @@ impl Command for HelpCommand {
         }
 
         lines.push(String::new());
-        lines.push("提示：/set、/unset 默认不在列表中显示，但仍可使用。".to_string());
+        lines.push(format!(
+            "提示：{prefix}set、{prefix}unset 默认不在列表中显示，但仍可使用。",
+            prefix = ctx.prefix
+        ));
 
         tracing::info!(
             command = %ctx.command_name,
@@ -475,7 +480,10 @@ impl Command for SetCommand {
                 session_id = %ctx.session_id,
                 "Set command called without arguments, showing usage"
             );
-            return CommandResult::text("用法：/set <key> <value>\n示例：/set language zh-CN");
+            return CommandResult::text(format!(
+                "用法：{prefix}set <key> <value>\n示例：{prefix}set language zh-CN",
+                prefix = ctx.prefix
+            ));
         }
 
         // Split into key and value
@@ -567,7 +575,10 @@ impl Command for UnsetCommand {
                     lines.push(format!("  {} = {}", k, v));
                 }
                 lines.push(String::new());
-                lines.push("使用 /unset <key> 移除指定变量。".to_string());
+                lines.push(format!(
+                    "使用 {prefix}unset <key> 移除指定变量。",
+                    prefix = ctx.prefix
+                ));
 
                 tracing::info!(
                     command = %ctx.command_name,

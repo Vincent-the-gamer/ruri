@@ -912,46 +912,41 @@ async fn send_chat_message(
     );
 
     // ── Command dispatch ─────────────────────────────────────────
-    // Check if the message is a built-in command before sending to the agent.
+    // Try to dispatch as a built-in command. If a known command matched,
+    // `dispatch` returns `Some(result)` and we skip the LLM. Otherwise
+    // (no prefix, prefix-only, or unrecognized command) we fall through
+    // to the agent / LLM.
     {
         let dispatcher = state.command_dispatcher.read().await;
-        if dispatcher.is_command(&req.message) {
-            let user_id = req.user_id.clone().unwrap_or_default();
-            let session_id = req.session_id.clone().unwrap_or_default();
-            tracing::info!(
-                prefix = %dispatcher.prefix(),
-                user_id = %user_id,
-                session_id = %session_id,
-                source = "webui",
-                "Detected command message, dispatching"
-            );
-            let cmd_ctx = crate::command::CommandContext {
-                raw_message: req.message.clone(),
-                command_name: String::new(),
-                args: String::new(),
-                session_id: session_id.clone(),
-                user_id: user_id.clone(),
-                platform_id: "webui".to_string(),
-                self_id: "ruri".to_string(),
-                message_type: crate::platform::types::MessageType::FriendMessage,
-                group_id: String::new(),
-                state: state.clone(),
-            };
+        let user_id = req.user_id.clone().unwrap_or_default();
+        let session_id = req.session_id.clone().unwrap_or_default();
+        let cmd_ctx = crate::command::CommandContext {
+            raw_message: req.message.clone(),
+            command_name: String::new(),
+            args: String::new(),
+            prefix: dispatcher.prefix().to_string(),
+            session_id: session_id.clone(),
+            user_id: user_id.clone(),
+            platform_id: "webui".to_string(),
+            self_id: "ruri".to_string(),
+            message_type: crate::platform::types::MessageType::FriendMessage,
+            group_id: String::new(),
+            state: state.clone(),
+        };
 
-            if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
-                // Return the command result as a chat response
-                let message_dto = ChatMessageDto {
-                    role: "assistant".to_string(),
-                    content: serde_json::Value::String(result.reply),
-                    tool_calls: None,
-                    tool_call_id: None,
-                };
-                return Ok(Json(ChatResponseDto {
-                    message: message_dto,
-                    tool_results: None,
-                    usage: None,
-                }));
-            }
+        if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
+            // A known command was matched — return its result directly
+            let message_dto = ChatMessageDto {
+                role: "assistant".to_string(),
+                content: serde_json::Value::String(result.reply),
+                tool_calls: None,
+                tool_call_id: None,
+            };
+            return Ok(Json(ChatResponseDto {
+                message: message_dto,
+                tool_results: None,
+                usage: None,
+            }));
         }
     }
 
@@ -1237,27 +1232,20 @@ async fn stream_chat_message(
     // Store user message text for early use
     let user_message_text = req.message.clone();
 
-    // ── Command dispatch (same as non-streaming) ──────────────────
-    let is_command = {
-        let dispatcher = state.command_dispatcher.read().await;
-        dispatcher.is_command(&req.message)
-    };
-
-    if is_command {
+    // ── Command dispatch ────────────────────────────────────────
+    // Try to dispatch as a built-in command. If a known command matched,
+    // `dispatch` returns `Some(result)` and we skip the LLM. Otherwise
+    // (no prefix, prefix-only, or unrecognized command) we fall through
+    // to the agent / LLM.
+    {
         let dispatcher = state.command_dispatcher.read().await;
         let user_id = req.user_id.clone().unwrap_or_default();
         let session_id = req.session_id.clone().unwrap_or_default();
-        tracing::info!(
-            prefix = %dispatcher.prefix(),
-            user_id = %user_id,
-            session_id = %session_id,
-            source = "webui-stream",
-            "Detected command message, dispatching"
-        );
         let cmd_ctx = crate::command::CommandContext {
             raw_message: req.message.clone(),
             command_name: String::new(),
             args: String::new(),
+            prefix: dispatcher.prefix().to_string(),
             session_id: session_id.clone(),
             user_id: user_id.clone(),
             platform_id: "webui".to_string(),
@@ -1268,7 +1256,7 @@ async fn stream_chat_message(
         };
 
         if let Some(result) = dispatcher.dispatch(cmd_ctx).await {
-            // Return command result as an SSE stream
+            // A known command was matched — return its result as an SSE stream
             let reply = result.reply;
             let stream = async_stream::stream! {
                 let event = crate::types::StreamEvent::ContentDelta { delta: reply };

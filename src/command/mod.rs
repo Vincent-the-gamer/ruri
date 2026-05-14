@@ -37,6 +37,10 @@ pub struct CommandContext {
     pub command_name: String,
     /// Arguments after the command name (e.g. "key value" from "/set key value").
     pub args: String,
+    /// The command prefix configured for the active profile (e.g. "/" or "#").
+    /// Populated by the dispatcher so that command handlers can use the
+    /// correct prefix in messages (usage hints, help text, etc.).
+    pub prefix: String,
     /// Session ID of the current conversation.
     pub session_id: String,
     /// User ID of the message sender.
@@ -153,15 +157,22 @@ impl CommandDispatcher {
         self.enabled_commands.contains(&command_name.to_string())
     }
 
-    /// Check if a message is a command (starts with the prefix).
+    /// Check if a message starts with the command prefix.
+    ///
+    /// Note: a message starting with the prefix is **not** necessarily a known
+    /// command — it may be a prefix-only or unrecognized command that should
+    /// fall through to the LLM. Use `dispatch()` for the actual routing decision.
+    #[allow(dead_code)]
     pub fn is_command(&self, message: &str) -> bool {
         message.starts_with(&self.prefix)
     }
 
     /// Parse a message and dispatch to the appropriate command handler.
     ///
-    /// Returns `Some(CommandResult)` if the message was a recognized command,
-    /// or `None` if the message was not a command or the command was not found.
+    /// Returns `Some(CommandResult)` if a known command was matched and executed
+    /// (including disabled/admin-rejected commands which return an error message),
+    /// or `None` if the message should fall through to the LLM (no prefix,
+    /// prefix-only, or prefix + unrecognized command name).
     pub async fn dispatch(&self, ctx: CommandContext) -> Option<CommandResult> {
         let message = ctx.raw_message.trim();
 
@@ -182,7 +193,8 @@ impl CommandDispatcher {
             (without_prefix, "")
         };
 
-        // Ignore empty command (just the prefix)
+        // Empty command (just the prefix) — treat as a normal message
+        // so it falls through to the LLM.
         if cmd_name.is_empty() {
             return None;
         }
@@ -191,11 +203,23 @@ impl CommandDispatcher {
         let command = match self.commands.get(cmd_name) {
             Some(c) => c,
             None => {
+                // No built-in command matched — check if a skill package with
+                // `user_invocable: true` and `disable_model_invocation: true`
+                // can handle this directly (without calling the LLM).
+                if let Some(result) =
+                    Self::try_dispatch_skill_command(ctx.state.clone(), cmd_name, args, &ctx).await
+                {
+                    return Some(result);
+                }
+
+                // Unknown command — let it fall through to the LLM instead of
+                // returning an error, so that prefix-like messages still reach
+                // the model for a natural response.
                 tracing::info!(
                     command = %cmd_name,
                     user_id = %ctx.user_id,
                     session_id = %ctx.session_id,
-                    "Unknown command ignored"
+                    "Unrecognized command, falling through to LLM"
                 );
                 return None;
             }
@@ -207,9 +231,9 @@ impl CommandDispatcher {
                 command = %cmd_name,
                 user_id = %ctx.user_id,
                 session_id = %ctx.session_id,
-                "Command disabled, ignoring"
+                "Command disabled"
             );
-            return None;
+            return Some(CommandResult::text(format!("⚠ 指令 {} 已禁用。", cmd_name)));
         }
 
         // Check admin permission: use per-command override from config,
@@ -245,6 +269,7 @@ impl CommandDispatcher {
             raw_message: ctx.raw_message.clone(),
             command_name: cmd_name.to_string(),
             args: args.to_string(),
+            prefix: self.prefix.clone(),
             session_id: ctx.session_id,
             user_id: ctx.user_id,
             platform_id: ctx.platform_id,
@@ -317,6 +342,138 @@ impl CommandDispatcher {
             .collect();
         cmds.sort_by_key(|c| c.name.clone());
         cmds
+    }
+
+    /// Try to dispatch a command as a skill package invocation.
+    ///
+    /// When a built-in command is not found, this method checks whether a skill
+    /// package with `user_invocable: true` and `disable_model_invocation: true`
+    /// matches the command name. If so, the skill is executed directly (shell,
+    /// hooks) and its output is returned **without calling the LLM**.
+    async fn try_dispatch_skill_command(
+        state: Arc<crate::api::AppState>,
+        cmd_name: &str,
+        args: &str,
+        ctx: &CommandContext,
+    ) -> Option<CommandResult> {
+        use crate::agent::skill::SkillPackageSkill;
+
+        // Resolve the skill names that are active for the current context.
+        // For WebUI (platform_id == "webui") we use the debug session skills;
+        // for platform messages we use the config profile skills.
+        let skill_configs: Vec<(String, String, serde_json::Value)> = {
+            if ctx.platform_id == "webui" {
+                // Use debug session skills
+                let debug = state.debug_session.read().await;
+                debug
+                    .skills
+                    .iter()
+                    .filter(|s| debug.active_skill_names.contains(&s.name))
+                    .map(|s| {
+                        let config = serde_json::to_value(s.config.clone()).unwrap_or_default();
+                        (s.name.clone(), s.description.clone(), config)
+                    })
+                    .collect()
+            } else {
+                // Use global skills filtered by the active config profile
+                let skills = state.skills.read().await;
+                // Determine active skill names from config profiles
+                let profiles = state.config_profiles.read().await;
+                let active_profile = profiles
+                    .values()
+                    .find(|p| p.is_active && p.enable && p.platform_ids.contains(&ctx.platform_id))
+                    .or_else(|| profiles.values().find(|p| p.is_active && p.enable));
+
+                let active_names = active_profile.map(|p| p.active_skill_names.as_slice()).unwrap_or(&[]);
+
+                skills
+                    .iter()
+                    .filter(|(_, s)| s.is_active)
+                    .filter(|(name, _)| active_names.contains(name))
+                    .map(|(name, s)| {
+                        (name.clone(), s.description.clone(), s.config.clone())
+                    })
+                    .collect()
+            }
+        };
+
+        // Find a skill matching the command name
+        for (skill_name, description, config) in &skill_configs {
+            if skill_name != cmd_name {
+                continue;
+            }
+
+            // Check if this skill is user_invocable and disable_model_invocation
+            let user_invocable = config["user_invocable"].as_bool().unwrap_or(true);
+            let disable_model_invocation = config["disable_model_invocation"].as_bool().unwrap_or(false);
+
+            if !user_invocable || !disable_model_invocation {
+                continue;
+            }
+
+            tracing::info!(
+                skill = %skill_name,
+                user_id = %ctx.user_id,
+                session_id = %ctx.session_id,
+                platform = %ctx.platform_id,
+                "Dispatching skill command without model invocation"
+            );
+
+            // Build the skill from config
+            let skill = SkillPackageSkill::from_config(
+                skill_name.clone(),
+                description.clone(),
+                config,
+            );
+
+            // Execute the skill's shell command if defined
+            let mut result_parts = Vec::new();
+
+            // Run hooks
+            let hook_outputs = skill.run_hooks().await;
+            if !hook_outputs.is_empty() {
+                result_parts.push(format!("📦 Skill '{}':\n{}", skill_name, hook_outputs.join("\n\n")));
+            }
+
+            // Run the shell command if defined
+            if let Some(shell_cmd) = skill.shell_command() {
+                // Inject args into the shell command if provided
+                let full_cmd = if args.is_empty() {
+                    shell_cmd.clone()
+                } else {
+                    format!("{} {}", shell_cmd, args)
+                };
+
+                match SkillPackageSkill::run_shell_command(&full_cmd).await {
+                    Ok(output) => {
+                        tracing::info!(
+                            skill = %skill_name,
+                            output_len = output.len(),
+                            "Skill command executed"
+                        );
+                        result_parts.push(output);
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            skill = %skill_name,
+                            error = %e,
+                            "Skill command failed"
+                        );
+                        result_parts.push(format!("❌ 执行失败：{}", e));
+                    }
+                }
+            } else if result_parts.is_empty() {
+                // No shell and no hooks — nothing to execute
+                result_parts.push(format!(
+                    "📦 Skill '{}' executed (no shell command or hooks defined)",
+                    skill_name
+                ));
+            }
+
+            return Some(CommandResult::text(result_parts.join("\n\n")));
+        }
+
+        None
     }
 }
 
