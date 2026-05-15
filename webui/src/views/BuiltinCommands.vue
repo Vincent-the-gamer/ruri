@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
-import { getBuiltinCommands } from "../api";
+import { getBuiltinCommands, toggleCommandAdmin } from "../api";
 import type { BuiltinCommand } from "../types";
 
 const { t } = useI18n();
@@ -11,6 +11,7 @@ const configStore = useConfigStore();
 const commands = ref<BuiltinCommand[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
+const toggling = ref<string | null>(null);
 
 const commandPrefix = computed(() => configStore.commandPrefix);
 
@@ -19,6 +20,28 @@ const visibleCommands = computed(() => commands.value.filter((c) => !c.hidden));
 const enabledCount = computed(
     () => visibleCommands.value.filter((c) => c.enabled).length,
 );
+
+async function handleToggleAdmin(cmd: BuiltinCommand) {
+    if (toggling.value) return;
+    toggling.value = cmd.name;
+    try {
+        const newAdminRequired = !cmd.require_admin;
+        await toggleCommandAdmin(cmd.name, newAdminRequired);
+        // Update local state
+        const target = commands.value.find((c) => c.name === cmd.name);
+        if (target) {
+            target.require_admin = newAdminRequired;
+        }
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        error.value = t("builtinCommands.toggleFailed") + ": " + msg;
+        setTimeout(() => {
+            error.value = null;
+        }, 3000);
+    } finally {
+        toggling.value = null;
+    }
+}
 
 onMounted(async () => {
     loading.value = true;
@@ -167,11 +190,41 @@ onMounted(async () => {
                                         : t("builtinCommands.disabled")
                                 }}
                             </span>
-                            <span v-if="cmd.require_admin" class="admin-badge">
-                                🔒 {{ t("builtinCommands.requireAdmin") }}
+                            <span
+                                v-if="cmd.require_admin"
+                                class="admin-badge clickable"
+                                :class="{ toggling: toggling === cmd.name }"
+                                :title="t('builtinCommands.toggleOpen')"
+                                @click="handleToggleAdmin(cmd)"
+                            >
+                                <span
+                                    v-if="toggling === cmd.name"
+                                    class="toggle-spinner-inline"
+                                ></span>
+                                <template v-else
+                                    >🔒
+                                    {{
+                                        t("builtinCommands.requireAdmin")
+                                    }}</template
+                                >
                             </span>
-                            <span v-else class="open-badge">
-                                🌐 {{ t("builtinCommands.openToAll") }}
+                            <span
+                                v-else
+                                class="open-badge clickable"
+                                :class="{ toggling: toggling === cmd.name }"
+                                :title="t('builtinCommands.toggleAdmin')"
+                                @click="handleToggleAdmin(cmd)"
+                            >
+                                <span
+                                    v-if="toggling === cmd.name"
+                                    class="toggle-spinner-inline"
+                                ></span>
+                                <template v-else
+                                    >🌐
+                                    {{
+                                        t("builtinCommands.openToAll")
+                                    }}</template
+                                >
                             </span>
                         </div>
                         <p class="command-desc">{{ cmd.description }}</p>
@@ -490,6 +543,37 @@ onMounted(async () => {
 
 .dark .open-badge {
     color: hsl(142 76% 70%);
+}
+
+.clickable {
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.clickable:hover {
+    filter: brightness(0.9);
+    transform: scale(1.05);
+}
+
+.clickable:active {
+    transform: scale(0.95);
+}
+
+.clickable.toggling {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.toggle-spinner-inline {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid hsl(var(--border));
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
 }
 
 .command-desc {

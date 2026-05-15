@@ -141,6 +141,11 @@ impl CommandDispatcher {
         self.commands.insert(command.name().to_string(), command);
     }
 
+    /// Get a reference to the registered commands map.
+    pub fn commands(&self) -> &HashMap<String, Arc<dyn Command>> {
+        &self.commands
+    }
+
     /// Get the current prefix.
     #[allow(dead_code)]
     pub fn prefix(&self) -> &str {

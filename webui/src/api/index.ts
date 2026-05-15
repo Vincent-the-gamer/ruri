@@ -542,6 +542,11 @@ export async function getBuiltinCommands(): Promise<BuiltinCommand[]> {
   return res.data
 }
 
+export async function toggleCommandAdmin(commandName: string, requireAdmin: boolean): Promise<{ command: string; require_admin: boolean }> {
+  const res = await client.patch(`/api/commands/${commandName}/admin`, { require_admin: requireAdmin })
+  return res.data
+}
+
 // ─── Auth ──────────────────────────────────────────────────────
 
 export async function login(data: LoginRequest): Promise<LoginResponse> {

@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::{IntoResponse, Response, sse::Event},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
@@ -124,6 +124,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/tools", get(list_tools))
         // Built-in commands
         .route("/api/commands", get(list_builtin_commands))
+        .route("/api/commands/{name}/admin", patch(toggle_command_admin))
         // Chat
         .route("/api/chat", post(send_chat_message))
         .route("/api/chat/stream", post(stream_chat_message))
@@ -2767,6 +2768,100 @@ async fn list_builtin_commands(
         &merged_command_admin_required,
         &merged_enabled_commands,
     ))
+}
+
+/// Toggle the admin requirement for a specific built-in command.
+/// Updates all active config profiles and re-syncs the dispatcher.
+#[derive(Debug, Deserialize)]
+struct ToggleCommandAdminRequest {
+    /// true = admin required, false = open to all
+    require_admin: bool,
+}
+
+async fn toggle_command_admin(
+    State(state): State<Arc<AppState>>,
+    Path(command_name): Path<String>,
+    Json(req): Json<ToggleCommandAdminRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Validate the command exists
+    {
+        let dispatcher = state.command_dispatcher.read().await;
+        if !dispatcher.commands().contains_key(command_name.as_str()) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("Command '{}' not found", command_name)})),
+            ));
+        }
+    }
+
+    // Update all active config profiles
+    let mut profiles = state.config_profiles.write().await;
+    let active_profiles: Vec<_> = profiles
+        .values_mut()
+        .filter(|p| p.is_active && p.enable)
+        .collect();
+
+    if active_profiles.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                json!({"error": "No active config profile found. Please activate a profile first."}),
+            ),
+        ));
+    }
+
+    for profile in active_profiles {
+        profile
+            .command_admin_required
+            .insert(command_name.clone(), req.require_admin);
+        profile.updated_at = Utc::now();
+    }
+    drop(profiles);
+
+    // Re-merge and sync dispatcher + computer_use_config
+    {
+        let profiles = state.config_profiles.read().await;
+        let active_profiles: Vec<_> = profiles
+            .values()
+            .filter(|p| p.is_active && p.enable)
+            .collect();
+
+        let mut merged_enabled_commands: Vec<String> = Vec::new();
+        let mut merged_command_admin_required: std::collections::HashMap<String, bool> =
+            std::collections::HashMap::new();
+        let effective_prefix = active_profiles[0].command_prefix.clone();
+
+        for profile in &active_profiles {
+            for cmd in &profile.enabled_commands {
+                if !merged_enabled_commands.contains(cmd) {
+                    merged_enabled_commands.push(cmd.clone());
+                }
+            }
+            for (cmd, admin_req) in &profile.command_admin_required {
+                merged_command_admin_required.insert(cmd.clone(), *admin_req);
+            }
+        }
+
+        let mut dispatcher = state.command_dispatcher.write().await;
+        dispatcher.set_prefix(effective_prefix);
+        dispatcher.set_enabled_commands(merged_enabled_commands);
+        drop(dispatcher);
+        let mut computer_use_config = state.computer_use_config.write().await;
+        computer_use_config.command_admin_required = merged_command_admin_required;
+    }
+
+    state.auto_save().await;
+
+    tracing::info!(
+        command = %command_name,
+        require_admin = req.require_admin,
+        "Toggled command admin requirement"
+    );
+
+    Ok(Json(json!({
+        "command": command_name,
+        "require_admin": req.require_admin,
+    })))
 }
 
 /// Get the provider associated with a config profile
