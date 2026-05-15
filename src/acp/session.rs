@@ -32,6 +32,7 @@ impl AcpSession {
         computer_use_config: crate::computer_use::ComputerUseConfig,
         knowledge_base_service: Arc<RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
         active_knowledge_base_ids: Vec<String>,
+        persona_prompt: Option<String>,
     ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -195,6 +196,17 @@ impl AcpSession {
             );
         }
 
+        // Set persona as the system prompt if configured.
+        // Persona is NOT added as a skill — it is set as the agent's sole
+        // system message. Skills (including KB) dynamically inject their
+        // context into user messages, never as system messages.
+        if let Some(ref prompt) = persona_prompt {
+            if !prompt.is_empty() {
+                tracing::info!("Setting persona as system prompt for ACP agent");
+                agent.set_system_prompt(prompt);
+            }
+        }
+
         agent.initialize_skills().await;
 
         Self {
@@ -265,14 +277,15 @@ impl SessionManager {
             .insert(session_id, connection);
     }
 
-    /// Create a new session with skills and return its ID.
-    pub async fn create_session_with_skills(
+    /// Create a new session with skills and persona, returning its ID.
+    pub async fn create_session_with_skills_and_persona(
         &self,
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        persona_prompt: Option<String>,
     ) -> String {
-        self.create_session_with_skills_and_acp(provider, cwd, skills, None)
+        self.create_session_with_skills_and_acp(provider, cwd, skills, None, persona_prompt)
             .await
     }
 
@@ -283,6 +296,7 @@ impl SessionManager {
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
         session_id: Option<String>,
+        persona_prompt: Option<String>,
     ) -> String {
         let session_id_val = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let session = AcpSession::new_with_skills_and_acp(
@@ -294,6 +308,7 @@ impl SessionManager {
             self.computer_use_config.clone(),
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
+            persona_prompt,
         )
         .await;
         self.sessions
@@ -322,13 +337,14 @@ impl SessionManager {
         }
     }
 
-    /// Load an existing session with skills applied.
-    pub async fn load_session_with_skills(
+    /// Load an existing session with skills and persona applied.
+    pub async fn load_session_with_skills_and_persona(
         &self,
         provider: Box<dyn Provider>,
         session_id: String,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        persona_prompt: Option<String>,
     ) -> bool {
         let session = AcpSession::new_with_skills_and_acp(
             provider,
@@ -339,6 +355,7 @@ impl SessionManager {
             self.computer_use_config.clone(),
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
+            persona_prompt,
         )
         .await;
         self.sessions.write().await.insert(session_id, session);

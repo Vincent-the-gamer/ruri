@@ -14,7 +14,6 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::acp::session::{AcpSession, SessionManager};
-use crate::agent::skill::SystemPromptSkill;
 use crate::api::state::{
     AppState, PersistedConfig, PersistedProvider, PersistedSkill, StoredProvider, StoredSkill,
     default_config_path,
@@ -271,11 +270,11 @@ async fn handle_session_new(
     let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let skills = pf.build_skills();
+    let (skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
     let session_id = session_manager
-        .create_session_with_skills(provider, cwd, skills)
+        .create_session_with_skills_and_persona(provider, cwd, skills, persona_prompt)
         .await;
 
     // Register connection for ACP file system operations
@@ -311,11 +310,17 @@ async fn handle_session_load(
     let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let skills = pf.build_skills();
+    let (skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
     session_manager
-        .load_session_with_skills(provider, session_id.clone(), cwd, skills)
+        .load_session_with_skills_and_persona(
+            provider,
+            session_id.clone(),
+            cwd,
+            skills,
+            persona_prompt,
+        )
         .await;
 
     // Register connection for ACP file system operations
@@ -654,15 +659,21 @@ impl ProviderFactory {
         self.create_provider_from_env()
     }
 
-    /// Build skill instances based on the persisted ACP config.
-    /// Only returns skills whose names are listed in `acp_config.active_skill_names`.
-    /// Also injects the persona system prompt if configured and active.
-    pub fn build_skills(&mut self) -> Vec<Arc<dyn crate::agent::skill::Skill>> {
+    /// Build skill instances and resolve persona based on the persisted ACP config.
+    ///
+    /// Returns a tuple of (skills, persona_prompt):
+    /// - `skills`: only the skills listed in `acp_config.active_skill_names`
+    /// - `persona_prompt`: the persona system prompt from the active config profile,
+    ///   if configured. This should be set via `agent.set_system_prompt()`, NOT
+    ///   added as a skill, to ensure it remains the sole system message.
+    pub fn build_skills_and_persona(
+        &mut self,
+    ) -> (Vec<Arc<dyn crate::agent::skill::Skill>>, Option<String>) {
         // Hot-reload config so new sessions pick up WebUI changes
         self.reload_config();
 
         let Some(ref config) = self.config else {
-            return Vec::new();
+            return (Vec::new(), None);
         };
 
         let mut skills: Vec<Arc<dyn crate::agent::skill::Skill>> = Vec::new();
@@ -679,24 +690,28 @@ impl ProviderFactory {
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
 
-        // Inject persona system prompt from the active config profile's embedded_persona
+        // Resolve persona from the active config profile
         let active_profile_persona = config
             .config_profiles
             .values()
             .filter(|p| p.is_active && p.enable)
             .find_map(|p| p.embedded_persona.clone());
 
-        if let Some(persona) = active_profile_persona {
+        let persona_prompt = if let Some(persona) = active_profile_persona {
             if !persona.prompt.is_empty() {
                 tracing::info!(
                     persona_name = %persona.name,
-                    "ACP injecting persona system prompt"
+                    "ACP resolved persona system prompt"
                 );
-                skills.push(Arc::new(SystemPromptSkill::new(&persona.prompt)));
+                Some(persona.prompt)
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
-        skills
+        (skills, persona_prompt)
     }
 
     /// Convert a PersistedProvider to a StoredProvider.

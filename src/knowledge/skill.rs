@@ -196,65 +196,79 @@ impl Skill for KnowledgeBaseSkill {
         if self.knowledge_base_ids.is_empty() {
             return Vec::new();
         }
-        let prompt = match self.retrieval_mode {
-            KnowledgeBaseRetrievalMode::ToolBased => {
-                "You have access to a knowledge base search tool. When the user's question might benefit \
-                 from information in the knowledge base, call the `knowledge_base_search` tool with a \
-                 search query to retrieve relevant context. Do NOT call it for casual conversation or \
-                 when you can answer from your own knowledge. Always cite the source document when \
-                 using knowledge base information."
-            }
-            KnowledgeBaseRetrievalMode::Auto => {
-                "Knowledge base context is automatically injected before your responses. When you see \
-                 content prefixed with '--- Relevant Knowledge ---', it has been retrieved from the \
-                 knowledge base and is relevant to the user's question. Use this context to enhance \
-                 your response and always cite the source document when using knowledge base information. \
-                 You do NOT need to call the `knowledge_base_search` tool as context is already provided."
-            }
-            KnowledgeBaseRetrievalMode::Hybrid => {
-                "You have access to a knowledge base. Relevant knowledge base context is automatically \
-                 injected into user messages when available (prefixed with '--- Relevant Knowledge ---'). \
-                 Use this context to enhance your responses and always cite source documents. \
-                 If you need additional information that wasn't automatically provided, you can call \
-                 the `knowledge_base_search` tool to retrieve more specific context. \
-                 Do NOT call the search tool for casual conversation or when you can answer from \
-                 your own knowledge or the already-provided context."
-            }
-        };
-        vec![ChatMessage::system(prompt)]
+        // Do NOT inject a system message. Instead, the KB instructions and
+        // retrieved context are dynamically injected into user messages via
+        // on_user_message(). This ensures the persona remains the sole
+        // system message.
+        Vec::new()
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
-        // Auto and Hybrid modes inject context; ToolBased does not.
-        if matches!(self.retrieval_mode, KnowledgeBaseRetrievalMode::ToolBased) {
-            return;
-        }
-
-        // Retrieve context based on the last user message
         if let Some(last) = messages.last_mut() {
             if last.role == crate::types::MessageRole::User {
                 if let Some(ref content) = last.content {
                     let text = content.as_text_full().unwrap_or_default();
                     if !text.is_empty() {
-                        let guard = self.service.read().await;
-                        if let Some(service) = guard.as_ref() {
-                            match service
-                                .retrieve_context(
-                                    &self.knowledge_base_ids,
-                                    &text,
-                                    DEFAULT_KB_SEARCH_TOP_K,
-                                    2, // context_window: include 2 neighboring chunks for better coverage
-                                    4096,
-                                    None,
-                                )
-                                .await
-                            {
-                                Ok(context) if !context.is_empty() => {
-                                    let new_content = format!("{}\n\n{}", context, text);
-                                    last.content = Some(MessageContent::Text(new_content));
-                                }
-                                _ => {} // No relevant context found, proceed without it
+                        let mut context_parts = Vec::new();
+
+                        // Inject KB instruction based on retrieval mode
+                        let instruction = match self.retrieval_mode {
+                            KnowledgeBaseRetrievalMode::ToolBased => {
+                                "You have access to a knowledge base search tool. When the user's question might benefit \
+                                 from information in the knowledge base, call the `knowledge_base_search` tool with a \
+                                 search query to retrieve relevant context. Do NOT call it for casual conversation or \
+                                 when you can answer from your own knowledge. Always cite the source document when \
+                                 using knowledge base information."
                             }
+                            KnowledgeBaseRetrievalMode::Auto => {
+                                "Knowledge base context is automatically injected before your responses. When you see \
+                                 content prefixed with '--- Relevant Knowledge ---', it has been retrieved from the \
+                                 knowledge base and is relevant to the user's question. Use this context to enhance \
+                                 your response and always cite the source document when using knowledge base information. \
+                                 You do NOT need to call the `knowledge_base_search` tool as context is already provided."
+                            }
+                            KnowledgeBaseRetrievalMode::Hybrid => {
+                                "You have access to a knowledge base. Relevant knowledge base context is automatically \
+                                 injected into your messages when available (prefixed with '--- Relevant Knowledge ---'). \
+                                 Use this context to enhance your responses and always cite source documents. \
+                                 If you need additional information that wasn't automatically provided, you can call \
+                                 the `knowledge_base_search` tool to retrieve more specific context. \
+                                 Do NOT call the search tool for casual conversation or when you can answer from \
+                                 your own knowledge or the already-provided context."
+                            }
+                        };
+                        context_parts.push(instruction.to_string());
+
+                        // Auto and Hybrid modes retrieve and inject context; ToolBased does not.
+                        if !matches!(self.retrieval_mode, KnowledgeBaseRetrievalMode::ToolBased) {
+                            let guard = self.service.read().await;
+                            if let Some(service) = guard.as_ref() {
+                                match service
+                                    .retrieve_context(
+                                        &self.knowledge_base_ids,
+                                        &text,
+                                        DEFAULT_KB_SEARCH_TOP_K,
+                                        2,
+                                        4096,
+                                        None,
+                                    )
+                                    .await
+                                {
+                                    Ok(context) if !context.is_empty() => {
+                                        context_parts.push(context);
+                                    }
+                                    _ => {} // No relevant context found
+                                }
+                            }
+                        }
+
+                        if !context_parts.is_empty() {
+                            let context_block = context_parts.join("\n\n");
+                            let new_content = format!(
+                                "[Knowledge Base Context]\n{}\n[/Knowledge Base Context]\n\n{}",
+                                context_block, text
+                            );
+                            last.content = Some(MessageContent::Text(new_content));
                         }
                     }
                 }

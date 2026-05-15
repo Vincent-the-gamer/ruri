@@ -254,7 +254,12 @@ async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
             persona_id: selectedPersonaId.value,
-            embedded_persona: null,
+            // Preserve embedded_persona if no persona_id is selected.
+            // Only set embedded_persona to null when a persona_id is explicitly
+            // chosen (the persona library takes over). This prevents accidentally
+            // wiping the persona when the user only changes other settings like
+            // knowledge bases.
+            embedded_persona: selectedPersonaId.value ? null : undefined,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,

@@ -1,5 +1,4 @@
 use crate::types::ChatMessage;
-use crate::types::message::MessageContent;
 use async_trait::async_trait;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -571,57 +570,29 @@ impl Skill for SkillPackageSkill {
         if prompt.is_empty() {
             Vec::new()
         } else {
+            // Return as a system message — this will be collected by
+            // Agent::initialize_skills() into skill_contexts and dynamically
+            // injected into user messages, NOT as a system prompt.
             vec![ChatMessage::system(&prompt)]
         }
     }
 
-    async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
+    async fn on_user_message(&self, _messages: &mut Vec<ChatMessage>) {
+        // The skill's static context (from on_attach) is automatically injected
+        // into user messages by Agent::inject_skill_contexts(). We only need
+        // to handle dynamic per-turn context here.
+
         // If this skill has a "when_to_use" directive, skip automatic context injection.
-        // The system prompt from on_attach() already describes when to use this skill,
-        // and the model will apply it based on relevance. Auto-injecting on every
-        // message would be wasteful and noisy.
+        // The collected context from on_attach() already describes when to use
+        // this skill, and the model will apply it based on relevance.
         if self.when_to_use.is_some() {
             return;
         }
 
         // Skills without when_to_use are "always-on" context injectors.
-        // Inject context prefix and shell output as before.
-
-        // If there's a context prefix, inject it
-        if let Some(ref context) = self.context {
-            if let Some(last) = messages.last_mut() {
-                if last.role == crate::types::MessageRole::User {
-                    if let Some(ref content) = last.content {
-                        let text = content.as_text_full().unwrap_or_default();
-                        let new_content = format!(
-                            "[Context from skill '{}': {}]\n\n{}",
-                            self.name, context, text
-                        );
-                        last.content = Some(MessageContent::Text(new_content));
-                    }
-                }
-            }
-        }
-
-        // If we have cached shell output from on_attach, inject it as context
-        let shell_out = self.shell_output.read().await.clone();
-        if let Some(ref output) = shell_out {
-            if let Some(last) = messages.last_mut() {
-                if last.role == crate::types::MessageRole::User {
-                    if let Some(ref content) = last.content {
-                        let text = content.as_text_full().unwrap_or_default();
-                        // Only inject on the first user message (don't repeat)
-                        if !text.contains("[Shell Output from skill") {
-                            let new_content = format!(
-                                "[Shell Output from skill '{}':\n{}]\n\n{}",
-                                self.name, output, text
-                            );
-                            last.content = Some(MessageContent::Text(new_content));
-                        }
-                    }
-                }
-            }
-        }
+        // The static context (context prefix, shell output) is already handled
+        // by inject_skill_contexts(). We don't need to duplicate it here.
+        // Dynamic per-turn logic would go here if needed in the future.
     }
 
     async fn on_response(&self, response: &mut ChatMessage) {
