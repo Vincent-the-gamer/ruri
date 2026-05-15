@@ -44,10 +44,10 @@ const effectivePersona = computed(() => {
             };
         }
     }
-    // Fall back to embedded persona
-    return (
-        debugSessionStore.embeddedPersona ?? configStore.activeEmbeddedPersona
-    );
+    // Fall back to debug session's embedded persona (legacy).
+    // Does NOT fall back to config profile's persona — the debug session
+    // manages its own persona independently.
+    return debugSessionStore.embeddedPersona;
 });
 
 const effectiveProvider = computed(() => {

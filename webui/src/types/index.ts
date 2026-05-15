@@ -804,14 +804,18 @@ export interface DebugSession {
   providers: EmbeddedProvider[]
   active_provider: string | null
   provider_id: string | null
+  web_search_enabled: boolean
+  computer_use_enabled: boolean
+  skills: EmbeddedSkill[]
+  active_skill_names: string[]
+  knowledge_base_ids: string[]
+  proxy_config: ProxyConfig
+  command_prefix: string
+  enabled_commands: string[]
+  command_admin_required: Record<string, boolean>
   temperature: number | null
   max_tokens: number | null
   custom_error_message: string | null
-  knowledge_base_ids: string[]
-  skills: EmbeddedSkill[]
-  active_skill_names: string[]
-  command_prefix: string
-  enabled_commands: string[]
 }
 
 export interface UpdateDebugSessionRequest {
@@ -820,14 +824,18 @@ export interface UpdateDebugSessionRequest {
   providers?: EmbeddedProvider[]
   active_provider?: string | null
   provider_id?: string | null
+  web_search_enabled?: boolean
+  computer_use_enabled?: boolean
+  skills?: EmbeddedSkill[]
+  active_skill_names?: string[]
+  knowledge_base_ids?: string[]
+  proxy_config?: ProxyConfig
+  command_prefix?: string
+  enabled_commands?: string[]
+  command_admin_required?: Record<string, boolean>
   temperature?: number | null
   max_tokens?: number | null
   custom_error_message?: string | null
-  knowledge_base_ids?: string[]
-  skills?: EmbeddedSkill[]
-  active_skill_names?: string[]
-  command_prefix?: string
-  enabled_commands?: string[]
 }
 
 

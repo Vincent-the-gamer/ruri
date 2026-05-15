@@ -19,6 +19,10 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
   const embeddedPersona = computed(() => debugSession.value?.embedded_persona ?? null)
   const commandPrefix = computed(() => debugSession.value?.command_prefix ?? '/')
   const enabledCommands = computed(() => debugSession.value?.enabled_commands ?? [])
+  const webSearchEnabled = computed(() => debugSession.value?.web_search_enabled ?? false)
+  const computerUseEnabled = computed(() => debugSession.value?.computer_use_enabled ?? false)
+  const proxyConfig = computed(() => debugSession.value?.proxy_config)
+  const commandAdminRequired = computed(() => debugSession.value?.command_admin_required ?? {})
 
   async function fetchDebugSession() {
     loading.value = true
@@ -62,6 +66,10 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
     embeddedPersona,
     commandPrefix,
     enabledCommands,
+    webSearchEnabled,
+    computerUseEnabled,
+    proxyConfig,
+    commandAdminRequired,
     fetchDebugSession,
     updateDebugSessionConfig,
   }

@@ -577,9 +577,11 @@ pub struct ConfigProfileDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     /// Persona ID reference to the persona library (hot-reload enabled)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Always serialized — null means "no reference" so the frontend can
+    /// distinguish between "not set" and "intentionally cleared".
+    #[serde(default)]
     pub persona_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
@@ -598,7 +600,7 @@ pub struct ConfigProfileDto {
     pub command_admin_required: HashMap<String, bool>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
     /// Platform instance IDs that this profile is associated with.
     #[serde(default)]
@@ -614,9 +616,9 @@ pub struct CreateConfigProfileRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     /// Persona ID reference to the persona library (hot-reload enabled)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub persona_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
@@ -1048,34 +1050,43 @@ pub struct EmbeddedSkillDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugSessionDto {
     /// Persona ID reference to the persona library (hot-reload enabled)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Always serialized — null means "no reference" so the frontend can
+    /// distinguish between "not set" and "intentionally cleared".
+    #[serde(default)]
     pub persona_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub embedded_persona: Option<EmbeddedPersonaDto>,
     #[serde(default)]
     pub providers: Vec<EmbeddedProviderDto>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_provider: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
-    #[serde(default)]
-    pub temperature: Option<f64>,
-    #[serde(default)]
-    pub max_tokens: Option<u64>,
-    #[serde(default)]
-    pub custom_error_message: Option<String>,
-    #[serde(default)]
-    pub knowledge_base_ids: Vec<String>,
+    pub web_search_enabled: bool,
+    pub computer_use_enabled: bool,
     #[serde(default)]
     pub skills: Vec<EmbeddedSkillDto>,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    #[serde(default)]
+    pub knowledge_base_ids: Vec<String>,
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
     /// Built-in command prefix for debug session (default: "/").
     #[serde(default = "default_command_prefix_dto")]
     pub command_prefix: String,
     /// List of enabled built-in command names.
     #[serde(default)]
     pub enabled_commands: Vec<String>,
+    /// Per-command admin requirement overrides.
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 /// Request DTO for updating debug session configuration
@@ -1092,21 +1103,29 @@ pub struct UpdateDebugSessionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<Option<f64>>,
+    pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<Option<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_error_message: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub knowledge_base_ids: Option<Vec<String>>,
+    pub computer_use_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<EmbeddedSkillDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub knowledge_base_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_config: Option<crate::types::ProxyConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command_prefix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled_commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_admin_required: Option<HashMap<String, bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<Option<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<Option<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<Option<String>>,
 }
 
 impl From<&crate::api::state::EmbeddedProvider> for EmbeddedProviderDto {

@@ -208,7 +208,7 @@ export default {
     personaLibraryRef: '📚 人设库引用（支持热重载）',
     noReference: '— 无引用 —',
     personaRefHelp: '从人设库中选择一个人设。人设库中的更改会立即生效。',
-    noPersonaHint: '未选择人设，将跟随配置文件中的设置',
+    noPersonaHint: '未选择人设，调试会话将不使用任何人设',
     customErrorMessage: '自定义错误信息',
     customErrorMessagePlaceholder: '例如: 抱歉，处理您的请求时遇到了问题',
     customErrorMessageHint: '大模型/API 请求失败时，向用户显示此自定义信息；工具调用错误始终显示实际报错。留空则显示原始错误信息。',

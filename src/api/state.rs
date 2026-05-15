@@ -110,24 +110,24 @@ pub struct PersistedConfigProfile {
     pub updated_at: String,
     /// Legacy field: references a global provider by ID.
     /// New profiles should use `embedded_providers` instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     /// Persona ID reference to the persona library.
     /// When set, the persona is loaded dynamically from the library at runtime.
     /// This allows hot-reloading: changes to the persona in the library take effect immediately.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_id: Option<String>,
     /// Embedded persona configuration (legacy, for backward compatibility).
     /// New profiles should use `persona_id` to reference the persona library instead.
     /// If both are set, `persona_id` takes priority.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations - independent copies for this profile.
     /// Takes priority over provider_id if both are set.
     #[serde(default)]
     pub embedded_providers: Vec<EmbeddedProvider>,
     /// Active embedded provider name within this profile.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_embedded_provider: Option<String>,
     /// Embedded skill configurations - independent copies for this profile.
     #[serde(default)]
@@ -156,7 +156,7 @@ pub struct PersistedConfigProfile {
     pub command_admin_required: HashMap<String, bool>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
     /// Platform instance IDs that this profile is associated with.
     /// A platform instance can only belong to one config profile at a time.
@@ -208,40 +208,39 @@ pub struct PersistedConfig {
 pub struct DebugSessionConfig {
     /// Embedded persona configuration. This is the single source of truth
     /// for persona data within this debug session — no global persona references.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations for debug sessions
     #[serde(default)]
     pub providers: Vec<EmbeddedProvider>,
     /// Active embedded provider name for debug sessions
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_provider: Option<String>,
     /// Legacy: Provider ID override for debug sessions (references global provider)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
-    /// Temperature override
-    #[serde(default)]
-    pub temperature: Option<f64>,
-    /// Max tokens override
-    #[serde(default)]
-    pub max_tokens: Option<u64>,
-    /// Custom error message
-    #[serde(default)]
-    pub custom_error_message: Option<String>,
-    /// Active knowledge base IDs
-    #[serde(default)]
-    pub knowledge_base_ids: Vec<String>,
     /// Persona ID reference to the persona library.
     /// When set, the persona is loaded dynamically from the library at runtime.
-    /// This allows hot-reloading: changes to the persona in the library take effect immediately.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_id: Option<String>,
+    /// Whether web search is enabled for this debug session.
+    #[serde(default)]
+    pub web_search_enabled: bool,
+    /// Whether computer use is enabled for this debug session.
+    #[serde(default)]
+    pub computer_use_enabled: bool,
     /// Embedded skill configurations for debug sessions
     #[serde(default)]
     pub skills: Vec<EmbeddedSkill>,
     /// Active embedded skill names for debug sessions
     #[serde(default)]
     pub active_skill_names: Vec<String>,
+    /// Active knowledge base IDs
+    #[serde(default)]
+    pub knowledge_base_ids: Vec<String>,
+    /// Proxy configuration for this debug session.
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
     /// Built-in command prefix for debug session (default: "/").
     #[serde(default = "default_command_prefix")]
     pub command_prefix: String,
@@ -249,6 +248,18 @@ pub struct DebugSessionConfig {
     /// Empty means all commands enabled.
     #[serde(default)]
     pub enabled_commands: Vec<String>,
+    /// Per-command admin requirement overrides for this debug session.
+    #[serde(default)]
+    pub command_admin_required: HashMap<String, bool>,
+    /// Temperature override
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Max tokens override
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    /// Custom error message
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_error_message: Option<String>,
 }
 
 // ─── Internal Helper Types ───────────────────────────────────────
@@ -1780,45 +1791,37 @@ impl AppState {
         use_debug_session: bool,
         profile_id: Option<&str>,
     ) -> Option<ResolvedConfigContext> {
-        // 1. Debug session takes highest priority when requested
+        // 1. Debug session takes highest priority when requested.
+        // Always return the debug session context when use_debug_session is true,
+        // even if it appears "empty". This ensures intentional choices like
+        // selecting "No reference" for persona (persona_id = None) are not
+        // silently overridden by a config profile's persona via fallback.
+        // Other fields (temperature, max_tokens, knowledge_base_ids, etc.)
+        // also need this consistent behavior.
         if use_debug_session {
             let debug = self.debug_session.read().await;
-            // Return debug session context if it has ANY configuration:
-            // - embedded providers, OR
-            // - a provider_id reference, OR
-            // - a persona_id reference, OR
-            // - embedded skills
-            let has_debug_config = !debug.providers.is_empty()
-                || debug
-                    .provider_id
-                    .as_ref()
-                    .map_or(false, |id| !id.is_empty())
-                || debug.persona_id.is_some()
-                || !debug.skills.is_empty();
 
-            if has_debug_config {
-                // Determine the effective provider source for the debug session
-                let effective_provider_id = if debug.providers.is_empty() {
-                    // No embedded providers, use the provider_id reference
-                    debug.provider_id.clone()
-                } else {
-                    None // embedded providers take precedence
-                };
+            // Determine the effective provider source for the debug session
+            let effective_provider_id = if debug.providers.is_empty() {
+                // No embedded providers, use the provider_id reference
+                debug.provider_id.clone()
+            } else {
+                None // embedded providers take precedence
+            };
 
-                return Some(ResolvedConfigContext {
-                    source: "debug_session".to_string(),
-                    embedded_providers: debug.providers.clone(),
-                    active_embedded_provider: debug.active_provider.clone(),
-                    provider_id: effective_provider_id,
-                    persona_id: debug.persona_id.clone(),
-                    embedded_persona: debug.embedded_persona.clone(),
-                    embedded_skills: debug.skills.clone(),
-                    active_embedded_skill_names: debug.active_skill_names.clone(),
-                    active_skill_names: Vec::new(), // debug session uses embedded skills only
-                    knowledge_base_ids: debug.knowledge_base_ids.clone(),
-                    proxy_config: crate::types::ProxyConfig::default(),
-                });
-            }
+            return Some(ResolvedConfigContext {
+                source: "debug_session".to_string(),
+                embedded_providers: debug.providers.clone(),
+                active_embedded_provider: debug.active_provider.clone(),
+                provider_id: effective_provider_id,
+                persona_id: debug.persona_id.clone(),
+                embedded_persona: debug.embedded_persona.clone(),
+                embedded_skills: debug.skills.clone(),
+                active_embedded_skill_names: debug.active_skill_names.clone(),
+                active_skill_names: Vec::new(), // debug session uses embedded skills only
+                knowledge_base_ids: debug.knowledge_base_ids.clone(),
+                proxy_config: debug.proxy_config.clone(),
+            });
         }
 
         let profiles = self.config_profiles.read().await;

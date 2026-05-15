@@ -4911,14 +4911,18 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
         providers: session.providers.iter().map(Into::into).collect(),
         active_provider: session.active_provider.clone(),
         provider_id: session.provider_id.clone(),
+        web_search_enabled: session.web_search_enabled,
+        computer_use_enabled: session.computer_use_enabled,
+        skills: session.skills.iter().map(Into::into).collect(),
+        active_skill_names: session.active_skill_names.clone(),
+        knowledge_base_ids: session.knowledge_base_ids.clone(),
+        proxy_config: session.proxy_config.clone(),
+        command_prefix: session.command_prefix.clone(),
+        enabled_commands: session.enabled_commands.clone(),
+        command_admin_required: session.command_admin_required.clone(),
         temperature: session.temperature,
         max_tokens: session.max_tokens,
         custom_error_message: session.custom_error_message.clone(),
-        knowledge_base_ids: session.knowledge_base_ids.clone(),
-        skills: session.skills.iter().map(Into::into).collect(),
-        active_skill_names: session.active_skill_names.clone(),
-        command_prefix: session.command_prefix.clone(),
-        enabled_commands: session.enabled_commands.clone(),
     };
 
     Json(dto)
@@ -4952,17 +4956,11 @@ async fn update_debug_session(
         if let Some(provider_id) = req.provider_id {
             session.provider_id = provider_id;
         }
-        if let Some(temperature) = req.temperature {
-            session.temperature = temperature;
+        if let Some(web_search_enabled) = req.web_search_enabled {
+            session.web_search_enabled = web_search_enabled;
         }
-        if let Some(max_tokens) = req.max_tokens {
-            session.max_tokens = max_tokens;
-        }
-        if let Some(custom_error_message) = req.custom_error_message {
-            session.custom_error_message = custom_error_message;
-        }
-        if let Some(knowledge_base_ids) = req.knowledge_base_ids {
-            session.knowledge_base_ids = knowledge_base_ids;
+        if let Some(computer_use_enabled) = req.computer_use_enabled {
+            session.computer_use_enabled = computer_use_enabled;
         }
         if let Some(skills) = req.skills {
             session.skills = skills
@@ -4973,11 +4971,29 @@ async fn update_debug_session(
         if let Some(active_skill_names) = req.active_skill_names {
             session.active_skill_names = active_skill_names;
         }
+        if let Some(knowledge_base_ids) = req.knowledge_base_ids {
+            session.knowledge_base_ids = knowledge_base_ids;
+        }
+        if let Some(proxy_config) = req.proxy_config {
+            session.proxy_config = proxy_config;
+        }
         if let Some(command_prefix) = req.command_prefix {
             session.command_prefix = command_prefix;
         }
         if let Some(enabled_commands) = req.enabled_commands {
             session.enabled_commands = enabled_commands;
+        }
+        if let Some(command_admin_required) = req.command_admin_required {
+            session.command_admin_required = command_admin_required;
+        }
+        if let Some(temperature) = req.temperature {
+            session.temperature = temperature;
+        }
+        if let Some(max_tokens) = req.max_tokens {
+            session.max_tokens = max_tokens;
+        }
+        if let Some(custom_error_message) = req.custom_error_message {
+            session.custom_error_message = custom_error_message;
         }
 
         // Build DTO while still holding the lock, then drop the lock
@@ -4994,18 +5010,22 @@ async fn update_debug_session(
                 .collect(),
             active_provider: session.active_provider.clone(),
             provider_id: session.provider_id.clone(),
-            temperature: session.temperature,
-            max_tokens: session.max_tokens,
-            custom_error_message: session.custom_error_message.clone(),
-            knowledge_base_ids: session.knowledge_base_ids.clone(),
+            web_search_enabled: session.web_search_enabled,
+            computer_use_enabled: session.computer_use_enabled,
             skills: session
                 .skills
                 .iter()
                 .map(|s| EmbeddedSkillDto::from(s))
                 .collect(),
             active_skill_names: session.active_skill_names.clone(),
+            knowledge_base_ids: session.knowledge_base_ids.clone(),
+            proxy_config: session.proxy_config.clone(),
             command_prefix: session.command_prefix.clone(),
             enabled_commands: session.enabled_commands.clone(),
+            command_admin_required: session.command_admin_required.clone(),
+            temperature: session.temperature,
+            max_tokens: session.max_tokens,
+            custom_error_message: session.custom_error_message.clone(),
         };
 
         dto

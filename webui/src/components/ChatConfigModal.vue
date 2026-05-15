@@ -73,10 +73,10 @@ const activePersona = computed(() => {
             };
         }
     }
-    // Fall back to debug session's embedded persona or config profile's
-    return (
-        debugSessionStore.embeddedPersona ?? configStore.activeEmbeddedPersona
-    );
+    // Fall back to debug session's embedded persona (legacy).
+    // Does NOT fall back to config profile's persona — the debug session
+    // manages its own persona independently.
+    return debugSessionStore.embeddedPersona;
 });
 
 function selectPersonaFromLibrary(personaId: string | null) {
@@ -254,12 +254,12 @@ async function handleSave() {
     try {
         await debugSessionStore.updateDebugSessionConfig({
             persona_id: selectedPersonaId.value,
-            // Preserve embedded_persona if no persona_id is selected.
-            // Only set embedded_persona to null when a persona_id is explicitly
-            // chosen (the persona library takes over). This prevents accidentally
-            // wiping the persona when the user only changes other settings like
-            // knowledge bases.
-            embedded_persona: selectedPersonaId.value ? null : undefined,
+            // Always send embedded_persona: null to clear any stale embedded persona.
+            // The persona_id reference is the single source of truth — when a persona_id
+            // is set, the library persona takes over; when "No reference" is selected
+            // (persona_id = null), the debug session has no persona. This matches the
+            // config profile behavior where selecting "No reference" = no persona.
+            embedded_persona: null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -267,13 +267,14 @@ async function handleSave() {
             active_skill_names: selectedSkillNames.value,
             provider_id: selectedProviderId.value,
             command_prefix: commandPrefix.value || "/",
+            proxy_config: proxyConfig as ProxyConfig,
         });
     } catch {
         // Auto-save errors are silently ignored
     }
 }
 
-// ── Sync from debug session store ──
+// Sync from debug session store
 watch(
     () => debugSessionStore.debugSession,
     (session) => {
@@ -288,30 +289,25 @@ watch(
             commandPrefix.value = session.command_prefix || "/";
             selectedKbIds.value = [...(session.knowledge_base_ids || [])];
             selectedSkillNames.value = [...(session.active_skill_names || [])];
-        }
-    },
-    { immediate: true },
-);
-
-// Also sync from config profile for proxy config (proxy is still profile-level)
-watch(
-    () => configStore.activeConfigProfile,
-    (profile) => {
-        if (profile?.proxy_config) {
-            proxyConfig.enabled = profile.proxy_config.enabled;
-            proxyConfig.url = profile.proxy_config.url;
-            proxyConfig.mode = profile.proxy_config.mode;
-            proxyConfig.proxy_domains = [...profile.proxy_config.proxy_domains];
-            proxyConfig.bypass_domains = [
-                ...profile.proxy_config.bypass_domains,
-            ];
-            proxyConfig.username = profile.proxy_config.username;
-            proxyConfig.password = profile.proxy_config.password;
-            proxyConfig.bypass_localhost =
-                profile.proxy_config.bypass_localhost;
-            proxyConfig.rules = profile.proxy_config.rules.map((r) => ({
-                ...r,
-            }));
+            // Sync proxy config from debug session
+            if (session.proxy_config) {
+                proxyConfig.enabled = session.proxy_config.enabled;
+                proxyConfig.url = session.proxy_config.url;
+                proxyConfig.mode = session.proxy_config.mode;
+                proxyConfig.proxy_domains = [
+                    ...session.proxy_config.proxy_domains,
+                ];
+                proxyConfig.bypass_domains = [
+                    ...session.proxy_config.bypass_domains,
+                ];
+                proxyConfig.username = session.proxy_config.username;
+                proxyConfig.password = session.proxy_config.password;
+                proxyConfig.bypass_localhost =
+                    session.proxy_config.bypass_localhost;
+                proxyConfig.rules = session.proxy_config.rules.map((r) => ({
+                    ...r,
+                }));
+            }
         }
     },
     { immediate: true },
