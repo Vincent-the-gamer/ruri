@@ -517,12 +517,7 @@ onMounted(async () => {
                 <!-- Persona Library Reference Selector -->
                 <div class="persona-reference-selector">
                     <label class="form-label-sm">
-                        {{
-                            t(
-                                "chatConfig.personaLibraryRef",
-                                "📚 Persona Library Reference (hot-reload enabled)",
-                            )
-                        }}
+                        {{ t("chatConfig.personaLibraryRef") }}
                     </label>
                     <select
                         v-if="personaStore.personas.length > 0"
@@ -538,9 +533,7 @@ onMounted(async () => {
                         "
                     >
                         <option value="">
-                            {{
-                                t("chatConfig.noReference", "— No reference —")
-                            }}
+                            {{ t("chatConfig.noReference") }}
                         </option>
                         <option
                             v-for="persona in personaStore.personas"
@@ -554,12 +547,7 @@ onMounted(async () => {
                         class="help-text"
                         style="margin-top: 4px; font-size: 12px"
                     >
-                        {{
-                            t(
-                                "chatConfig.personaRefHelp",
-                                "Select a persona from the library. Changes to the library persona will be reflected immediately.",
-                            )
-                        }}
+                        {{ t("chatConfig.personaRefHelp") }}
                     </p>
                 </div>
             </div>

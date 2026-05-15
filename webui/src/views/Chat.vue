@@ -126,7 +126,12 @@ async function handleSend(
         debugSessionStore.providerId ??
         undefined;
 
-    if (!effectiveProviderId) {
+    // Check if the message is a command (starts with the command prefix)
+    const commandPrefix = debugSessionStore.commandPrefix || "/";
+    const isCommand = message.trimStart().startsWith(commandPrefix);
+
+    // Commands don't require a provider — they are handled by the backend dispatcher
+    if (!effectiveProviderId && !isCommand) {
         // No provider selected — show error message in chat
         messages.value.push({
             role: "user",

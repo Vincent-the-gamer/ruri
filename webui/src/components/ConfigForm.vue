@@ -577,10 +577,7 @@ function handleSubmit() {
                         <!-- Persona Library Reference -->
                         <div class="persona-reference">
                             <label class="form-label-sm">{{
-                                t(
-                                    "config.form.personaLibraryRef",
-                                    "📚 Persona Library Reference (hot-reload)",
-                                )
+                                t("config.form.personaLibraryRef")
                             }}</label>
                             <select
                                 v-if="personaStore.personas.length > 0"
@@ -588,12 +585,7 @@ function handleSubmit() {
                                 class="form-select"
                             >
                                 <option :value="null">
-                                    {{
-                                        t(
-                                            "config.form.noPersonaRef",
-                                            "— No reference —",
-                                        )
-                                    }}
+                                    {{ t("config.form.noPersonaRef") }}
                                 </option>
                                 <option
                                     v-for="persona in personaStore.personas"
@@ -604,12 +596,7 @@ function handleSubmit() {
                                 </option>
                             </select>
                             <p class="help-text">
-                                {{
-                                    t(
-                                        "config.form.personaRefHelp",
-                                        "Select a persona from the library. Changes to the library persona will be reflected immediately.",
-                                    )
-                                }}
+                                {{ t("config.form.personaRefHelp") }}
                             </p>
                         </div>
                     </div>
