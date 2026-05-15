@@ -278,8 +278,6 @@ struct ResolvedConfigContext {
     active_embedded_skill_names: Vec<String>,
     /// Active global skill names (references skills stored in `self.skills`)
     active_skill_names: Vec<String>,
-    /// Custom error message
-    custom_error_message: Option<String>,
     /// Knowledge base IDs to attach
     knowledge_base_ids: Vec<String>,
     /// Proxy configuration (profile-scoped, no global proxy)
@@ -1817,7 +1815,6 @@ impl AppState {
                     embedded_skills: debug.skills.clone(),
                     active_embedded_skill_names: debug.active_skill_names.clone(),
                     active_skill_names: Vec::new(), // debug session uses embedded skills only
-                    custom_error_message: debug.custom_error_message.clone(),
                     knowledge_base_ids: debug.knowledge_base_ids.clone(),
                     proxy_config: crate::types::ProxyConfig::default(),
                 });
@@ -1839,7 +1836,6 @@ impl AppState {
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                     active_skill_names: profile.active_skill_names.clone(),
-                    custom_error_message: profile.custom_error_message.clone(),
                     knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                     proxy_config: profile.proxy_config.clone(),
                 });
@@ -1858,7 +1854,6 @@ impl AppState {
                 embedded_skills: profile.embedded_skills.clone(),
                 active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                 active_skill_names: profile.active_skill_names.clone(),
-                custom_error_message: profile.custom_error_message.clone(),
                 knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                 proxy_config: profile.proxy_config.clone(),
             });
@@ -1903,112 +1898,112 @@ impl AppState {
             "build_agent_with_context_extended: resolving provider"
         );
 
-        let (mut provider, provider_config_json, custom_error_message, proxy_config, kb_ids) =
-            if let Some(ctx) = &context {
-                // ── Use profile/debug-session configuration ──
-                // Each profile independently manages its provider, persona,
-                // skills, proxy, knowledge_base, etc. No global fallback.
-                tracing::info!(source = %ctx.source, "Using profile configuration context");
+        let (mut provider, provider_config_json, proxy_config, kb_ids) = if let Some(ctx) = &context
+        {
+            // ── Use profile/debug-session configuration ──
+            // Each profile independently manages its provider, persona,
+            // skills, proxy, knowledge_base, etc. No global fallback.
+            tracing::info!(source = %ctx.source, "Using profile configuration context");
 
-                // Priority for provider resolution:
-                // 1. Explicit provider_id argument (from API call)
-                // 2. Embedded providers in the profile
-                // 3. Profile's provider_id field (references a stored provider)
-                let resolved_provider = if let Some(pid) = provider_id {
-                    if !pid.is_empty() {
-                        let providers = self.providers.read().await;
-                        if let Some(stored) = providers.get(pid) {
-                            tracing::info!(
-                                provider_id = %pid,
-                                "Using explicitly requested provider"
-                            );
-                            let built = Self::build_provider(stored).ok();
-                            let config_json = stored.config_json.clone();
-                            drop(providers);
-                            built.map(|b| (b, config_json))
-                        } else {
-                            drop(providers);
-                            None
-                        }
+            // Priority for provider resolution:
+            // 1. Explicit provider_id argument (from API call)
+            // 2. Embedded providers in the profile
+            // 3. Profile's provider_id field (references a stored provider)
+            let resolved_provider = if let Some(pid) = provider_id {
+                if !pid.is_empty() {
+                    let providers = self.providers.read().await;
+                    if let Some(stored) = providers.get(pid) {
+                        tracing::info!(
+                            provider_id = %pid,
+                            "Using explicitly requested provider"
+                        );
+                        let built = Self::build_provider(stored).ok();
+                        let config_json = stored.config_json.clone();
+                        drop(providers);
+                        built.map(|b| (b, config_json))
                     } else {
+                        drop(providers);
                         None
                     }
                 } else {
                     None
-                };
-
-                if let Some((p, c)) = resolved_provider {
-                    (
-                        p,
-                        c,
-                        ctx.custom_error_message.clone(),
-                        ctx.proxy_config.clone(),
-                        ctx.knowledge_base_ids.clone(),
-                    )
-                } else if let Some(ep) = ctx
-                    .embedded_providers
-                    .iter()
-                    .find(|p| {
-                        if let Some(ref name) = ctx.active_embedded_provider {
-                            p.name == *name || p.id == *name
-                        } else {
-                            true // first one if no active specified
-                        }
-                    })
-                    .or_else(|| ctx.embedded_providers.first())
-                {
-                    // Use embedded provider from the profile
-                    let built = Self::build_provider_from_embedded(ep)?;
-                    (
-                        built,
-                        ep.config_json.clone(),
-                        ctx.custom_error_message.clone(),
-                        ctx.proxy_config.clone(),
-                        ctx.knowledge_base_ids.clone(),
-                    )
-                } else if let Some(ref pid) = ctx.provider_id {
-                    // Profile has a provider_id referencing a stored provider
-                    if !pid.is_empty() {
-                        let providers = self.providers.read().await;
-                        if let Some(stored) = providers.get(pid) {
-                            tracing::info!(
-                                provider_id = %pid,
-                                source = %ctx.source,
-                                "Using profile's provider_id to resolve stored provider"
-                            );
-                            let built = Self::build_provider(stored)?;
-                            let config_json = stored.config_json.clone();
-                            drop(providers);
-                            (
-                                built,
-                                config_json,
-                                ctx.custom_error_message.clone(),
-                                ctx.proxy_config.clone(),
-                                ctx.knowledge_base_ids.clone(),
-                            )
-                        } else {
-                            drop(providers);
-                            return Err(format!(
-                                "Profile references provider_id '{}' but it was not found in stored providers",
-                                pid
-                            ));
-                        }
-                    } else {
-                        return Err("Profile has no provider configured (no embedded providers, no valid provider_id)".to_string());
-                    }
-                } else {
-                    return Err("Profile has no provider configured (no embedded providers, no provider_id)".to_string());
                 }
             } else {
-                // ── No active profile found ──
-                // This should not happen in normal operation — every conversation
-                // should be managed by a profile. If we reach here, there is no
-                // debug session and no active/enabled profile at all.
+                None
+            };
+
+            if let Some((p, c)) = resolved_provider {
+                (
+                    p,
+                    c,
+                    ctx.proxy_config.clone(),
+                    ctx.knowledge_base_ids.clone(),
+                )
+            } else if let Some(ep) = ctx
+                .embedded_providers
+                .iter()
+                .find(|p| {
+                    if let Some(ref name) = ctx.active_embedded_provider {
+                        p.name == *name || p.id == *name
+                    } else {
+                        true // first one if no active specified
+                    }
+                })
+                .or_else(|| ctx.embedded_providers.first())
+            {
+                // Use embedded provider from the profile
+                let built = Self::build_provider_from_embedded(ep)?;
+                (
+                    built,
+                    ep.config_json.clone(),
+                    ctx.proxy_config.clone(),
+                    ctx.knowledge_base_ids.clone(),
+                )
+            } else if let Some(ref pid) = ctx.provider_id {
+                // Profile has a provider_id referencing a stored provider
+                if !pid.is_empty() {
+                    let providers = self.providers.read().await;
+                    if let Some(stored) = providers.get(pid) {
+                        tracing::info!(
+                            provider_id = %pid,
+                            source = %ctx.source,
+                            "Using profile's provider_id to resolve stored provider"
+                        );
+                        let built = Self::build_provider(stored)?;
+                        let config_json = stored.config_json.clone();
+                        drop(providers);
+                        (
+                            built,
+                            config_json,
+                            ctx.proxy_config.clone(),
+                            ctx.knowledge_base_ids.clone(),
+                        )
+                    } else {
+                        drop(providers);
+                        return Err(format!(
+                            "Profile references provider_id '{}' but it was not found in stored providers",
+                            pid
+                        ));
+                    }
+                } else {
+                    return Err("Profile has no provider configured (no embedded providers, no valid provider_id)".to_string());
+                }
+            } else {
                 return Err(
-                    "No active profile found. Please create and enable a configuration profile."
+                    "Profile has no provider configured (no embedded providers, no provider_id)"
                         .to_string(),
                 );
-            };
+            }
+        } else {
+            // ── No active profile found ──
+            // This should not happen in normal operation — every conversation
+            // should be managed by a profile. If we reach here, there is no
+            // debug session and no active/enabled profile at all.
+            return Err(
+                "No active profile found. Please create and enable a configuration profile."
+                    .to_string(),
+            );
+        };
 
         // Apply proxy config if configured
         if proxy_config.is_configured() {
@@ -2037,8 +2032,7 @@ impl AppState {
 
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
-            .with_auto_execute_tools(true)
-            .with_custom_error_message(custom_error_message);
+            .with_auto_execute_tools(true);
 
         let mut agent = Agent::with_config(provider, config);
 
@@ -2121,7 +2115,12 @@ impl AppState {
 
         // Check computer use configuration and register tools accordingly
         let computer_use_config = self.computer_use_config.read().await;
-        let user_id = user_id.unwrap_or("default_user");
+        // Debug sessions always use admin privileges via the reserved debug_admin ID
+        let user_id = if use_debug_session {
+            crate::computer_use::ComputerUseConfig::DEBUG_ADMIN_ID
+        } else {
+            user_id.unwrap_or("default_user")
+        };
         let session_id = session_id.unwrap_or("default_session");
 
         match computer_use_config.runtime {

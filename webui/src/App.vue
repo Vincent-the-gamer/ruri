@@ -77,15 +77,21 @@ onMounted(() => {
                 <Sidebar />
 
                 <!-- Main Content -->
-                <main class="flex-1 min-h-0 overflow-y-auto scroll-hover">
-                    <div class="max-w-[1440px] mx-auto w-full p-6">
-                        <router-view v-slot="{ Component }">
-                            <transition name="fade" mode="out-in">
-                                <keep-alive :include="['Chat']">
-                                    <component :is="Component" />
-                                </keep-alive>
-                            </transition>
-                        </router-view>
+                <main class="flex-1 min-h-0 flex flex-col overflow-hidden">
+                    <div
+                        class="flex-1 min-h-0 overflow-y-auto scroll-hover relative"
+                    >
+                        <div
+                            class="min-h-full max-w-[1440px] mx-auto w-full p-6"
+                        >
+                            <router-view v-slot="{ Component }">
+                                <transition name="fade" mode="out-in">
+                                    <keep-alive :include="['Chat']">
+                                        <component :is="Component" />
+                                    </keep-alive>
+                                </transition>
+                            </router-view>
+                        </div>
                     </div>
                 </main>
             </template>

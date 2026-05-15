@@ -381,9 +381,9 @@ function handleStop() {
 .chat-view {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    position: absolute;
+    inset: 0;
     background: transparent;
-    position: relative;
 }
 
 /* ── Header ─────────────────────────────────────── */

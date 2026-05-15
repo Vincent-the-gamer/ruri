@@ -95,8 +95,15 @@ pub enum UserRole {
 }
 
 impl ComputerUseConfig {
+    /// Reserved user ID for debug sessions that always has admin privileges
+    pub const DEBUG_ADMIN_ID: &str = "debug_admin";
+
     /// Check if a user ID is an admin
+    /// Debug session users (identified by `DEBUG_ADMIN_ID`) are always treated as admin.
     pub fn is_admin(&self, user_id: &str) -> bool {
+        if user_id == Self::DEBUG_ADMIN_ID {
+            return true;
+        }
         self.admin_ids.iter().any(|id| id == user_id)
     }
 
@@ -166,6 +173,19 @@ mod tests {
         // Test with require_admin = false
         config.require_admin = false;
         assert!(config.can_use_power_tools("user1"));
+    }
+
+    #[test]
+    fn test_debug_admin_always_has_admin_privileges() {
+        let mut config = ComputerUseConfig::default();
+        config.require_admin = true;
+        // Even with no admin_ids configured, debug_admin is always admin
+        assert!(config.is_admin(ComputerUseConfig::DEBUG_ADMIN_ID));
+        assert!(config.can_use_power_tools(ComputerUseConfig::DEBUG_ADMIN_ID));
+
+        // Regular user without admin_ids should not be admin
+        assert!(!config.is_admin("user1"));
+        assert!(!config.can_use_power_tools("user1"));
     }
 
     #[test]

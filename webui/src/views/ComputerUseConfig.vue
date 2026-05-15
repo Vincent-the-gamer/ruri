@@ -285,20 +285,33 @@ const hasChanges = computed(() => {
                             {{ t("common.add") }}
                         </button>
                     </div>
-                    <div class="tag-list">
-                        <span
+                    <div v-if="adminIds.length > 0" class="item-list">
+                        <div
                             v-for="id in adminIds"
                             :key="id"
-                            class="tag tag-primary"
+                            class="item-list-row"
                         >
-                            {{ id }}
+                            <span class="item-list-value">{{ id }}</span>
                             <button
                                 @click="removeAdminId(id)"
-                                class="tag-remove"
+                                class="item-list-remove"
+                                :title="t('common.remove')"
                             >
-                                ×
+                                <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
                             </button>
-                        </span>
+                        </div>
                     </div>
                 </div>
 
@@ -324,20 +337,33 @@ const hasChanges = computed(() => {
                             {{ t("common.add") }}
                         </button>
                     </div>
-                    <div class="tag-list">
-                        <span
+                    <div v-if="allowedPaths.length > 0" class="item-list">
+                        <div
                             v-for="path in allowedPaths"
                             :key="path"
-                            class="tag tag-secondary"
+                            class="item-list-row"
                         >
-                            {{ path }}
+                            <span class="item-list-value">{{ path }}</span>
                             <button
                                 @click="removeAllowedPath(path)"
-                                class="tag-remove"
+                                class="item-list-remove"
+                                :title="t('common.remove')"
                             >
-                                ×
+                                <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
                             </button>
-                        </span>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -742,47 +768,53 @@ const hasChanges = computed(() => {
     margin-top: 0.25rem;
 }
 
-/* Tags */
-.tag-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+/* Item List */
+.item-list {
+    margin-top: 0.5rem;
+    background-color: var(--color-bg-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
 }
 
-.tag {
+.item-list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.item-list-row:last-child {
+    border-bottom: none;
+}
+
+.item-list-value {
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    word-break: break-all;
+}
+
+.item-list-remove {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: var(--radius-full);
-    font-size: 0.875rem;
-    font-weight: 500;
-}
-
-.tag-primary {
-    background-color: var(--color-accent-soft);
-    color: var(--color-accent-hover);
-}
-
-.tag-secondary {
-    background-color: var(--color-bg-soft);
-    color: var(--color-text-secondary);
-}
-
-.tag-remove {
-    background: none;
-    border: none;
-    font-size: 1.25rem;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.2s ease;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
     padding: 0;
-    color: inherit;
+    margin-left: 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
 }
 
-.tag-remove:hover {
-    opacity: 1;
+.item-list-remove:hover {
+    background-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
 }
 
 /* Driver Selection */
