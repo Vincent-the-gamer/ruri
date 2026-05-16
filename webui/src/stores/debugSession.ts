@@ -16,7 +16,6 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
   const activeProvider = computed(() => debugSession.value?.active_provider ?? null)
   const providerId = computed(() => debugSession.value?.provider_id ?? null)
   const personaId = computed(() => debugSession.value?.persona_id ?? null)
-  const embeddedPersona = computed(() => debugSession.value?.embedded_persona ?? null)
   const commandPrefix = computed(() => debugSession.value?.command_prefix ?? '/')
   const enabledCommands = computed(() => debugSession.value?.enabled_commands ?? [])
   const webSearchEnabled = computed(() => debugSession.value?.web_search_enabled ?? false)
@@ -63,7 +62,6 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
     activeProvider,
     providerId,
     personaId,
-    embeddedPersona,
     commandPrefix,
     enabledCommands,
     webSearchEnabled,

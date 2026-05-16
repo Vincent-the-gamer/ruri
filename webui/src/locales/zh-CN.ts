@@ -207,8 +207,10 @@ export default {
     selectPersonaFromLibrary: '📋 从人设库选择...',
     personaLibraryRef: '📚 人设库引用（支持热重载）',
     noReference: '— 无引用 —',
+    noPersona: '不选择人设',
     personaRefHelp: '从人设库中选择一个人设。人设库中的更改会立即生效。',
     noPersonaHint: '未选择人设，调试会话将不使用任何人设',
+    noPersonasInLibrary: '人设库中没有人设。请先在人设管理页面创建。',
     customErrorMessage: '自定义错误信息',
     customErrorMessagePlaceholder: '例如: 抱歉，处理您的请求时遇到了问题',
     customErrorMessageHint: '大模型/API 请求失败时，向用户显示此自定义信息；工具调用错误始终显示实际报错。留空则显示原始错误信息。',
@@ -254,6 +256,7 @@ export default {
     saved: '✅ 配置已保存',
     saveFailed: '❌ 保存配置失败',
     save: '保存配置',
+    unsavedChanges: '你有未保存的更改',
   },
 
   // 供应商

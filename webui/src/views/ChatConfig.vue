@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, reactive, watch } from "vue";
+import { onMounted, ref, computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
@@ -32,7 +32,16 @@ const selectedProviderId = ref<string | null>(null);
 
 // ── Persona Selection ──
 // Persona ID reference to the persona library (hot-reload enabled)
+// NOTE: null means "no persona" — must be preserved as null, not overwritten
 const selectedPersonaId = ref<string | null>(null);
+// Computed proxy for <select> v-model: browser <option> only supports string values,
+// so we use empty string as the "no persona" value and convert to/from null.
+const personaIdProxy = computed({
+    get: () => selectedPersonaId.value ?? "",
+    set: (val: string) => {
+        selectedPersonaId.value = val || null;
+    },
+});
 const activePersona = computed(() => {
     // If persona_id is set, try to resolve from library
     if (selectedPersonaId.value) {
@@ -47,16 +56,9 @@ const activePersona = computed(() => {
             };
         }
     }
-    // Fall back to debug session's embedded persona (legacy).
-    // Does NOT fall back to config profile's persona — the debug session
-    // manages its own persona independently.
-    return debugSessionStore.embeddedPersona;
+    // No embedded persona on debug session — persona_id is the single source of truth.
+    return null;
 });
-
-function selectPersonaFromLibrary(personaId: string | null) {
-    selectedPersonaId.value = personaId;
-    debouncedSave();
-}
 
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
@@ -78,17 +80,14 @@ function toggleKbSelection(kbId: string) {
     } else {
         selectedKbIds.value.splice(idx, 1);
     }
-    debouncedSave();
 }
 
 function selectAllKb() {
     selectedKbIds.value = knowledgeBases.value.map((kb) => kb.id);
-    debouncedSave();
 }
 
 function clearAllKb() {
     selectedKbIds.value = [];
-    debouncedSave();
 }
 
 // ── Skill Selection ──
@@ -108,17 +107,14 @@ function toggleSkillSelection(skillName: string) {
     } else {
         selectedSkillNames.value.splice(idx, 1);
     }
-    debouncedSave();
 }
 
 function selectAllSkills() {
     selectedSkillNames.value = skills.value.map((s) => s.name);
-    debouncedSave();
 }
 
 function clearAllSkills() {
     selectedSkillNames.value = [];
-    debouncedSave();
 }
 
 // ── Proxy Configuration ──
@@ -142,13 +138,11 @@ function addProxyDomain() {
     if (domain && !proxyConfig.proxy_domains.includes(domain)) {
         proxyConfig.proxy_domains.push(domain);
         proxyDomainInput.value = "";
-        debouncedSave();
     }
 }
 
 function removeProxyDomain(index: number) {
     proxyConfig.proxy_domains.splice(index, 1);
-    debouncedSave();
 }
 
 function addBypassDomain() {
@@ -156,13 +150,11 @@ function addBypassDomain() {
     if (domain && !proxyConfig.bypass_domains.includes(domain)) {
         proxyConfig.bypass_domains.push(domain);
         bypassDomainInput.value = "";
-        debouncedSave();
     }
 }
 
 function removeBypassDomain(index: number) {
     proxyConfig.bypass_domains.splice(index, 1);
-    debouncedSave();
 }
 
 // ── Proxy Rules Editor ──
@@ -190,13 +182,11 @@ function addRule() {
         if (newRuleType.value === "match") {
             newRuleType.value = "domain";
         }
-        debouncedSave();
     }
 }
 
 function removeRule(index: number) {
     proxyConfig.rules.splice(index, 1);
-    debouncedSave();
 }
 
 function getRuleTypeColor(type: string): string {
@@ -211,43 +201,125 @@ function getRuleTypeColor(type: string): string {
     return colors[type] || "#6b7280";
 }
 
+// ── Command Prefix ──
+const commandPrefix = ref("/");
+
 // ── Save State ──
 const saveSuccess = ref(false);
 const saveError = ref<string | null>(null);
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+const saving = ref(false);
 
-function clearMessages() {
-    saveSuccess.value = false;
-    saveError.value = null;
+interface Snapshot {
+    personaId: string | null;
+    providerId: string | null;
+    temperature: number;
+    maxTokens: number;
+    customErrorMessage: string;
+    commandPrefix: string;
+    selectedKbIds: string[];
+    selectedSkillNames: string[];
+    proxyConfig: ProxyConfig;
 }
 
-function debouncedSave() {
-    clearMessages();
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-        handleSave();
-    }, 600);
+const savedSnapshot = ref<Snapshot | null>(null);
+
+function takeSnapshot(): Snapshot {
+    return {
+        personaId: selectedPersonaId.value,
+        providerId: selectedProviderId.value,
+        temperature: temperature.value,
+        maxTokens: maxTokens.value,
+        customErrorMessage: customErrorMessage.value,
+        commandPrefix: commandPrefix.value,
+        selectedKbIds: [...selectedKbIds.value],
+        selectedSkillNames: [...selectedSkillNames.value],
+        proxyConfig: {
+            enabled: proxyConfig.enabled,
+            url: proxyConfig.url,
+            mode: proxyConfig.mode,
+            proxy_domains: [...proxyConfig.proxy_domains],
+            bypass_domains: [...proxyConfig.bypass_domains],
+            username: proxyConfig.username,
+            password: proxyConfig.password,
+            bypass_localhost: proxyConfig.bypass_localhost,
+            rules: proxyConfig.rules.map((r) => ({ ...r })),
+        },
+    };
+}
+
+const isDirty = computed(() => {
+    if (!savedSnapshot.value) return true; // not loaded yet = treat as dirty
+    const s = savedSnapshot.value;
+    return (
+        selectedPersonaId.value !== s.personaId ||
+        selectedProviderId.value !== s.providerId ||
+        temperature.value !== s.temperature ||
+        maxTokens.value !== s.maxTokens ||
+        customErrorMessage.value !== s.customErrorMessage ||
+        commandPrefix.value !== s.commandPrefix ||
+        JSON.stringify(selectedKbIds.value) !==
+            JSON.stringify(s.selectedKbIds) ||
+        JSON.stringify(selectedSkillNames.value) !==
+            JSON.stringify(s.selectedSkillNames) ||
+        JSON.stringify(proxyConfig) !== JSON.stringify(s.proxyConfig)
+    );
+});
+
+function syncFromServer(
+    session: NonNullable<typeof debugSessionStore.debugSession>,
+) {
+    // Sync persona_id reference — preserve null ("no persona")
+    selectedPersonaId.value = session.persona_id ?? null;
+    selectedProviderId.value =
+        session.provider_id || session.active_provider || null;
+    temperature.value = session.temperature ?? 0.7;
+    maxTokens.value = session.max_tokens ?? 4096;
+    customErrorMessage.value = session.custom_error_message || "";
+    commandPrefix.value = session.command_prefix || "/";
+    selectedKbIds.value = [...(session.knowledge_base_ids || [])];
+    selectedSkillNames.value = [...(session.active_skill_names || [])];
+    // Sync proxy config from debug session
+    if (session.proxy_config) {
+        proxyConfig.enabled = session.proxy_config.enabled ?? false;
+        proxyConfig.url = session.proxy_config.url ?? "";
+        proxyConfig.mode = session.proxy_config.mode ?? "global";
+        proxyConfig.proxy_domains = [
+            ...(session.proxy_config.proxy_domains || []),
+        ];
+        proxyConfig.bypass_domains = [
+            ...(session.proxy_config.bypass_domains || []),
+        ];
+        proxyConfig.username = session.proxy_config.username ?? null;
+        proxyConfig.password = session.proxy_config.password ?? null;
+        proxyConfig.bypass_localhost =
+            session.proxy_config.bypass_localhost ?? true;
+        proxyConfig.rules = (session.proxy_config.rules || []).map((r) => ({
+            ...r,
+        }));
+    }
 }
 
 async function handleSave() {
+    saveSuccess.value = false;
+    saveError.value = null;
+    saving.value = true;
     try {
         await debugSessionStore.updateDebugSessionConfig({
-            persona_id: selectedPersonaId.value,
-            // Always send embedded_persona: null to clear any stale embedded persona.
-            // The persona_id reference is the single source of truth — when a persona_id
-            // is set, the library persona takes over; when "No reference" is selected
-            // (persona_id = null), the debug session has no persona. This matches the
-            // config profile behavior where selecting "No reference" = no persona.
-            embedded_persona: null,
+            persona_id: selectedPersonaId.value || null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
+            command_prefix: commandPrefix.value || "/",
             knowledge_base_ids: selectedKbIds.value,
             active_skill_names: selectedSkillNames.value,
             provider_id: selectedProviderId.value,
             proxy_config: proxyConfig as ProxyConfig,
         });
         saveSuccess.value = true;
+        // Don't re-sync from server — the user's selection is the truth.
+        // Re-syncing can cause race conditions where a stale or
+        // serialized-as-missing persona_id overwrites the user's null.
+        savedSnapshot.value = takeSnapshot();
         setTimeout(() => {
             saveSuccess.value = false;
         }, 2000);
@@ -257,76 +329,10 @@ async function handleSave() {
         setTimeout(() => {
             saveError.value = null;
         }, 3000);
+    } finally {
+        saving.value = false;
     }
 }
-
-// Sync from debug session store
-watch(
-    () => debugSessionStore.debugSession,
-    (session) => {
-        if (session) {
-            // Sync persona_id reference
-            selectedPersonaId.value = session.persona_id || null;
-            selectedProviderId.value =
-                session.provider_id || session.active_provider || null;
-            temperature.value = session.temperature ?? 0.7;
-            maxTokens.value = session.max_tokens ?? 4096;
-            customErrorMessage.value = session.custom_error_message || "";
-            selectedKbIds.value = [...(session.knowledge_base_ids || [])];
-            selectedSkillNames.value = [...(session.active_skill_names || [])];
-            // Sync proxy config from debug session
-            if (session.proxy_config) {
-                proxyConfig.enabled = session.proxy_config.enabled;
-                proxyConfig.url = session.proxy_config.url;
-                proxyConfig.mode = session.proxy_config.mode;
-                proxyConfig.proxy_domains = [
-                    ...session.proxy_config.proxy_domains,
-                ];
-                proxyConfig.bypass_domains = [
-                    ...session.proxy_config.bypass_domains,
-                ];
-                proxyConfig.username = session.proxy_config.username;
-                proxyConfig.password = session.proxy_config.password;
-                proxyConfig.bypass_localhost =
-                    session.proxy_config.bypass_localhost;
-                proxyConfig.rules = session.proxy_config.rules.map((r) => ({
-                    ...r,
-                }));
-            }
-        }
-    },
-    { immediate: true },
-);
-
-// ── Auto-save on change for simple fields ──
-watch([temperature, maxTokens], () => {
-    // These are client-side only (sent per-request), no server save needed
-    // but if we wanted to persist we could call debouncedSave() here
-});
-
-watch([selectedProviderId, customErrorMessage], () => {
-    debouncedSave();
-});
-
-watch(
-    () => proxyConfig.enabled,
-    () => {
-        debouncedSave();
-    },
-);
-
-watch(
-    () => [
-        proxyConfig.url,
-        proxyConfig.mode,
-        proxyConfig.bypass_localhost,
-        proxyConfig.username,
-        proxyConfig.password,
-    ],
-    () => {
-        debouncedSave();
-    },
-);
 
 // ── Fetch data on mount ──
 onMounted(async () => {
@@ -338,6 +344,11 @@ onMounted(async () => {
         providerStore.fetchProviders(),
         personaStore.fetchPersonas(),
     ]);
+    // One-time initial sync from server state — after this, local state is independent
+    if (debugSessionStore.debugSession) {
+        syncFromServer(debugSessionStore.debugSession);
+        savedSnapshot.value = takeSnapshot();
+    }
 });
 </script>
 
@@ -369,7 +380,14 @@ onMounted(async () => {
                     <p class="header-desc">{{ t("chatConfig.description") }}</p>
                 </div>
             </div>
-            <button class="save-btn" @click="handleSave">
+            <span v-if="isDirty" class="unsaved-hint">{{
+                t("chatConfig.unsavedChanges")
+            }}</span>
+            <button
+                class="save-btn"
+                :disabled="saving || !isDirty"
+                @click="handleSave"
+            >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -387,7 +405,13 @@ onMounted(async () => {
                     <polyline points="17 21 17 13 7 13 7 21" />
                     <polyline points="7 3 7 8 15 8" />
                 </svg>
-                {{ t("chatConfig.save") }}
+                {{
+                    saving
+                        ? t("common.saving")
+                        : saveSuccess
+                          ? t("chatConfig.saved")
+                          : t("chatConfig.save")
+                }}
             </button>
         </div>
 
@@ -520,21 +544,9 @@ onMounted(async () => {
                     <label class="form-label-sm">
                         {{ t("chatConfig.personaLibraryRef") }}
                     </label>
-                    <select
-                        v-if="personaStore.personas.length > 0"
-                        class="select-input"
-                        :value="selectedPersonaId || ''"
-                        @change="
-                            (e) => {
-                                const id =
-                                    (e.target as HTMLSelectElement).value ||
-                                    null;
-                                selectPersonaFromLibrary(id);
-                            }
-                        "
-                    >
+                    <select class="select-input" v-model="personaIdProxy">
                         <option value="">
-                            {{ t("chatConfig.noReference") }}
+                            {{ t("chatConfig.noPersona") }}
                         </option>
                         <option
                             v-for="persona in personaStore.personas"
@@ -544,6 +556,18 @@ onMounted(async () => {
                             {{ persona.name }}
                         </option>
                     </select>
+                    <p
+                        v-if="personaStore.personas.length === 0"
+                        class="empty-hint"
+                        style="margin-top: 4px"
+                    >
+                        {{
+                            t(
+                                "chatConfig.noPersonasInLibrary",
+                                "No personas in the library. Create one in the Personas page first.",
+                            )
+                        }}
+                    </p>
                     <p
                         class="help-text"
                         style="margin-top: 4px; font-size: 12px"
@@ -1205,6 +1229,19 @@ onMounted(async () => {
 
 .save-btn:active {
     transform: translateY(0);
+}
+
+.save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.unsaved-hint {
+    font-size: 0.8125rem;
+    color: hsl(var(--primary));
+    white-space: nowrap;
 }
 
 /* ── Banners ── */

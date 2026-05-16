@@ -3,6 +3,65 @@ use std::collections::HashMap;
 
 use crate::types;
 
+// ─── Serde Helpers ────────────────────────────────────────────────
+
+/// Custom deserializer for `Option<Option<T>>` fields that correctly distinguishes
+/// between "field missing" (→ `None`) and "field present with null" (→ `Some(None)`).
+///
+/// By default, serde's `Option::deserialize` maps JSON `null` to `None`, making it
+/// indistinguishable from a missing field. This breaks the `Option<Option<T>>` pattern
+/// where the outer `Some` signals "the client sent this field" and the inner value is
+/// the actual data (with `None` meaning "clear it").
+///
+/// Usage: `#[serde(deserialize_with = "deserialize_some")]`
+pub fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    // serde_json's `deserialize_option` calls:
+    //   visit_none()   when the JSON value is `null`
+    //   visit_some()   when the JSON value is non-null
+    //
+    // When a struct field is *missing*, serde does NOT invoke this deserializer
+    // at all — it uses the default `None` for the outer `Option<Option<T>>`.
+    //
+    // So the mapping is:
+    //   Field missing          → (not called)    → None          (don't modify)
+    //   Field present, null    → visit_none()    → Some(None)    (clear value)
+    //   Field present, value   → visit_some()    → Some(Some(v)) (set value)
+    struct SomeVisitor<VT>(std::marker::PhantomData<VT>);
+
+    impl<'de, VT> serde::de::Visitor<'de> for SomeVisitor<VT>
+    where
+        VT: serde::Deserialize<'de>,
+    {
+        type Value = Option<Option<VT>>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("some(composable_option)")
+        }
+
+        /// JSON null → clear the value.
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Some(None))
+        }
+
+        /// Non-null JSON value → set the value.
+        fn visit_some<M>(self, de: M) -> Result<Self::Value, M::Error>
+        where
+            M: serde::Deserializer<'de>,
+        {
+            VT::deserialize(de).map(|v| Some(Some(v)))
+        }
+    }
+
+    deserializer.deserialize_option(SomeVisitor(std::marker::PhantomData))
+}
+
 // ─── Provider Models ─────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,49 +379,6 @@ pub struct UpdateAcpConfigRequest {
 
 // ─── Persona Models ──────────────────────────────────────────────
 
-/// DTO for embedded persona configuration.
-/// Each config profile and debug session owns its persona data inline —
-/// no global persona references.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddedPersonaDto {
-    /// The display name of the persona
-    pub name: String,
-    /// A short description of the persona's role.
-    pub description: String,
-    /// The full system prompt that defines the persona's behavior.
-    pub prompt: String,
-}
-
-impl From<&crate::api::state::EmbeddedPersona> for EmbeddedPersonaDto {
-    fn from(p: &crate::api::state::EmbeddedPersona) -> Self {
-        Self {
-            name: p.name.clone(),
-            description: p.description.clone(),
-            prompt: p.prompt.clone(),
-        }
-    }
-}
-
-impl From<EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
-    fn from(dto: EmbeddedPersonaDto) -> Self {
-        Self {
-            name: dto.name,
-            description: dto.description,
-            prompt: dto.prompt,
-        }
-    }
-}
-
-impl From<&EmbeddedPersonaDto> for crate::api::state::EmbeddedPersona {
-    fn from(dto: &EmbeddedPersonaDto) -> Self {
-        Self {
-            name: dto.name.clone(),
-            description: dto.description.clone(),
-            prompt: dto.prompt.clone(),
-        }
-    }
-}
-
 // ─── Persona Library Models ────────────────────────────────────────
 
 /// Persona template returned to the client (from the persona library).
@@ -581,8 +597,6 @@ pub struct ConfigProfileDto {
     /// distinguish between "not set" and "intentionally cleared".
     #[serde(default)]
     pub persona_id: Option<String>,
-    #[serde(default)]
-    pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     pub active_skill_names: Vec<String>,
@@ -618,8 +632,6 @@ pub struct CreateConfigProfileRequest {
     /// Persona ID reference to the persona library (hot-reload enabled)
     #[serde(default)]
     pub persona_id: Option<String>,
-    #[serde(default)]
-    pub embedded_persona: Option<EmbeddedPersonaDto>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
     #[serde(default)]
@@ -651,13 +663,19 @@ pub struct UpdateConfigProfileRequest {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub provider_id: Option<Option<String>>,
     /// Persona ID reference to the persona library (hot-reload enabled)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub persona_id: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -675,7 +693,11 @@ pub struct UpdateConfigProfileRequest {
     pub command_admin_required: Option<HashMap<String, bool>>,
     /// Custom error message to show users when a tool call or API request fails.
     /// If not set, the raw error message is returned.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub custom_error_message: Option<Option<String>>,
     /// Platform instance IDs that this profile is associated with.
     #[serde(default)]
@@ -1055,8 +1077,6 @@ pub struct DebugSessionDto {
     #[serde(default)]
     pub persona_id: Option<String>,
     #[serde(default)]
-    pub embedded_persona: Option<EmbeddedPersonaDto>,
-    #[serde(default)]
     pub providers: Vec<EmbeddedProviderDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_provider: Option<String>,
@@ -1092,15 +1112,25 @@ pub struct DebugSessionDto {
 /// Request DTO for updating debug session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDebugSessionRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub persona_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub embedded_persona: Option<Option<EmbeddedPersonaDto>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub providers: Option<Vec<EmbeddedProviderDto>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub active_provider: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub provider_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_enabled: Option<bool>,
@@ -1120,11 +1150,23 @@ pub struct UpdateDebugSessionRequest {
     pub enabled_commands: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_admin_required: Option<HashMap<String, bool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub temperature: Option<Option<f64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub max_tokens: Option<Option<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
     pub custom_error_message: Option<Option<String>>,
 }
 

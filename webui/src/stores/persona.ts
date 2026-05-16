@@ -1,20 +1,15 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { Persona, CreatePersonaRequest, UpdatePersonaRequest, EmbeddedPersona } from '../types'
+import { ref } from 'vue'
+import type { Persona, CreatePersonaRequest, UpdatePersonaRequest } from '../types'
 import * as api from '../api'
-import { useConfigStore } from './config'
 
 export const usePersonaStore = defineStore('persona', () => {
-  // Persona library templates
+  // Persona library templates — the single source of persona definitions.
+  // Each module (chat config, config profile, etc.) references personas by ID
+  // and resolves them from this library. No cross-module coupling or fallback.
   const personas = ref<Persona[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
-
-  // Derive active embedded persona from the active config profile
-  const activePersona = computed<EmbeddedPersona | null>(() => {
-    const configStore = useConfigStore()
-    return configStore.activeEmbeddedPersona
-  })
 
   async function fetchPersonas() {
     loading.value = true
@@ -77,7 +72,6 @@ export const usePersonaStore = defineStore('persona', () => {
 
   return {
     personas,
-    activePersona,
     loading,
     error,
     fetchPersonas,

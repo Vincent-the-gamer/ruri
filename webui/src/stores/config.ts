@@ -137,7 +137,6 @@ export const useConfigStore = defineStore('config', () => {
 
   // Get active configuration values
   const activeProviderId = computed(() => activeConfigProfile.value?.provider_id || null)
-  const activeEmbeddedPersona = computed(() => activeConfigProfile.value?.embedded_persona || null)
   const webSearchEnabled = computed(() => activeConfigProfile.value?.web_search_enabled ?? false)
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
 
@@ -161,7 +160,6 @@ export const useConfigStore = defineStore('config', () => {
     activeConfigProfile,
     activeProfileId,
     activeProviderId,
-    activeEmbeddedPersona,
     webSearchEnabled,
     computerUseEnabled,
     activeSkillNames,

@@ -44,9 +44,8 @@ pub struct PersistedSkill {
     pub is_active: bool,
 }
 
-/// Legacy: Serializable version of StoredPersona for config file persistence.
-/// Kept only for backward-compatible deserialization of old config files.
-/// New code should use `EmbeddedPersona` instead.
+/// Serializable persona for config file persistence.
+/// Used in `PersistedConfig.personas` for the persona library.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PersistedPersona {
     /// The display name of the persona (e.g., "Assistant", "Coder", "Teacher")
@@ -57,8 +56,8 @@ pub struct PersistedPersona {
     pub prompt: String,
 }
 
-/// Embedded persona configuration that belongs to a specific Config Profile.
-/// This is independent from global personas - each profile has its own copy.
+/// Persona data used internally to construct the agent's system prompt.
+/// Resolved from the persona library by `persona_id` at runtime.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddedPersona {
     /// The display name of the persona
@@ -117,11 +116,6 @@ pub struct PersistedConfigProfile {
     /// This allows hot-reloading: changes to the persona in the library take effect immediately.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_id: Option<String>,
-    /// Embedded persona configuration (legacy, for backward compatibility).
-    /// New profiles should use `persona_id` to reference the persona library instead.
-    /// If both are set, `persona_id` takes priority.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations - independent copies for this profile.
     /// Takes priority over provider_id if both are set.
     #[serde(default)]
@@ -206,10 +200,6 @@ pub struct PersistedConfig {
 /// This is completely separate from Config Profiles.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugSessionConfig {
-    /// Embedded persona configuration. This is the single source of truth
-    /// for persona data within this debug session — no global persona references.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded provider configurations for debug sessions
     #[serde(default)]
     pub providers: Vec<EmbeddedProvider>,
@@ -281,8 +271,6 @@ struct ResolvedConfigContext {
     /// Persona ID reference to the persona library.
     /// When set, the persona is loaded dynamically from the library at runtime.
     persona_id: Option<String>,
-    /// Embedded persona configuration from the profile or debug session (legacy fallback).
-    embedded_persona: Option<EmbeddedPersona>,
     /// Embedded skill configurations
     embedded_skills: Vec<EmbeddedSkill>,
     /// Active embedded skill names
@@ -312,8 +300,6 @@ pub struct StoredConfigProfile {
     /// Persona ID reference to the persona library.
     /// When set, the persona is loaded dynamically from the library at runtime.
     pub persona_id: Option<String>,
-    /// Embedded persona configuration (legacy, for backward compatibility).
-    pub embedded_persona: Option<EmbeddedPersona>,
     /// Embedded providers - independent copies for this profile
     pub embedded_providers: Vec<EmbeddedProvider>,
     /// Active embedded provider name within this profile
@@ -585,7 +571,6 @@ impl AppState {
                                 updated_at,
                                 provider_id: p.provider_id,
                                 persona_id: p.persona_id,
-                                embedded_persona: p.embedded_persona,
                                 embedded_providers: p.embedded_providers,
                                 active_embedded_provider: p.active_embedded_provider,
                                 embedded_skills: p.embedded_skills,
@@ -837,7 +822,6 @@ impl AppState {
                         updated_at,
                         provider_id: p.provider_id,
                         persona_id: p.persona_id,
-                        embedded_persona: p.embedded_persona,
                         embedded_providers: p.embedded_providers,
                         active_embedded_provider: p.active_embedded_provider,
                         embedded_skills: p.embedded_skills,
@@ -1384,7 +1368,6 @@ impl AppState {
                         updated_at: p.updated_at.to_rfc3339().to_string(),
                         provider_id: p.provider_id.clone(),
                         persona_id: p.persona_id.clone(),
-                        embedded_persona: p.embedded_persona.clone(),
                         embedded_providers: p.embedded_providers.clone(),
                         active_embedded_provider: p.active_embedded_provider.clone(),
                         embedded_skills: p.embedded_skills.clone(),
@@ -1815,7 +1798,6 @@ impl AppState {
                 active_embedded_provider: debug.active_provider.clone(),
                 provider_id: effective_provider_id,
                 persona_id: debug.persona_id.clone(),
-                embedded_persona: debug.embedded_persona.clone(),
                 embedded_skills: debug.skills.clone(),
                 active_embedded_skill_names: debug.active_skill_names.clone(),
                 active_skill_names: Vec::new(), // debug session uses embedded skills only
@@ -1835,7 +1817,6 @@ impl AppState {
                     active_embedded_provider: profile.active_embedded_provider.clone(),
                     provider_id: profile.provider_id.clone(),
                     persona_id: profile.persona_id.clone(),
-                    embedded_persona: profile.embedded_persona.clone(),
                     embedded_skills: profile.embedded_skills.clone(),
                     active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                     active_skill_names: profile.active_skill_names.clone(),
@@ -1853,7 +1834,6 @@ impl AppState {
                 active_embedded_provider: profile.active_embedded_provider.clone(),
                 provider_id: profile.provider_id.clone(),
                 persona_id: profile.persona_id.clone(),
-                embedded_persona: profile.embedded_persona.clone(),
                 embedded_skills: profile.embedded_skills.clone(),
                 active_embedded_skill_names: profile.active_embedded_skill_names.clone(),
                 active_skill_names: profile.active_skill_names.clone(),
@@ -2082,9 +2062,10 @@ impl AppState {
         // appears after all other skill system messages and is not
         // overridden by knowledge base or other skill prompts.
         //
-        // Priority: persona_id (dynamic library reference) > embedded_persona (legacy fallback)
+        // Persona is resolved exclusively via persona_id from the library.
+        // If persona_id is not set or not found, no persona will be applied.
         let deferred_persona: Option<EmbeddedPersona> = if let Some(ctx) = context.as_ref() {
-            // First, try to resolve persona from library by persona_id (hot-reload enabled)
+            // Resolve persona from library by persona_id (hot-reload enabled)
             if let Some(ref pid) = ctx.persona_id {
                 let personas = self.personas.read().await;
                 let resolved = personas.get(pid).map(|p| EmbeddedPersona {
@@ -2103,14 +2084,13 @@ impl AppState {
                 } else {
                     tracing::warn!(
                         persona_id = %pid,
-                        "Persona ID not found in library, falling back to embedded_persona"
+                        "Persona ID not found in library, no persona will be applied"
                     );
-                    // Fall back to embedded_persona if persona_id is invalid
-                    ctx.embedded_persona.clone()
+                    None
                 }
             } else {
-                // No persona_id set, use embedded_persona (legacy fallback)
-                ctx.embedded_persona.clone()
+                // No persona_id set — no persona will be applied
+                None
             }
         } else {
             None

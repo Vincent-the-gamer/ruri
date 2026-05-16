@@ -348,13 +348,6 @@ export interface UpdatePersonaRequest {
   prompt?: string
 }
 
-/** Embedded persona configuration — owned inline by a config profile or debug session */
-export interface EmbeddedPersona {
-  name: string
-  description: string
-  prompt: string
-}
-
 // ─── Config Profile Types ───────────────────────────────────────
 
 export interface ConfigProfile {
@@ -369,7 +362,6 @@ export interface ConfigProfile {
   provider_id: string | null
   // Persona ID reference to the persona library (hot-reload enabled)
   persona_id: string | null
-  embedded_persona: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
   // 技能配置
@@ -395,7 +387,6 @@ export interface CreateConfigProfileRequest {
   enable: boolean
   provider_id: string | null
   persona_id?: string | null
-  embedded_persona?: EmbeddedPersona | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
   active_skill_names: string[]
@@ -414,7 +405,6 @@ export interface UpdateConfigProfileRequest {
   enable?: boolean
   provider_id?: string | null
   persona_id?: string | null
-  embedded_persona?: EmbeddedPersona | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
   active_skill_names?: string[]
@@ -800,7 +790,6 @@ export interface EmbeddedSkill {
 
 export interface DebugSession {
   persona_id: string | null
-  embedded_persona: EmbeddedPersona | null
   providers: EmbeddedProvider[]
   active_provider: string | null
   provider_id: string | null
@@ -820,7 +809,6 @@ export interface DebugSession {
 
 export interface UpdateDebugSessionRequest {
   persona_id?: string | null
-  embedded_persona?: EmbeddedPersona | null
   providers?: EmbeddedProvider[]
   active_provider?: string | null
   provider_id?: string | null

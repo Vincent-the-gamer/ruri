@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, reactive, watch } from "vue";
+import { onMounted, ref, computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useConfigStore } from "../stores/config";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
@@ -27,8 +27,24 @@ function close() {
     emit("update:modelValue", false);
 }
 
+function handleCancel() {
+    // Reset local state to last saved snapshot
+    const snap = savedSnapshot.value;
+    selectedProviderId.value = snap.selectedProviderId;
+    selectedPersonaId.value = snap.selectedPersonaId;
+    temperature.value = snap.temperature;
+    maxTokens.value = snap.maxTokens;
+    commandPrefix.value = snap.commandPrefix;
+    customErrorMessage.value = snap.customErrorMessage;
+    selectedKbIds.value = [...snap.selectedKbIds];
+    selectedSkillNames.value = [...snap.selectedSkillNames];
+    // Restore proxy config
+    Object.assign(proxyConfig, JSON.parse(JSON.stringify(snap.proxyConfig)));
+    close();
+}
+
 function onOverlayClick(e: MouseEvent) {
-    if (e.target === e.currentTarget) {
+    if (e.target === e.currentTarget && !isDirty.value) {
         close();
     }
 }
@@ -59,6 +75,14 @@ const maxTokens = ref(4096);
 // ── Persona Selection ──
 // Persona ID reference to the persona library (hot-reload enabled)
 const selectedPersonaId = ref<string | null>(null);
+// Computed proxy for <select> v-model: browser <option> only supports string values,
+// so we use empty string as the "no persona" value and convert to/from null.
+const personaIdProxy = computed({
+    get: () => selectedPersonaId.value ?? "",
+    set: (val: string) => {
+        selectedPersonaId.value = val || null;
+    },
+});
 const activePersona = computed(() => {
     // If persona_id is set, try to resolve from library
     if (selectedPersonaId.value) {
@@ -73,16 +97,9 @@ const activePersona = computed(() => {
             };
         }
     }
-    // Fall back to debug session's embedded persona (legacy).
-    // Does NOT fall back to config profile's persona — the debug session
-    // manages its own persona independently.
-    return debugSessionStore.embeddedPersona;
+    // No embedded persona on debug session — persona_id is the single source of truth.
+    return null;
 });
-
-function selectPersonaFromLibrary(personaId: string | null) {
-    selectedPersonaId.value = personaId;
-    debouncedSave();
-}
 
 // ── Command Prefix ──
 const commandPrefix = ref("/");
@@ -107,17 +124,14 @@ function toggleKbSelection(kbId: string) {
     } else {
         selectedKbIds.value.splice(idx, 1);
     }
-    debouncedSave();
 }
 
 function selectAllKb() {
     selectedKbIds.value = knowledgeBases.value.map((kb) => kb.id);
-    debouncedSave();
 }
 
 function clearAllKb() {
     selectedKbIds.value = [];
-    debouncedSave();
 }
 
 // ── Skill Selection ──
@@ -137,17 +151,14 @@ function toggleSkillSelection(skillName: string) {
     } else {
         selectedSkillNames.value.splice(idx, 1);
     }
-    debouncedSave();
 }
 
 function selectAllSkills() {
     selectedSkillNames.value = skills.value.map((s) => s.name);
-    debouncedSave();
 }
 
 function clearAllSkills() {
     selectedSkillNames.value = [];
-    debouncedSave();
 }
 
 // ── Proxy Configuration ──
@@ -171,13 +182,11 @@ function addProxyDomain() {
     if (domain && !proxyConfig.proxy_domains.includes(domain)) {
         proxyConfig.proxy_domains.push(domain);
         proxyDomainInput.value = "";
-        debouncedSave();
     }
 }
 
 function removeProxyDomain(index: number) {
     proxyConfig.proxy_domains.splice(index, 1);
-    debouncedSave();
 }
 
 function addBypassDomain() {
@@ -185,13 +194,11 @@ function addBypassDomain() {
     if (domain && !proxyConfig.bypass_domains.includes(domain)) {
         proxyConfig.bypass_domains.push(domain);
         bypassDomainInput.value = "";
-        debouncedSave();
     }
 }
 
 function removeBypassDomain(index: number) {
     proxyConfig.bypass_domains.splice(index, 1);
-    debouncedSave();
 }
 
 // ── Proxy Rules Editor ──
@@ -219,13 +226,11 @@ function addRule() {
         if (newRuleType.value === "match") {
             newRuleType.value = "domain";
         }
-        debouncedSave();
     }
 }
 
 function removeRule(index: number) {
     proxyConfig.rules.splice(index, 1);
-    debouncedSave();
 }
 
 function getRuleTypeColor(type: string): string {
@@ -240,26 +245,97 @@ function getRuleTypeColor(type: string): string {
     return colors[type] || "#6b7280";
 }
 
-// ── Save State ──
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedSave() {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-        handleSave();
-    }, 600);
+// ── Dirty State Tracking ──
+interface Snapshot {
+    selectedProviderId: string | null;
+    selectedPersonaId: string | null;
+    temperature: number;
+    maxTokens: number;
+    commandPrefix: string;
+    customErrorMessage: string;
+    selectedKbIds: string[];
+    selectedSkillNames: string[];
+    proxyConfig: typeof proxyConfig;
 }
 
+function takeSnapshot(): Snapshot {
+    return {
+        selectedProviderId: selectedProviderId.value,
+        selectedPersonaId: selectedPersonaId.value,
+        temperature: temperature.value,
+        maxTokens: maxTokens.value,
+        commandPrefix: commandPrefix.value,
+        customErrorMessage: customErrorMessage.value,
+        selectedKbIds: [...selectedKbIds.value],
+        selectedSkillNames: [...selectedSkillNames.value],
+        proxyConfig: JSON.parse(JSON.stringify(proxyConfig)),
+    };
+}
+
+const savedSnapshot = ref<Snapshot>(takeSnapshot());
+
+const isDirty = computed(() => {
+    const snap = savedSnapshot.value;
+    return (
+        selectedProviderId.value !== snap.selectedProviderId ||
+        selectedPersonaId.value !== snap.selectedPersonaId ||
+        temperature.value !== snap.temperature ||
+        maxTokens.value !== snap.maxTokens ||
+        commandPrefix.value !== snap.commandPrefix ||
+        customErrorMessage.value !== snap.customErrorMessage ||
+        JSON.stringify(selectedKbIds.value) !==
+            JSON.stringify(snap.selectedKbIds) ||
+        JSON.stringify(selectedSkillNames.value) !==
+            JSON.stringify(snap.selectedSkillNames) ||
+        JSON.stringify(proxyConfig) !== JSON.stringify(snap.proxyConfig)
+    );
+});
+
+const saving = ref(false);
+const saveSuccess = ref(false);
+const saveError = ref<string | null>(null);
+
+// ── Sync from Server ──
+function syncFromServer(session: any) {
+    selectedPersonaId.value = session.persona_id ?? null;
+    selectedProviderId.value =
+        session.provider_id || session.active_provider || null;
+    temperature.value = session.temperature ?? 0.7;
+    maxTokens.value = session.max_tokens ?? 4096;
+    customErrorMessage.value = session.custom_error_message || "";
+    commandPrefix.value = session.command_prefix || "/";
+    selectedKbIds.value = [...(session.knowledge_base_ids || [])];
+    selectedSkillNames.value = [...(session.active_skill_names || [])];
+    if (session.proxy_config) {
+        proxyConfig.enabled = session.proxy_config.enabled ?? false;
+        proxyConfig.url = session.proxy_config.url ?? "";
+        proxyConfig.mode = session.proxy_config.mode ?? "global";
+        proxyConfig.proxy_domains = [
+            ...(session.proxy_config.proxy_domains || []),
+        ];
+        proxyConfig.bypass_domains = [
+            ...(session.proxy_config.bypass_domains || []),
+        ];
+        proxyConfig.username = session.proxy_config.username ?? null;
+        proxyConfig.password = session.proxy_config.password ?? null;
+        proxyConfig.bypass_localhost =
+            session.proxy_config.bypass_localhost ?? true;
+        proxyConfig.rules = (session.proxy_config.rules || []).map(
+            (r: any) => ({
+                ...r,
+            }),
+        );
+    }
+}
+
+// ── Save ──
 async function handleSave() {
+    saveSuccess.value = false;
+    saveError.value = null;
+    saving.value = true;
     try {
         await debugSessionStore.updateDebugSessionConfig({
-            persona_id: selectedPersonaId.value,
-            // Always send embedded_persona: null to clear any stale embedded persona.
-            // The persona_id reference is the single source of truth — when a persona_id
-            // is set, the library persona takes over; when "No reference" is selected
-            // (persona_id = null), the debug session has no persona. This matches the
-            // config profile behavior where selecting "No reference" = no persona.
-            embedded_persona: null,
+            persona_id: selectedPersonaId.value || null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             custom_error_message: customErrorMessage.value || null,
@@ -269,75 +345,21 @@ async function handleSave() {
             command_prefix: commandPrefix.value || "/",
             proxy_config: proxyConfig as ProxyConfig,
         });
-    } catch {
-        // Auto-save errors are silently ignored
+        saveSuccess.value = true;
+        // Don't re-sync from server — the user's selection is the truth.
+        // Re-syncing can cause race conditions where a stale or
+        // serialized-as-missing persona_id overwrites the user's null.
+        savedSnapshot.value = takeSnapshot();
+        // Close modal on successful save
+        setTimeout(() => {
+            close();
+        }, 500);
+    } catch (e: unknown) {
+        saveError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+        saving.value = false;
     }
 }
-
-// Sync from debug session store
-watch(
-    () => debugSessionStore.debugSession,
-    (session) => {
-        if (session) {
-            // Sync persona_id reference
-            selectedPersonaId.value = session.persona_id || null;
-            selectedProviderId.value =
-                session.provider_id || session.active_provider || null;
-            temperature.value = session.temperature ?? 0.7;
-            maxTokens.value = session.max_tokens ?? 4096;
-            customErrorMessage.value = session.custom_error_message || "";
-            commandPrefix.value = session.command_prefix || "/";
-            selectedKbIds.value = [...(session.knowledge_base_ids || [])];
-            selectedSkillNames.value = [...(session.active_skill_names || [])];
-            // Sync proxy config from debug session
-            if (session.proxy_config) {
-                proxyConfig.enabled = session.proxy_config.enabled;
-                proxyConfig.url = session.proxy_config.url;
-                proxyConfig.mode = session.proxy_config.mode;
-                proxyConfig.proxy_domains = [
-                    ...session.proxy_config.proxy_domains,
-                ];
-                proxyConfig.bypass_domains = [
-                    ...session.proxy_config.bypass_domains,
-                ];
-                proxyConfig.username = session.proxy_config.username;
-                proxyConfig.password = session.proxy_config.password;
-                proxyConfig.bypass_localhost =
-                    session.proxy_config.bypass_localhost;
-                proxyConfig.rules = session.proxy_config.rules.map((r) => ({
-                    ...r,
-                }));
-            }
-        }
-    },
-    { immediate: true },
-);
-
-watch([temperature, maxTokens], () => {});
-
-watch([selectedProviderId, customErrorMessage, commandPrefix], () => {
-    debouncedSave();
-});
-
-watch(
-    () => proxyConfig.enabled,
-    () => {
-        debouncedSave();
-    },
-);
-
-watch(
-    () => [
-        proxyConfig.url,
-        proxyConfig.mode,
-        proxyConfig.bypass_localhost,
-        proxyConfig.username,
-        proxyConfig.password,
-    ],
-    () => {
-        debouncedSave();
-    },
-);
 
 onMounted(async () => {
     await Promise.all([
@@ -348,6 +370,11 @@ onMounted(async () => {
         skillStore.fetchSkills(),
         providerStore.fetchProviders(),
     ]);
+    const session = debugSessionStore.debugSession;
+    if (session) {
+        syncFromServer(session);
+        savedSnapshot.value = takeSnapshot();
+    }
 });
 
 defineExpose({
@@ -396,7 +423,7 @@ defineExpose({
                             </p>
                         </div>
                     </div>
-                    <button class="btn-close" @click="close">
+                    <button class="btn-close" @click="handleCancel">
                         <svg
                             viewBox="0 0 24 24"
                             fill="none"
@@ -560,20 +587,11 @@ defineExpose({
                                     {{ t("chatConfig.personaLibraryRef") }}
                                 </label>
                                 <select
-                                    v-if="personaStore.personas.length > 0"
                                     class="select-input"
-                                    :value="selectedPersonaId || ''"
-                                    @change="
-                                        (e) => {
-                                            const id =
-                                                (e.target as HTMLSelectElement)
-                                                    .value || null;
-                                            selectPersonaFromLibrary(id);
-                                        }
-                                    "
+                                    v-model="personaIdProxy"
                                 >
                                     <option value="">
-                                        {{ t("chatConfig.noReference") }}
+                                        {{ t("chatConfig.noPersona") }}
                                     </option>
                                     <option
                                         v-for="persona in personaStore.personas"
@@ -583,6 +601,18 @@ defineExpose({
                                         {{ persona.name }}
                                     </option>
                                 </select>
+                                <p
+                                    v-if="personaStore.personas.length === 0"
+                                    class="empty-hint"
+                                    style="margin-top: 4px"
+                                >
+                                    {{
+                                        t(
+                                            "chatConfig.noPersonasInLibrary",
+                                            "No personas in the library. Create one in the Personas page first.",
+                                        )
+                                    }}
+                                </p>
                                 <p
                                     class="help-text"
                                     style="margin-top: 4px; font-size: 12px"
@@ -1234,6 +1264,52 @@ defineExpose({
                         </Transition>
                     </section>
                 </div>
+
+                <!-- Footer -->
+                <div v-if="saveError" class="modal-footer-error">
+                    {{ saveError }}
+                </div>
+                <div class="modal-footer">
+                    <span v-if="isDirty" class="unsaved-hint">
+                        {{
+                            t(
+                                "chatConfig.unsavedChanges",
+                                "You have unsaved changes",
+                            )
+                        }}
+                    </span>
+                    <div class="footer-actions">
+                        <button class="btn btn-outline" @click="handleCancel">
+                            {{ t("common.cancel") }}
+                        </button>
+                        <button
+                            class="btn btn-primary"
+                            :disabled="saving || !isDirty"
+                            @click="handleSave"
+                        >
+                            <svg
+                                v-if="saving"
+                                class="spin-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                            {{
+                                saving
+                                    ? t("common.saving", "Saving...")
+                                    : t("chatConfig.save")
+                            }}
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </Transition>
@@ -1826,7 +1902,7 @@ defineExpose({
 
 .toggle-thumb {
     position: absolute;
-    top: 0.125rem;
+    top: 0.1rem;
     left: 0.125rem;
     width: 1rem;
     height: 1rem;
@@ -2111,6 +2187,105 @@ defineExpose({
 
     .form-row-2col {
         grid-template-columns: 1fr;
+    }
+}
+
+/* ── Modal Footer ── */
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid hsl(var(--border) / 0.2);
+    flex-shrink: 0;
+}
+
+.modal-footer-error {
+    padding: 0.5rem 1.5rem;
+    background: rgba(244, 63, 94, 0.1);
+    color: #f43f5e;
+    font-size: 0.8rem;
+    border-top: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+.unsaved-hint {
+    font-size: 0.8125rem;
+    color: hsl(var(--primary));
+    white-space: nowrap;
+}
+
+.footer-actions {
+    display: flex;
+    gap: 0.625rem;
+    margin-left: auto;
+}
+
+.modal-footer .btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.modal-footer .btn-outline {
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.modal-footer .btn-outline:hover:not(:disabled) {
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border));
+    background: hsl(var(--secondary) / 0.5);
+}
+
+.modal-footer .btn-primary {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary)),
+        hsl(var(--primary) / 0.9)
+    );
+    color: hsl(var(--primary-foreground));
+    border: none;
+    box-shadow: 0 1px 4px hsl(var(--primary) / 0.25);
+}
+
+.modal-footer .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.95),
+        hsl(var(--primary) / 0.85)
+    );
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.35);
+    transform: translateY(-1px);
+}
+
+.modal-footer .btn-primary:disabled,
+.modal-footer .btn-outline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+    box-shadow: none;
+}
+
+.spin-icon {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
     }
 }
 </style>

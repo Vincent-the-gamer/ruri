@@ -7,6 +7,7 @@ import { useProviderStore } from "../stores/provider";
 import { useSkillStore } from "../stores/skill";
 import { usePlatformStore } from "../stores/platform";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
+import { usePersonaStore } from "../stores/persona";
 import ConfigForm from "../components/ConfigForm.vue";
 import type { ConfigProfile } from "../types";
 
@@ -16,6 +17,7 @@ const providerStore = useProviderStore();
 const skillStore = useSkillStore();
 const platformStore = usePlatformStore();
 const kbStore = useKnowledgeBaseStore();
+const personaStore = usePersonaStore();
 
 const showForm = ref(false);
 const editingConfig = ref<ConfigProfile | null>(null);
@@ -30,6 +32,7 @@ onMounted(async () => {
         kbStore.fetchKnowledgeBases(),
         skillStore.fetchSkills(),
         platformStore.fetchInstances(),
+        personaStore.fetchPersonas(),
     ]);
 });
 
@@ -111,7 +114,13 @@ function getProviderName(providerId: string | null): string {
 }
 
 function getPersonaName(config: ConfigProfile): string {
-    return config.embedded_persona?.name || t("config.none");
+    if (config.persona_id) {
+        const resolved = personaStore.personas.find(
+            (p) => p.id === config.persona_id,
+        );
+        if (resolved) return resolved.name;
+    }
+    return t("config.none");
 }
 </script>
 

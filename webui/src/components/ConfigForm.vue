@@ -47,11 +47,6 @@ const formData = ref<{
     enable: boolean;
     provider_id: string | null;
     persona_id: string | null;
-    embedded_persona: {
-        name: string;
-        description: string;
-        prompt: string;
-    } | null;
     command_prefix: string;
     enabled_commands: string[];
     command_admin_required: Record<string, boolean>;
@@ -78,7 +73,6 @@ const formData = ref<{
     enable: true,
     provider_id: null,
     persona_id: null,
-    embedded_persona: null,
     command_prefix: "/",
     enabled_commands: [],
     command_admin_required: {},
@@ -111,7 +105,6 @@ watch(
                 enable: newConfig.enable ?? true,
                 provider_id: newConfig.provider_id || null,
                 persona_id: newConfig.persona_id || null,
-                embedded_persona: newConfig.embedded_persona || null,
                 command_prefix: newConfig.command_prefix || "/",
                 enabled_commands: [...(newConfig.enabled_commands || [])],
                 command_admin_required: {
@@ -149,7 +142,6 @@ watch(
                 enable: true,
                 provider_id: null,
                 persona_id: null,
-                embedded_persona: null,
                 command_prefix: "/",
                 enabled_commands: [],
                 command_admin_required: {},

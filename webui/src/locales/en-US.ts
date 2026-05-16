@@ -240,8 +240,10 @@ export default {
     selectPersonaFromLibrary: '📋 From Library...',
     personaLibraryRef: '📚 Persona Library Reference (hot-reload enabled)',
     noReference: '— No reference —',
+    noPersona: 'No persona',
     personaRefHelp: 'Select a persona from the library. Changes to the library persona will be reflected immediately.',
     noPersonaHint: 'No persona selected; debug session will not use any persona',
+    noPersonasInLibrary: 'No personas in the library. Create one in the Personas page first.',
     customErrorMessage: 'Custom Error Message',
     customErrorMessagePlaceholder: 'e.g. Sorry, something went wrong.',
     customErrorMessageHint: 'When the LLM/API request fails, this custom message will be shown instead of the raw error. Tool call errors always show the actual error. If left empty, the original error is displayed.',
@@ -287,6 +289,7 @@ export default {
     saved: '✅ Configuration saved',
     saveFailed: '❌ Failed to save configuration',
     save: 'Save Configuration',
+    unsavedChanges: 'You have unsaved changes',
   },
 
   // Providers

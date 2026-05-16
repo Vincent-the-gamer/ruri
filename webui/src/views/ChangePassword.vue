@@ -429,6 +429,7 @@ async function handleAvatarChange(event: Event) {
                     class="update-username-button"
                     :disabled="isUpdatingUsername"
                     @click="handleUpdateUsername"
+                    mt-3
                 >
                     <Icon
                         v-if="isUpdatingUsername"

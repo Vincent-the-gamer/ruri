@@ -690,21 +690,30 @@ impl ProviderFactory {
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
 
-        // Resolve persona from the active config profile
-        let active_profile_persona = config
+        // Resolve persona via persona_id from the active config profile + persona library
+        let active_profile_persona_id = config
             .config_profiles
             .values()
             .filter(|p| p.is_active && p.enable)
-            .find_map(|p| p.embedded_persona.clone());
+            .find_map(|p| p.persona_id.clone());
 
-        let persona_prompt = if let Some(persona) = active_profile_persona {
-            if !persona.prompt.is_empty() {
-                tracing::info!(
-                    persona_name = %persona.name,
-                    "ACP resolved persona system prompt"
-                );
-                Some(persona.prompt)
+        let persona_prompt = if let Some(pid) = active_profile_persona_id {
+            if let Some(persona) = config.personas.get(&pid) {
+                if !persona.prompt.is_empty() {
+                    tracing::info!(
+                        persona_id = %pid,
+                        persona_name = %persona.name,
+                        "ACP resolved persona system prompt from library"
+                    );
+                    Some(persona.prompt.clone())
+                } else {
+                    None
+                }
             } else {
+                tracing::warn!(
+                    persona_id = %pid,
+                    "ACP: persona_id not found in library, no persona will be applied"
+                );
                 None
             }
         } else {

@@ -31,8 +31,8 @@ const temperature = ref(0.7);
 const maxTokens = ref(4096);
 
 const effectivePersona = computed(() => {
-    // Priority: persona_id reference (hot-reload) > embedded persona > config profile's
-    // Try to resolve from persona_id reference
+    // Resolve persona exclusively from persona_id — no fallback to other modules.
+    // Persona is managed by chat configuration alone (via persona library reference).
     const pid = debugSessionStore.personaId;
     if (pid) {
         const resolved = personaStore.personas.find((p) => p.id === pid);
@@ -44,10 +44,8 @@ const effectivePersona = computed(() => {
             };
         }
     }
-    // Fall back to debug session's embedded persona (legacy).
-    // Does NOT fall back to config profile's persona — the debug session
-    // manages its own persona independently.
-    return debugSessionStore.embeddedPersona;
+    // No embedded persona on debug session — persona_id is the single source of truth.
+    return null;
 });
 
 const effectiveProvider = computed(() => {

@@ -2142,7 +2142,6 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             updated_at: p.updated_at.to_rfc3339().to_string(),
             provider_id: p.provider_id.clone(),
             persona_id: p.persona_id.clone(),
-            embedded_persona: p.embedded_persona.as_ref().map(EmbeddedPersonaDto::from),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
             active_skill_names: p.active_skill_names.clone(),
@@ -2175,7 +2174,6 @@ async fn get_config_profile(
             updated_at: p.updated_at.to_rfc3339().to_string(),
             provider_id: p.provider_id.clone(),
             persona_id: p.persona_id.clone(),
-            embedded_persona: p.embedded_persona.as_ref().map(EmbeddedPersonaDto::from),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
             active_skill_names: p.active_skill_names.clone(),
@@ -2216,10 +2214,6 @@ async fn create_config_profile(
         updated_at: now,
         provider_id: req.provider_id.clone(),
         persona_id: req.persona_id.clone(),
-        embedded_persona: req
-            .embedded_persona
-            .as_ref()
-            .map(|dto| crate::api::state::EmbeddedPersona::from(dto)),
         embedded_providers: Vec::new(),
         active_embedded_provider: None,
         embedded_skills: Vec::new(),
@@ -2291,7 +2285,6 @@ async fn create_config_profile(
         updated_at: now.to_rfc3339().to_string(),
         provider_id: req.provider_id.clone(),
         persona_id: req.persona_id.clone(),
-        embedded_persona: req.embedded_persona.clone(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
         active_skill_names: req.active_skill_names,
@@ -2385,11 +2378,6 @@ async fn update_config_profile(
             tracing::info!(profile_id = %id, persona_id = ?persona_id, "Updating profile persona_id");
             profile.persona_id = persona_id;
         }
-        if let Some(embedded_persona) = req.embedded_persona {
-            tracing::info!(profile_id = %id, "Updating profile embedded_persona");
-            profile.embedded_persona =
-                embedded_persona.map(|dto| crate::api::state::EmbeddedPersona::from(&dto));
-        }
         if let Some(web_search_enabled) = req.web_search_enabled {
             profile.web_search_enabled = web_search_enabled;
         }
@@ -2435,10 +2423,6 @@ async fn update_config_profile(
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
             persona_id: profile.persona_id.clone(),
-            embedded_persona: profile
-                .embedded_persona
-                .as_ref()
-                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -2572,10 +2556,6 @@ async fn activate_config_profile(
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
             persona_id: profile.persona_id.clone(),
-            embedded_persona: profile
-                .embedded_persona
-                .as_ref()
-                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -2661,10 +2641,6 @@ async fn deactivate_config_profile(
             updated_at: profile.updated_at.to_rfc3339().to_string(),
             provider_id: profile.provider_id.clone(),
             persona_id: profile.persona_id.clone(),
-            embedded_persona: profile
-                .embedded_persona
-                .as_ref()
-                .map(EmbeddedPersonaDto::from),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
             active_skill_names: profile.active_skill_names.clone(),
@@ -4904,10 +4880,6 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
 
     let dto = DebugSessionDto {
         persona_id: session.persona_id.clone(),
-        embedded_persona: session
-            .embedded_persona
-            .as_ref()
-            .map(EmbeddedPersonaDto::from),
         providers: session.providers.iter().map(Into::into).collect(),
         active_provider: session.active_provider.clone(),
         provider_id: session.provider_id.clone(),
@@ -4937,10 +4909,6 @@ async fn update_debug_session(
     let dto = {
         let mut session = state.debug_session.write().await;
 
-        if let Some(embedded_persona) = req.embedded_persona {
-            session.embedded_persona =
-                embedded_persona.map(|dto| crate::api::state::EmbeddedPersona::from(&dto));
-        }
         if let Some(persona_id) = req.persona_id {
             session.persona_id = persona_id;
         }
@@ -4999,10 +4967,6 @@ async fn update_debug_session(
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
             persona_id: session.persona_id.clone(),
-            embedded_persona: session
-                .embedded_persona
-                .as_ref()
-                .map(EmbeddedPersonaDto::from),
             providers: session
                 .providers
                 .iter()
