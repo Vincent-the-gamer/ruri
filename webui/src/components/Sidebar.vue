@@ -139,6 +139,18 @@ const navGroups = computed(() => [
             },
         ],
     },
+    {
+        key: "system",
+        label: t("nav.groups.system"),
+        icon: "lucide:cpu",
+        items: [
+            {
+                path: "/system",
+                label: t("nav.system"),
+                icon: "lucide:settings",
+            },
+        ],
+    },
 ]);
 
 // Track which groups are collapsed (collapsed = true means hidden)

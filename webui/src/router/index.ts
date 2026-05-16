@@ -120,6 +120,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/system',
+      name: 'System',
+      component: () => import('../views/System.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/builtin-commands',
       name: 'BuiltinCommands',
       component: () => import('../views/BuiltinCommands.vue'),

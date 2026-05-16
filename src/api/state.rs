@@ -1208,6 +1208,12 @@ impl AppState {
     /// change (e.g. a `StatusChanged` event after re-login). It reads
     /// each adapter's `persist_config_hint()` and merges the result into
     /// `platform_configs` before saving to the YAML file.
+    ///
+    /// Safety guard: If an updated extra would clear a credential that
+    /// currently exists in the config (e.g. overwriting a WeChat token
+    /// with null), the update is skipped and a warning is logged. This
+    /// prevents accidental credential loss during session timeouts or
+    /// adapter restarts.
     pub async fn persist_adapter_credentials(&self) {
         // Phase 1: Collect hints (read lock on manager)
         let updates: Vec<(String, serde_json::Value)> = {
@@ -1227,11 +1233,45 @@ impl AppState {
         }
 
         // Phase 2: Update platform_configs and save (no manager lock needed)
+        //
+        // Defensive check: before replacing a platform's extra config, verify
+        // that the update would not clear an existing credential. If the old
+        // config has a non-empty token/account_id but the new one would set
+        // them to null/empty, skip the update and log a warning.
         let updated_ids: Vec<String> = {
             let mut configs = self.platform_configs.write().await;
             let mut ids = Vec::new();
             for (instance_id, updated_extra) in &updates {
                 if let Some(cfg) = configs.iter_mut().find(|c| c.id == *instance_id) {
+                    // Defensive: check that we're not about to clear existing credentials
+                    let old_has_token = cfg
+                        .extra
+                        .get("token")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+                    let new_has_token = updated_extra
+                        .get("token")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+                    let old_has_account = cfg
+                        .extra
+                        .get("account_id")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+                    let new_has_account = updated_extra
+                        .get("account_id")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+
+                    if (old_has_token && !new_has_token) || (old_has_account && !new_has_account) {
+                        tracing::warn!(
+                            platform_id = %instance_id,
+                            "Refusing to persist config update that would clear existing credentials (old_token={}, new_token={}, old_account={}, new_account={}). Skipping.",
+                            old_has_token, new_has_token, old_has_account, new_has_account
+                        );
+                        continue;
+                    }
+
                     cfg.extra = updated_extra.clone();
                     ids.push(instance_id.clone());
                     tracing::info!(

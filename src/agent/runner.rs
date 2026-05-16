@@ -104,6 +104,10 @@ pub struct Agent {
     /// Whether `initialize_skills()` has been called at least once.
     /// Prevents duplicate initialization.
     skills_initialized: bool,
+    /// Optional cancellation token — when cancelled, the agent loop stops
+    /// between rounds (not mid-API-call). Set by the caller before invoking
+    /// `chat_with_message` to allow `/stop` to fully terminate the agent.
+    cancel_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 impl Agent {
@@ -119,7 +123,17 @@ impl Agent {
             system_prompt: None,
             skill_contexts: Vec::new(),
             skills_initialized: false,
+            cancel_token: None,
         }
+    }
+
+    /// Set the cancellation token for this agent.
+    ///
+    /// When the token is cancelled, the agent loop will stop between
+    /// rounds (not mid-API-call), ensuring `/stop` fully terminates
+    /// the agent instead of just cancelling the current tool call.
+    pub fn set_cancel_token(&mut self, token: tokio_util::sync::CancellationToken) {
+        self.cancel_token = Some(token);
     }
 
     /// Set the system prompt (persona) for this agent.
@@ -209,7 +223,30 @@ impl Agent {
 
         // Build request and run the tool loop
         let mut round = 0u32;
-        let response = loop {
+        let response = 'agent_loop: loop {
+            // Check cancellation before each round — if /stop was invoked,
+            // abort immediately instead of continuing to the next tool round.
+            if let Some(ref token) = self.cancel_token {
+                if token.is_cancelled() {
+                    tracing::info!(round = round, "Agent loop cancelled via CancellationToken");
+                    let stopped_msg = ChatMessage::assistant("⏹ 任务已停止。");
+                    self.history.push(stopped_msg.clone());
+                    let stopped_response = ChatResponse {
+                        id: None,
+                        object: Some("chat.completion".to_string()),
+                        model: None,
+                        choices: vec![crate::types::Choice {
+                            index: 0,
+                            message: stopped_msg,
+                            finish_reason: Some("stop".to_string()),
+                        }],
+                        usage: None,
+                        extra: serde_json::Map::new(),
+                    };
+                    break 'agent_loop stopped_response;
+                }
+            }
+
             let request = self.build_request();
 
             tracing::info!(
@@ -220,7 +257,34 @@ impl Agent {
                 "Sending chat request"
             );
 
-            let mut response = self.transport.send(request).await?;
+            // Send the request to the model. Use tokio::select! with the
+            // cancellation token so that /stop can cancel a slow LLM API call.
+            let send_result = if let Some(ref token) = self.cancel_token {
+                tokio::select! {
+                    result = self.transport.send(request) => result,
+                    _ = token.cancelled() => {
+                        tracing::info!(round = round, "Agent LLM request cancelled via CancellationToken");
+                        let stopped_msg = ChatMessage::assistant("⏹ 任务已停止。");
+                        self.history.push(stopped_msg.clone());
+                        let stopped_response = ChatResponse {
+                            id: None,
+                            object: Some("chat.completion".to_string()),
+                            model: None,
+                            choices: vec![crate::types::Choice {
+                                index: 0,
+                                message: stopped_msg,
+                                finish_reason: Some("stop".to_string()),
+                            }],
+                            usage: None,
+                            extra: serde_json::Map::new(),
+                        };
+                        break 'agent_loop stopped_response;
+                    }
+                }
+            } else {
+                self.transport.send(request).await
+            };
+            let mut response = send_result?;
 
             // Check if the model wants to call tools
             let choice = &response.choices[0];
@@ -232,14 +296,34 @@ impl Agent {
                     let assistant_msg = choice.message.clone();
                     self.history.push(assistant_msg);
 
-                    // Execute each tool call
+                    // Execute each tool call, cancelling promptly if /stop is invoked.
                     for call in &calls {
                         tracing::info!(tool = %call.function.name, "Executing tool call");
 
-                        let result = self
-                            .tool_executor
-                            .execute_with_id(&call.id, &call.function)
-                            .await;
+                        // Use tokio::select! so that /stop can cancel a
+                        // long-running tool call (e.g. web_search) mid-execution.
+                        let result = if let Some(ref token) = self.cancel_token {
+                            tokio::select! {
+                                r = self.tool_executor.execute_with_id(&call.id, &call.function) => r,
+                                _ = token.cancelled() => {
+                                    tracing::info!(
+                                        tool = %call.function.name,
+                                        round = round,
+                                        "Tool execution cancelled via CancellationToken"
+                                    );
+                                    // Return a synthetic cancelled result so we can
+                                    // break out gracefully after this iteration.
+                                    ToolResult {
+                                        tool_call_id: call.id.clone(),
+                                        content: "⏹ 任务已停止。".to_string(),
+                                    }
+                                }
+                            }
+                        } else {
+                            self.tool_executor
+                                .execute_with_id(&call.id, &call.function)
+                                .await
+                        };
 
                         // Notify skills
                         for skill in &self.skills {
@@ -255,6 +339,33 @@ impl Agent {
                             &result.tool_call_id,
                             &result.content,
                         ));
+
+                        // Check cancellation after each individual tool call —
+                        // don't wait for the remaining tools in this round.
+                        if let Some(ref token) = self.cancel_token {
+                            if token.is_cancelled() {
+                                tracing::info!(
+                                    tool = %call.function.name,
+                                    round = round,
+                                    "Agent loop cancelled after tool execution via CancellationToken"
+                                );
+                                let stopped_msg = ChatMessage::assistant("⏹ 任务已停止。");
+                                self.history.push(stopped_msg.clone());
+                                let stopped_response = ChatResponse {
+                                    id: None,
+                                    object: Some("chat.completion".to_string()),
+                                    model: None,
+                                    choices: vec![crate::types::Choice {
+                                        index: 0,
+                                        message: stopped_msg,
+                                        finish_reason: Some("stop".to_string()),
+                                    }],
+                                    usage: None,
+                                    extra: serde_json::Map::new(),
+                                };
+                                break 'agent_loop stopped_response;
+                            }
+                        }
                     }
 
                     round += 1;
@@ -268,14 +379,14 @@ impl Agent {
                         self.history.push(assistant_msg.clone());
                         // Patch the response so the caller sees the warning text.
                         response.choices[0].message = assistant_msg;
-                        break response;
+                        break 'agent_loop response;
                     }
                     // Loop back to get the model's next response
                 }
                 _ => {
                     // No tool calls — add to history and return
                     self.history.push(choice.message.clone());
-                    break response;
+                    break 'agent_loop response;
                 }
             }
         };
@@ -518,6 +629,18 @@ impl AgentStreamer {
                 let max_rounds = agent.config.max_tool_rounds;
 
                 loop {
+                    // Check cancellation before each round — if /stop was invoked,
+                    // abort immediately instead of continuing to the next tool round.
+                    if let Some(ref token) = agent.cancel_token {
+                        if token.is_cancelled() {
+                            tracing::info!(round = round, "Streaming agent loop cancelled via CancellationToken");
+                            let _ = tx.send(Ok(StreamEvent::Error {
+                                error: "任务已停止".to_string(),
+                            })).await;
+                            break;
+                        }
+                    }
+
                     let request = agent.build_request();
 
                     tracing::info!(
@@ -536,7 +659,28 @@ impl AgentStreamer {
                     let mut content_text = String::new();
 
                     use futures_util::StreamExt;
+
+                    // Helper: check cancellation and break out of the outer
+                    // tool loop if the token has been cancelled.
+                    macro_rules! check_stream_cancel {
+                        () => {
+                            if let Some(ref token) = agent.cancel_token {
+                                if token.is_cancelled() {
+                                    tracing::info!(round = round, "Streaming agent cancelled during stream processing");
+                                    let _ = tx.send(Ok(StreamEvent::Error {
+                                        error: "任务已停止".to_string(),
+                                    })).await;
+                                    return;
+                                }
+                            }
+                        };
+                    }
+
                     while let Some(event_result) = stream.next().await {
+                        // Check cancellation at the top of each stream iteration.
+                        // This ensures that even while streaming a response, the
+                        // agent will stop promptly when /stop is invoked.
+                        check_stream_cancel!();
                         match event_result {
                             Ok(event) => {
                                 match &event {
@@ -681,14 +825,30 @@ impl AgentStreamer {
                         );
                         agent.history.push(assistant_msg);
 
-                        // Execute each tool call
+                        // Execute each tool call, cancelling promptly if /stop is invoked.
                         for call in &tool_calls_for_history {
                             tracing::info!(tool = %call.function.name, "Executing tool call");
 
-                            let result = agent
-                                .tool_executor
-                                .execute_with_id(&call.id, &call.function)
-                                .await;
+                            // Use tokio::select! so that /stop can cancel a
+                            // long-running tool call mid-execution.
+                            let result = if let Some(ref token) = agent.cancel_token {
+                                tokio::select! {
+                                    r = agent.tool_executor.execute_with_id(&call.id, &call.function) => r,
+                                    _ = token.cancelled() => {
+                                        tracing::info!(
+                                            tool = %call.function.name,
+                                            round = round,
+                                            "Streaming tool execution cancelled via CancellationToken"
+                                        );
+                                        ToolResult {
+                                            tool_call_id: call.id.clone(),
+                                            content: "⏹ 任务已停止。".to_string(),
+                                        }
+                                    }
+                                }
+                            } else {
+                                agent.tool_executor.execute_with_id(&call.id, &call.function).await
+                            };
 
                             // Notify skills
                             for skill in &agent.skills {
@@ -717,6 +877,22 @@ impl AgentStreamer {
                             {
                                 return;
                             }
+
+                            // Check cancellation after each individual tool call —
+                            // don't wait for the remaining tools in this round.
+                            if let Some(ref token) = agent.cancel_token {
+                                if token.is_cancelled() {
+                                    tracing::info!(
+                                        tool = %call.function.name,
+                                        round = round,
+                                        "Streaming agent loop cancelled after tool execution via CancellationToken"
+                                    );
+                                    let _ = tx.send(Ok(StreamEvent::Error {
+                                        error: "任务已停止".to_string(),
+                                    })).await;
+                                    break;
+                                }
+                            }
                         }
 
                         round += 1;
@@ -733,6 +909,19 @@ impl AgentStreamer {
                             }
                             break;
                         }
+
+                        // Check cancellation after the round (belt-and-suspenders;
+                        // the per-tool check above should already catch this).
+                        if let Some(ref token) = agent.cancel_token {
+                            if token.is_cancelled() {
+                                tracing::info!(round = round, "Streaming agent loop cancelled between rounds via CancellationToken");
+                                let _ = tx.send(Ok(StreamEvent::Error {
+                                    error: "任务已停止".to_string(),
+                                })).await;
+                                break;
+                            }
+                        }
+
                         // Loop back for next round
                     } else {
                         // No tool calls — add the assistant message to history

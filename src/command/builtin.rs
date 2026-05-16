@@ -183,7 +183,7 @@ impl Command for ResetCommand {
     }
 
     fn description(&self) -> &str {
-        "重置当前会话的 LLM 上下文"
+        "重置当前会话的对话上下文（清空聊天记录和会话变量，不影响登录状态和配置）"
     }
 
     fn usage(&self) -> &str {
@@ -195,6 +195,21 @@ impl Command for ResetCommand {
     }
 
     async fn execute(&self, ctx: &CommandContext) -> CommandResult {
+        // /reset — Reset the conversation context for the current session.
+        //
+        // This command ONLY clears conversation-related state:
+        //   1. Cancels any running agent task for this session
+        //   2. Deletes the LLM conversation history from the database
+        //   3. Clears session variables (set via /set) for this session
+        //   4. Removes the in-memory conversation ID mapping (WebUI only)
+        //
+        // This command does NOT touch:
+        //   - Authentication / login state
+        //   - Platform adapter credentials (e.g. WeChat token)
+        //   - Provider API keys
+        //   - Configuration files (config.json, platforms.yaml)
+        //   - Config profiles, personas, skills
+        //   - Any global or persistent application state
         let session_id = &ctx.session_id;
         let mut cancelled_task = false;
         let mut deleted_conversations = 0;
@@ -264,29 +279,18 @@ impl Command for ResetCommand {
             }
         }
 
-        // 3. Clear session variables for this session
-        {
-            let mut vars = ctx.state.session_variables.write().await;
-            let had_vars = vars.remove(session_id).is_some();
-            if had_vars {
-                tracing::info!(
-                    command = %ctx.command_name,
-                    session_id = %session_id,
-                    "Cleared session variables"
-                );
-            }
-        }
-
         tracing::info!(
             command = %ctx.command_name,
             user_id = %ctx.user_id,
-            session_id = %session_id,
+            session_id = session_id,
             cancelled_task = cancelled_task,
             deleted_conversations = deleted_conversations,
             "Conversation context reset complete"
         );
 
-        CommandResult::text("✅ 当前会话已重置。上下文已清空，新对话将从零开始。")
+        CommandResult::text(
+            "✅ 当前会话已重置。对话上下文已清空，新对话将从零开始。\n💡 登录状态和配置不受影响。",
+        )
     }
 }
 
@@ -302,7 +306,7 @@ impl Command for StopCommand {
     }
 
     fn description(&self) -> &str {
-        "停止当前会话中正在运行的 Agent 任务"
+        "停止当前会话中正在运行的 Agent 任务（包括正在执行的工具调用）"
     }
 
     fn usage(&self) -> &str {
@@ -325,7 +329,7 @@ impl Command for StopCommand {
                 session_id = %session_id,
                 "Stopped running agent task"
             );
-            CommandResult::text("⏹ 已停止当前运行中的任务。")
+            CommandResult::text("⏹ 已停止当前运行中的 Agent 任务。")
         } else {
             tracing::info!(
                 command = %ctx.command_name,

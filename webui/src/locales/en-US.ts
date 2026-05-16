@@ -50,12 +50,14 @@ export default {
     personas: 'Personas',
     configs: 'Configs',
     knowledgeBase: 'Knowledge Base',
+    system: 'System',
     groups: {
       general: 'General',
       conversation: 'Conversation',
       config: 'Configuration',
       capabilities: 'Capabilities',
       debug: 'Debug',
+      system: 'System',
     },
   },
 
@@ -1027,5 +1029,15 @@ export default {
     passwordChangeRequired: 'Password change required',
     changePassword: 'Change Password',
     logout: 'Logout',
+  },
+  system: {
+    title: 'System Management',
+    subtitle: 'Manage system settings and backend services',
+    restartBackend: 'Restart Backend',
+    restartBackendDesc: 'Restart the backend process to apply configuration changes. All ongoing conversations and services will be temporarily interrupted during the restart.',
+    restartConfirmTitle: 'Confirm Backend Restart',
+    restartConfirmDesc: 'This will restart the backend process. All ongoing conversations will be interrupted. Please make sure you have saved any important content. The page will automatically refresh after the restart completes.',
+    restarting: 'Restarting...',
+    restartFailed: 'Restart failed',
   },
 }

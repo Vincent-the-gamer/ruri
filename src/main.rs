@@ -395,8 +395,13 @@ async fn main() -> anyhow::Result<()> {
                             {
                                 let mut tasks =
                                     state_for_platform.running_agent_tasks.write().await;
-                                tasks.insert(msg.session_id.clone(), cancel_token);
+                                tasks.insert(msg.session_id.clone(), cancel_token.clone());
                             }
+
+                            // Give the agent the cancellation token so it can check it
+                            // between tool rounds, ensuring /stop fully terminates the
+                            // agent instead of just cancelling the current tool call.
+                            agent.set_cancel_token(cancel_token);
 
                             // Build user message from platform message (may include images/files)
                             let user_msg = {

@@ -990,8 +990,13 @@ async fn send_chat_message(
     let cancel_clone = cancel_token.clone();
     {
         let mut tasks = state.running_agent_tasks.write().await;
-        tasks.insert(session_key.clone(), cancel_token);
+        tasks.insert(session_key.clone(), cancel_token.clone());
     }
+
+    // Give the agent the cancellation token so it can check it
+    // between tool rounds, ensuring /stop fully terminates the
+    // agent instead of just cancelling the current tool call.
+    agent.set_cancel_token(cancel_token);
 
     // Build user message (text-only or multimodal with images/files)
     let user_msg = if req.images.is_empty() && req.files.is_empty() {
@@ -1317,6 +1322,11 @@ async fn stream_chat_message(
         let mut tasks = state.running_agent_tasks.write().await;
         tasks.insert(session_key.clone(), cancel_token.clone());
     }
+
+    // Give the agent the cancellation token so it can check it
+    // between tool rounds, ensuring /stop fully terminates the
+    // agent instead of just cancelling the current tool call.
+    agent.set_cancel_token(cancel_token.clone());
 
     // Build user message
     let user_msg = if req.images.is_empty() && req.files.is_empty() {

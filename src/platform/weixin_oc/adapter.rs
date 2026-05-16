@@ -223,8 +223,7 @@ impl WeixinOcAdapter {
                 Ok(updates) => {
                     // Check for API-level errors in the response body
                     // (the server may return HTTP 200 but include an error code)
-                    let is_api_error =
-                        (updates.ret.is_some() && updates.ret != Some(0))
+                    let is_api_error = (updates.ret.is_some() && updates.ret != Some(0))
                         || (updates.errcode.is_some() && updates.errcode != Some(0));
 
                     if is_api_error {
@@ -301,7 +300,12 @@ impl WeixinOcAdapter {
                             let item_types: Vec<String> = msg
                                 .item_list
                                 .as_ref()
-                                .map(|items| items.iter().map(|i| format!("{}", i.item_type.unwrap_or(0))).collect())
+                                .map(|items| {
+                                    items
+                                        .iter()
+                                        .map(|i| format!("{}", i.item_type.unwrap_or(0)))
+                                        .collect()
+                                })
                                 .unwrap_or_default();
                             tracing::info!(
                                 platform_id = %instance_id,
@@ -329,7 +333,10 @@ impl WeixinOcAdapter {
                                 let typing_tickets_clone = typing_tickets.clone();
                                 tokio::spawn(async move {
                                     if let Ok(config_resp) = api_clone
-                                        .get_config(&user_id_for_typing, ctx_token_for_config.as_deref())
+                                        .get_config(
+                                            &user_id_for_typing,
+                                            ctx_token_for_config.as_deref(),
+                                        )
                                         .await
                                     {
                                         if let Some(ticket) = config_resp.typing_ticket {
@@ -382,10 +389,8 @@ impl WeixinOcAdapter {
                         ))
                         .await;
                     } else {
-                        tokio::time::sleep(std::time::Duration::from_millis(
-                            Self::RETRY_DELAY_MS,
-                        ))
-                        .await;
+                        tokio::time::sleep(std::time::Duration::from_millis(Self::RETRY_DELAY_MS))
+                            .await;
                     }
                 }
             }
@@ -787,17 +792,32 @@ impl Platform for WeixinOcAdapter {
         // Sync latest credentials from API state before shutting down,
         // so persist_config_hint() returns the most up-to-date values
         // when the platform manager drains config updates on shutdown.
+        //
+        // IMPORTANT: We only sync NON-EMPTY credentials. If the API state
+        // has token=None (e.g. during a session timeout while awaiting
+        // QR re-login), we must NOT overwrite the existing valid token
+        // in self.config. Otherwise the next persist_config_hint() call
+        // would return a config with an empty token, which would then
+        // be written to platforms.yaml — permanently losing the login
+        // credentials.
         {
             let state = self.api.state();
             if let Ok(guard) = state.try_read() {
-                let token_changed = self.config.token != guard.token;
-                let account_changed = self.config.account_id != guard.account_id;
-                if token_changed || account_changed {
+                let mut changed = false;
+                // Only replace credentials when the API state has NEW non-empty values
+                if guard.token.is_some() && guard.token != self.config.token {
                     self.config.token = guard.token.clone();
+                    changed = true;
+                }
+                if guard.account_id.is_some() && guard.account_id != self.config.account_id {
                     self.config.account_id = guard.account_id.clone();
-                    if guard.base_url != self.config.base_url {
-                        self.config.base_url = guard.base_url.clone();
-                    }
+                    changed = true;
+                }
+                if guard.base_url != self.config.base_url {
+                    self.config.base_url = guard.base_url.clone();
+                    changed = true;
+                }
+                if changed {
                     self.config_dirty = true;
                     tracing::info!(
                         platform_id = %self.instance_id,
@@ -889,15 +909,30 @@ impl Platform for WeixinOcAdapter {
         // We use `try_read` because this is a sync method and the lock
         // is an async `tokio::sync::RwLock`.  If we can't acquire the
         // lock immediately we return None – we'll retry on the next call.
+        //
+        // IMPORTANT: We only consider the config dirty if the API state
+        // has NEW non-empty credentials to persist. If the API state has
+        // token=None (e.g. during a session timeout while awaiting QR
+        // re-login), we must NOT flag as dirty, because that would cause
+        // us to return a config that overwrites the existing valid token
+        // in platforms.yaml with an empty one — permanently losing the
+        // login credentials.
+        let binding = self.api.state();
+        let api_state = binding.try_read().ok();
         let dirty = if self.config_dirty {
+            // config_dirty can be set by sync_config_from_api() after QR login,
+            // which only sets it when guard.token.is_some(). Safe to persist.
             true
-        } else if let Ok(guard) = self.api.state().try_read() {
-            // Check if API state has a token that differs from self.config
-            match (&self.config.token, &guard.token) {
-                (Some(a), Some(b)) if a == b => false,
-                (None, None) => false,
-                _ => true,
-            }
+        } else if let Some(guard) = &api_state {
+            // Only treat as dirty if the API state has NEW credentials
+            // (non-empty) that differ from what's stored in self.config.
+            // If the API state has cleared credentials (session timeout),
+            // we do NOT treat this as dirty — we want to preserve the
+            // existing token in the config file.
+            let has_new_token = guard.token.is_some() && guard.token != self.config.token;
+            let has_new_account =
+                guard.account_id.is_some() && guard.account_id != self.config.account_id;
+            has_new_token || has_new_account
         } else {
             false
         };
@@ -908,8 +943,10 @@ impl Platform for WeixinOcAdapter {
 
         // Build an updated config value.  Try to read the current API
         // state so we always return the latest credentials.
+        // Only update credentials from API state when they are non-empty,
+        // to avoid clearing valid tokens during session timeout.
         let mut config = self.config.clone();
-        if let Ok(guard) = self.api.state().try_read() {
+        if let Some(guard) = &api_state {
             if guard.token.is_some() {
                 config.token = guard.token.clone();
             }

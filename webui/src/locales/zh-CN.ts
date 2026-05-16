@@ -50,12 +50,14 @@ export default {
     chatConfig: '对话配置',
     builtinCommands: '内置指令',
     knowledgeBase: '知识库',
+    system: '系统',
     groups: {
       general: '通用',
       conversation: '对话',
       config: '配置',
       capabilities: '能力',
       debug: '调试',
+      system: '系统',
     },
   },
 
@@ -1028,5 +1030,15 @@ export default {
     passwordChangeRequired: '需要修改密码',
     changePassword: '修改密码',
     logout: '退出登录',
+  },
+  system: {
+    title: '系统管理',
+    subtitle: '管理系统设置与后端服务',
+    restartBackend: '重启后端',
+    restartBackendDesc: '重启后端进程以应用配置变更。重启期间所有正在进行的对话和服务将暂时中断。',
+    restartConfirmTitle: '确认重启后端',
+    restartConfirmDesc: '此操作将重启后端进程，所有正在进行的对话将被中断，请确保已保存重要内容。重启完成后页面将自动刷新。',
+    restarting: '正在重启...',
+    restartFailed: '重启失败',
   },
 }

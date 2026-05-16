@@ -3,6 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useAuthStore } from "../stores/auth";
+import { restartSystem } from "../api";
 import { Icon } from "@iconify/vue";
 
 const router = useRouter();
@@ -10,6 +11,8 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 
 const showMenu = ref(false);
+const restarting = ref(false);
+const showRestartConfirm = ref(false);
 
 const username = computed(() => authStore.username || "User");
 const mustChangePassword = computed(() => authStore.mustChangePassword);
@@ -31,6 +34,29 @@ async function handleLogout() {
 function goToChangePassword() {
     closeMenu();
     router.push("/change-password");
+}
+
+function handleRestartClick() {
+    showRestartConfirm.value = true;
+}
+
+function cancelRestart() {
+    showRestartConfirm.value = false;
+}
+
+async function confirmRestart() {
+    showRestartConfirm.value = false;
+    restarting.value = true;
+    try {
+        await restartSystem();
+        // The server will restart, so we show a message and wait for reconnection
+        setTimeout(() => {
+            window.location.reload();
+        }, 3000);
+    } catch (error) {
+        console.error("Failed to restart backend:", error);
+        restarting.value = false;
+    }
 }
 
 // Close menu when clicking outside
@@ -153,7 +179,70 @@ const avatarUrl = computed(() => authStore.user?.avatar_url);
                             class="dropdown-arrow"
                         />
                     </button>
+
+                    <!-- System section divider -->
+                    <div class="dropdown-section-divider">
+                        <span class="section-label">{{
+                            t("userMenu.system")
+                        }}</span>
+                    </div>
+
+                    <!-- Restart Backend -->
+                    <button
+                        class="dropdown-item restart-item"
+                        :disabled="restarting"
+                        @click="handleRestartClick"
+                    >
+                        <Icon
+                            :icon="
+                                restarting
+                                    ? 'lucide:loader-2'
+                                    : 'lucide:refresh-cw'
+                            "
+                            class="dropdown-icon"
+                            :class="{ 'spin-animation': restarting }"
+                        />
+                        <span>{{
+                            restarting
+                                ? t("userMenu.restarting")
+                                : t("userMenu.restartBackend")
+                        }}</span>
+                    </button>
                 </div>
+
+                <!-- Restart Confirmation Dialog -->
+                <Transition name="confirm">
+                    <div
+                        v-if="showRestartConfirm"
+                        class="restart-confirm-overlay"
+                    >
+                        <div class="restart-confirm-dialog">
+                            <div class="confirm-icon-wrapper">
+                                <Icon
+                                    icon="lucide:refresh-cw"
+                                    class="confirm-icon"
+                                />
+                            </div>
+                            <div class="confirm-text">
+                                {{ t("userMenu.restartBackendConfirm") }}
+                            </div>
+                            <div class="confirm-actions">
+                                <button
+                                    class="confirm-btn cancel-btn"
+                                    @click="cancelRestart"
+                                >
+                                    {{ t("common.cancel") }}
+                                </button>
+                                <button
+                                    class="confirm-btn restart-btn"
+                                    @click="confirmRestart"
+                                >
+                                    {{ t("userMenu.restartBackend") }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </Transition>
             </div>
         </Transition>
     </div>
@@ -316,6 +405,31 @@ const avatarUrl = computed(() => authStore.user?.avatar_url);
     margin: 4px 0;
 }
 
+/* Section Divider */
+.dropdown-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 4px;
+}
+
+.dropdown-section-divider::before,
+.dropdown-section-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: hsl(var(--border) / 0.3);
+}
+
+.section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: hsl(var(--muted-foreground));
+    white-space: nowrap;
+}
+
 /* Dropdown Items */
 .dropdown-items {
     padding: 8px;
@@ -349,6 +463,11 @@ const avatarUrl = computed(() => authStore.user?.avatar_url);
     background: hsl(var(--secondary) / 0.8);
 }
 
+.dropdown-item:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .dropdown-icon {
     font-size: 16px;
     color: hsl(var(--muted-foreground));
@@ -380,6 +499,126 @@ const avatarUrl = computed(() => authStore.user?.avatar_url);
 
 .logout-item:hover .dropdown-icon {
     color: hsl(0 70% 50%);
+}
+
+/* Restart item special styling */
+.restart-item:hover {
+    background: hsl(30 90% 50% / 0.1);
+    color: hsl(30 90% 50%);
+}
+
+.restart-item:hover .dropdown-icon {
+    color: hsl(30 90% 50%);
+}
+
+/* Spin animation for loading state */
+.spin-animation {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Restart Confirmation Overlay */
+.restart-confirm-overlay {
+    position: absolute;
+    inset: 0;
+    background: hsl(var(--background) / 0.9);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    border-radius: 12px;
+}
+
+.restart-confirm-dialog {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px 20px;
+    text-align: center;
+}
+
+.confirm-icon-wrapper {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: hsl(30 90% 50% / 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.confirm-icon {
+    font-size: 20px;
+    color: hsl(30 90% 50%);
+}
+
+.confirm-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+    max-width: 220px;
+}
+
+.confirm-actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.confirm-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    outline: none;
+}
+
+.cancel-btn {
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+}
+
+.cancel-btn:hover {
+    background: hsl(var(--secondary) / 0.8);
+}
+
+.restart-btn {
+    background: hsl(30 90% 50%);
+    color: white;
+}
+
+.restart-btn:hover {
+    background: hsl(30 90% 45%);
+}
+
+/* Confirm Transition */
+.confirm-enter-active,
+.confirm-leave-active {
+    transition: all 0.2s ease;
+}
+
+.confirm-enter-from,
+.confirm-leave-to {
+    opacity: 0;
+}
+
+.confirm-enter-to,
+.confirm-leave-from {
+    opacity: 1;
 }
 
 /* Dropdown Transition */
