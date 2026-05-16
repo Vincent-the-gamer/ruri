@@ -250,19 +250,17 @@ impl Command for ResetCommand {
             // Reset the webui chat conversation ID only if this command
             // came from the webui (not from a platform adapter)
             if ctx.platform_id == "webui" {
-                let chat_conv_id = ctx.state.chat_conversation_id.read().await;
-                if chat_conv_id.is_some() {
-                    drop(chat_conv_id);
-                    let mut conv_id = ctx.state.chat_conversation_id.write().await;
-                    *conv_id = None;
-                }
+                let context_key = ctx.state.resolve_chat_context_key().await;
+                let mut conv_ids = ctx.state.chat_conversation_ids.write().await;
+                conv_ids.remove(&context_key);
             }
         } else {
             // No database - at least reset the in-memory conversation ID
             // (only for webui sessions)
             if ctx.platform_id == "webui" {
-                let mut conv_id = ctx.state.chat_conversation_id.write().await;
-                *conv_id = None;
+                let context_key = ctx.state.resolve_chat_context_key().await;
+                let mut conv_ids = ctx.state.chat_conversation_ids.write().await;
+                conv_ids.remove(&context_key);
             }
         }
 
@@ -407,8 +405,9 @@ impl Command for NewCommand {
                     // Update the webui conversation ID only if this command
                     // came from the webui (not from a platform adapter)
                     if ctx.platform_id == "webui" {
-                        let mut conv_id = ctx.state.chat_conversation_id.write().await;
-                        *conv_id = Some(conversation.id.clone());
+                        let context_key = ctx.state.resolve_chat_context_key().await;
+                        let mut conv_ids = ctx.state.chat_conversation_ids.write().await;
+                        conv_ids.insert(context_key, conversation.id.clone());
                     }
 
                     CommandResult::text(format!(
@@ -432,8 +431,9 @@ impl Command for NewCommand {
             // No database available, just reset in-memory state
             // (only for webui sessions)
             if ctx.platform_id == "webui" {
-                let mut conv_id = ctx.state.chat_conversation_id.write().await;
-                *conv_id = None;
+                let context_key = ctx.state.resolve_chat_context_key().await;
+                let mut conv_ids = ctx.state.chat_conversation_ids.write().await;
+                conv_ids.remove(&context_key);
             }
 
             tracing::warn!(

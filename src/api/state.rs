@@ -415,8 +415,10 @@ pub struct AppState {
     pub workspace_manager: std::sync::Arc<crate::computer_use::WorkspaceManager>,
     /// Tool definitions (read-only, set at startup).
     pub tool_definitions: Vec<crate::types::ToolDefinition>,
-    /// ID of the current active conversation for chat messages.
-    pub chat_conversation_id: RwLock<Option<String>>,
+    /// Active conversation IDs for chat messages, keyed by context identifier.
+    /// Each config profile / debug session gets its own isolated conversation.
+    /// Key format: `"debug_session"` or `"profile_{id}"`.
+    pub chat_conversation_ids: RwLock<std::collections::HashMap<String, String>>,
     /// Server start time.
     pub start_time: DateTime<Utc>,
     /// Path to the config file.
@@ -686,7 +688,7 @@ impl AppState {
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
             db_pool: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             conversation_db: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            chat_conversation_id: RwLock::new(None),
+            chat_conversation_ids: RwLock::new(std::collections::HashMap::new()),
             mcp_config: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             platform_configs: RwLock::new(Vec::new()),
             platforms_config_path: ruri_config_dir().join("platforms.yaml"),
@@ -1257,42 +1259,88 @@ impl AppState {
         }
     }
 
-    /// Ensure there is an active conversation for chat messages.
-    /// Returns the conversation ID, creating a new one if necessary.
-    pub async fn ensure_chat_conversation(&self) -> anyhow::Result<String> {
-        // Check if we already have an active conversation ID
+    /// Resolve the context key used to isolate chat conversations per profile.
+    /// Returns `"debug_session"` or `"profile_{id}"` depending on which
+    /// configuration is active for the WebUI chat.
+    pub async fn resolve_chat_context_key(&self) -> String {
+        // WebUI chat always uses the debug session
+        "debug_session".to_string()
+    }
+
+    /// Resolve the context key for a specific profile_id or debug session.
+    pub async fn resolve_chat_context_key_for(
+        &self,
+        use_debug_session: bool,
+        profile_id: Option<&str>,
+    ) -> String {
+        if use_debug_session {
+            return "debug_session".to_string();
+        }
+
+        if let Some(pid) = profile_id {
+            return format!("profile_{}", pid);
+        }
+
+        // Fall back to active profile
+        let profiles = self.config_profiles.read().await;
+        if let Some(profile) = profiles.values().find(|p| p.is_active && p.enable) {
+            return format!("profile_{}", profile.id);
+        }
+
+        // No active profile — use a generic key
+        "default".to_string()
+    }
+
+    /// Ensure there is an active conversation for chat messages, isolated
+    /// per configuration profile. Returns the conversation ID, creating a
+    /// new one if necessary.
+    ///
+    /// The `context_key` determines conversation isolation: each unique key
+    /// gets its own conversation. Use `resolve_chat_context_key()` or
+    /// `resolve_chat_context_key_for()` to obtain the key.
+    pub async fn ensure_chat_conversation_for(&self, context_key: &str) -> anyhow::Result<String> {
+        // Check if we already have an active conversation ID for this context
         {
-            let conv_id = self.chat_conversation_id.read().await;
-            if let Some(id) = conv_id.as_ref() {
+            let conv_ids = self.chat_conversation_ids.read().await;
+            if let Some(id) = conv_ids.get(context_key) {
                 return Ok(id.clone());
             }
         }
 
-        // No active conversation, need to create one
+        // No active conversation for this context, need to create one
         let conv_db = self.conversation_db.read().await;
         let db = conv_db
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Conversation database not initialized"))?;
 
-        // Create or get a default conversation
+        // Use the context_key as chat_id so each profile gets its own conversation.
+        // bot_name is always "webui" for WebUI chat.
         let conversation = db
             .get_or_create_conversation(
                 "webui".to_string(),
                 crate::conversation::models::ChatType::Private,
-                "default".to_string(),
+                context_key.to_string(),
             )
             .await?;
 
-        // Save the conversation ID
-        let mut conv_id = self.chat_conversation_id.write().await;
-        *conv_id = Some(conversation.id.clone());
+        // Save the conversation ID for this context
+        let mut conv_ids = self.chat_conversation_ids.write().await;
+        conv_ids.insert(context_key.to_string(), conversation.id.clone());
 
         tracing::info!(
-            "Created/loaded default conversation for chat: {}",
-            conversation.id
+            context_key = %context_key,
+            conversation_id = %conversation.id,
+            "Created/loaded conversation for chat context"
         );
 
         Ok(conversation.id)
+    }
+
+    /// Convenience wrapper that resolves the current WebUI chat context
+    /// and ensures a conversation exists.
+    pub async fn ensure_chat_conversation(&self) -> anyhow::Result<String> {
+        let context_key = self.resolve_chat_context_key().await;
+        self.ensure_chat_conversation_for(&context_key).await
     }
 
     /// Build a PersistedConfig from the current in-memory state.
@@ -1860,6 +1908,11 @@ impl AppState {
     }
 
     /// Extended version that supports debug session and specific profile selection.
+    ///
+    /// `existing_conversation_id`: When provided (e.g. by the platform message
+    /// handler which already created a conversation), load history from this
+    /// conversation instead of the WebUI one. When `None`, the WebUI chat
+    /// conversation is used (isolated per config profile).
     pub async fn build_agent_with_context_extended(
         &self,
         user_id: Option<&str>,
@@ -1867,6 +1920,7 @@ impl AppState {
         provider_id: Option<&str>,
         use_debug_session: bool,
         profile_id: Option<&str>,
+        existing_conversation_id: Option<&str>,
     ) -> Result<Agent, String> {
         // Try to resolve embedded configuration context
         let context = self
@@ -2291,8 +2345,18 @@ impl AppState {
             tracing::info!("No persona configured, skipping system prompt");
         }
 
-        // Load chat history from database if conversation exists
-        let conversation_id = self.ensure_chat_conversation().await.ok();
+        // Load chat history from database if conversation exists.
+        // For platform messages, use the existing conversation ID (already created
+        // by the platform handler in main.rs). For WebUI chat, resolve the
+        // context key to isolate conversations per config profile.
+        let conversation_id = if let Some(conv_id) = existing_conversation_id {
+            Some(conv_id.to_string())
+        } else {
+            let context_key = self
+                .resolve_chat_context_key_for(use_debug_session, profile_id)
+                .await;
+            self.ensure_chat_conversation_for(&context_key).await.ok()
+        };
         if let Some(ref conv_id) = conversation_id {
             let conv_db = self.conversation_db.read().await;
             if let Some(db) = conv_db.as_ref() {

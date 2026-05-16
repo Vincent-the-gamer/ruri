@@ -482,6 +482,8 @@ export default {
     addSkillHint: '请先在「技能」页面添加技能',
     unsavedChanges: '有未保存的更改',
     infoBanner: 'ACP 模式在独立进程中运行，通过 stdio 与客户端通信。此处配置的供应商和技能将在 ACP 模式启动时生效。',
+    knowledgeBases: '知识库',
+    selectKnowledgeBases: '选择ACP模式中要选择的知识库'
   },
 
   // 电脑使用能力配置

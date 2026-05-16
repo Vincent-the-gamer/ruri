@@ -278,15 +278,10 @@ const hasChanges = computed(() => {
             <!-- Knowledge Base Section -->
             <section class="config-section">
                 <h2 class="section-title">
-                    {{ t("acpConfig.knowledgeBases", "Knowledge Bases") }}
+                    {{ t("acpConfig.knowledgeBases") }}
                 </h2>
                 <p class="section-desc">
-                    {{
-                        t(
-                            "acpConfig.selectKnowledgeBases",
-                            "Select knowledge bases to enable in ACP mode",
-                        )
-                    }}
+                    {{ t("acpConfig.selectKnowledgeBases") }}
                 </p>
 
                 <div

@@ -515,6 +515,8 @@ export default {
     addSkillHint: 'Please add a skill in the "Skills" page first',
     unsavedChanges: 'Unsaved changes',
     infoBanner: 'ACP mode runs in a separate process and communicates with clients via stdio. The configured providers and skills will take effect when ACP mode starts.',
+    knowledgeBases: 'Knowledge Bases',
+    selectKnowledgeBases: 'Select knowledge bases to use in ACP mode.'
   },
 
   // Computer Use Config

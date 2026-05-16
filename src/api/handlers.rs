@@ -962,6 +962,7 @@ async fn send_chat_message(
             req.provider_id.as_deref(),
             true, // use_debug_session: true - WebUI chat uses its own config
             None, // profile_id: None - let debug session resolve itself
+            None, // existing_conversation_id: None - WebUI chat resolves its own
         )
         .await;
     let mut agent =
@@ -1287,6 +1288,7 @@ async fn stream_chat_message(
             req.provider_id.as_deref(),
             true, // use_debug_session: true - WebUI chat uses its own config
             None, // profile_id: None - let debug session resolve itself
+            None, // existing_conversation_id: None - WebUI chat resolves its own
         )
         .await;
     let mut agent =
@@ -1582,11 +1584,23 @@ async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMe
 }
 
 async fn clear_chat_history(State(state): State<Arc<AppState>>) -> StatusCode {
+    // Resolve the current chat context key
+    let context_key = state.resolve_chat_context_key().await;
+
     // Clear chat history by deleting the current conversation from the database
-    let conversation_id = match state.chat_conversation_id.read().await.clone() {
+    let conversation_id = match state
+        .chat_conversation_ids
+        .read()
+        .await
+        .get(&context_key)
+        .cloned()
+    {
         Some(id) => id,
         None => {
-            tracing::debug!("No active conversation to clear");
+            tracing::debug!(
+                "No active conversation to clear for context: {}",
+                context_key
+            );
             return StatusCode::NO_CONTENT;
         }
     };
@@ -1597,12 +1611,13 @@ async fn clear_chat_history(State(state): State<Arc<AppState>>) -> StatusCode {
             tracing::warn!("Failed to delete conversation from database: {}", e);
         } else {
             tracing::info!(
-                "Cleared chat history by deleting conversation: {}",
-                conversation_id
+                context_key = %context_key,
+                conversation_id = %conversation_id,
+                "Cleared chat history by deleting conversation"
             );
-            // Reset the active conversation ID so a new one will be created on next chat
-            let mut conv_id = state.chat_conversation_id.write().await;
-            *conv_id = None;
+            // Reset the active conversation ID for this context so a new one will be created on next chat
+            let mut conv_ids = state.chat_conversation_ids.write().await;
+            conv_ids.remove(&context_key);
         }
     } else {
         tracing::warn!("Conversation database not initialized, cannot clear history");
@@ -1613,7 +1628,14 @@ async fn clear_chat_history(State(state): State<Arc<AppState>>) -> StatusCode {
 // ─── Helper: Get message count from database ─────────────────────
 
 async fn get_message_count_from_db(state: &AppState) -> usize {
-    let conversation_id = match state.chat_conversation_id.read().await.clone() {
+    let context_key = state.resolve_chat_context_key().await;
+    let conversation_id = match state
+        .chat_conversation_ids
+        .read()
+        .await
+        .get(&context_key)
+        .cloned()
+    {
         Some(id) => id,
         None => return 0,
     };

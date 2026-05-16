@@ -383,6 +383,7 @@ async fn main() -> anyhow::Result<()> {
                             None,
                             false, // use_debug_session: false — platform messages use profile config
                             profile_id.as_deref(),
+                            conversation_id.as_deref(), // pass existing conversation ID for history
                         )
                         .await;
 
