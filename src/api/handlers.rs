@@ -113,6 +113,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 .delete(delete_provider),
         )
         .route("/api/providers/{id}/activate", post(activate_provider))
+        .route("/api/providers/models", post(fetch_provider_models))
         // Skills
         .route("/api/skills", get(list_skills).post(add_skill))
         .route("/api/skills/upload", post(upload_skill_package))
@@ -392,27 +393,209 @@ fn stored_provider_to_dto(
         name: stored.name.clone(),
         provider_type: stored.provider_type.clone(),
         config: serde_json::from_value(stored.config_json.clone()).unwrap_or(
-            ProviderConfigDto::Custom(Box::new(CustomProviderConfigDto {
+            ProviderConfigDto::Openai(OpenAIProviderConfigDto {
                 base_url: String::new(),
-                chat_path: String::new(),
-                method: "POST".into(),
-                auth_header: None,
-                auth_prefix: "Bearer ".into(),
-                api_key: None,
-                extra_headers: Default::default(),
-                request_template: None,
-                response_content_path: None,
-                response_tool_calls_path: None,
-                response_model_path: None,
-                response_finish_reason_path: None,
+                api_key: String::new(),
                 default_model: String::new(),
-                use_openai_format: true,
-                supports_multimodal: false,
-            })),
+                supports_multimodal: true,
+            }),
         ),
         is_active: active_id == Some(stored.id.as_str()),
         created_at: stored.created_at.to_rfc3339(),
     }
+}
+
+// ─── Provider Model List Handlers ────────────────────────────────
+
+async fn fetch_provider_models(
+    Json(req): Json<FetchModelsRequest>,
+) -> Result<Json<FetchModelsResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let client = reqwest::Client::new();
+    let models = match req.provider_type.as_str() {
+        "openai" => {
+            let base = req.base_url.trim_end_matches('/');
+            let url = format!("{}/models", base);
+
+            let mut builder = client.get(&url);
+            if !req.api_key.is_empty() {
+                builder = builder.header("Authorization", format!("Bearer {}", req.api_key));
+            }
+
+            let resp = builder.send().await.map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("Failed to fetch models: {}", e)})),
+                )
+            })?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("API error ({}): {}", status, text)})),
+                ));
+            }
+
+            let body: serde_json::Value = resp.json().await.map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("Failed to parse response: {}", e)})),
+                )
+            })?;
+
+            // OpenAI-compatible response: { "data": [{ "id": "model-name", ... }] }
+            body.get("data")
+                .and_then(|d| d.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            let id = item.get("id")?.as_str()?.to_string();
+                            // Filter out non-chat models (embeddings, tts, etc.)
+                            if id.starts_with("text-embedding")
+                                || id.starts_with("dall-e")
+                                || id.starts_with("tts")
+                                || id.starts_with("whisper")
+                                || id.starts_with("babbage")
+                                || id.starts_with("davinci")
+                                || id.contains("-search-")
+                                || id.contains("-realtime")
+                                || id.contains("-audio-")
+                            {
+                                return None;
+                            }
+                            Some(ModelInfoDto {
+                                name: Some(id.clone()),
+                                id,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        }
+        "anthropic" => {
+            // Anthropic doesn't have a public models list API in the same way.
+            // As of 2024, they introduced GET /v1/models but it requires a different auth.
+            // We'll try to call it; if it fails, return a hardcoded list.
+            let base = req.base_url.trim_end_matches('/');
+            let url = format!("{}/v1/models", base);
+
+            let resp = client
+                .get(&url)
+                .header("x-api-key", &req.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .send()
+                .await;
+
+            match resp {
+                Ok(resp) if resp.status().is_success() => {
+                    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                    body.get("data")
+                        .and_then(|d| d.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|item| {
+                                    let id = item.get("id")?.as_str()?.to_string();
+                                    Some(ModelInfoDto {
+                                        name: Some(id.clone()),
+                                        id,
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                }
+                _ => {
+                    // Fallback to a hardcoded list of known Anthropic models
+                    vec![
+                        "claude-sonnet-4-20250514",
+                        "claude-opus-4-20250514",
+                        "claude-3-7-sonnet-20250219",
+                        "claude-3-5-sonnet-20241022",
+                        "claude-3-5-haiku-20241022",
+                        "claude-3-opus-20240229",
+                        "claude-3-haiku-20240307",
+                    ]
+                    .into_iter()
+                    .map(|id| ModelInfoDto {
+                        id: id.to_string(),
+                        name: Some(id.to_string()),
+                    })
+                    .collect()
+                }
+            }
+        }
+        "gemini" => {
+            let base = req.base_url.trim_end_matches('/');
+            let url = format!("{}/models?key={}", base, req.api_key);
+
+            let resp = client.get(&url).send().await.map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("Failed to fetch models: {}", e)})),
+                )
+            })?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("API error ({}): {}", status, text)})),
+                ));
+            }
+
+            let body: serde_json::Value = resp.json().await.map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("Failed to parse response: {}", e)})),
+                )
+            })?;
+
+            // Gemini response: { "models": [{ "name": "models/gemini-pro", "displayName": "Gemini Pro" }] }
+            body.get("models")
+                .and_then(|m| m.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            let name = item.get("name")?.as_str()?;
+                            // Name is like "models/gemini-pro", extract just the model name
+                            let id = name.strip_prefix("models/").unwrap_or(name).to_string();
+                            // Only include models that support generateContent
+                            let supported_methods = item
+                                .get("supportedGenerationMethods")
+                                .and_then(|m| m.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            if !supported_methods.iter().any(|m| m == "generateContent") {
+                                return None;
+                            }
+                            let display_name = item
+                                .get("displayName")
+                                .and_then(|d| d.as_str())
+                                .map(String::from);
+                            Some(ModelInfoDto {
+                                id,
+                                name: display_name,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Unsupported provider type: {}", req.provider_type)})),
+            ));
+        }
+    };
+
+    Ok(Json(FetchModelsResponse { models }))
 }
 
 // ─── Skill Handlers ──────────────────────────────────────────────
@@ -1699,7 +1882,6 @@ async fn get_status(State(state): State<Arc<AppState>>) -> Json<AgentStatusDto> 
                 "gemini" => p.config_json["default_model"]
                     .as_str()
                     .unwrap_or("gemini-2.0-flash"),
-                "custom" => p.config_json["default_model"].as_str().unwrap_or("default"),
                 _ => "unknown",
             };
             (Some(p.name.clone()), Some(model.to_string()))

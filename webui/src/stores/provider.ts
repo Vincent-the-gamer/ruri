@@ -124,25 +124,6 @@ export const useProviderStore = defineStore('provider', () => {
           default_model: 'gemini-2.0-flash',
           supports_multimodal: true,
         }
-      case 'custom':
-        return {
-          type: 'custom',
-          base_url: 'http://localhost:11434',
-          chat_path: '/v1/chat/completions',
-          method: 'POST',
-          auth_header: 'Authorization',
-          auth_prefix: 'Bearer ',
-          api_key: '',
-          extra_headers: {},
-          request_template: null,
-          response_content_path: 'choices.0.message.content',
-          response_tool_calls_path: 'choices.0.message.tool_calls',
-          response_model_path: 'model',
-          response_finish_reason_path: 'choices.0.finish_reason',
-          default_model: 'default',
-          use_openai_format: true,
-          supports_multimodal: false,
-        }
     }
   }
 

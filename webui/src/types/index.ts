@@ -25,28 +25,9 @@ export interface GeminiProviderConfig {
   supports_multimodal?: boolean
 }
 
-export interface CustomProviderConfig {
-  type: 'custom'
-  base_url: string
-  chat_path: string
-  method: string
-  auth_header: string | null
-  auth_prefix: string
-  api_key?: string | null
-  extra_headers: Record<string, string>
-  request_template: unknown | null
-  response_content_path: string | null
-  response_tool_calls_path: string | null
-  response_model_path: string | null
-  response_finish_reason_path: string | null
-  default_model: string
-  use_openai_format: boolean
-  supports_multimodal?: boolean
-}
+export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | GeminiProviderConfig
 
-export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | GeminiProviderConfig | CustomProviderConfig
-
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'custom'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini'
 
 export interface Provider {
   id: string
@@ -61,6 +42,15 @@ export interface CreateProviderRequest {
   name: string
   provider_type: ProviderType
   config: ProviderConfig
+}
+
+export interface ModelInfo {
+  id: string
+  name: string | null
+}
+
+export interface FetchModelsResponse {
+  models: ModelInfo[]
 }
 
 // ─── Skill Types ─────────────────────────────────────────────────

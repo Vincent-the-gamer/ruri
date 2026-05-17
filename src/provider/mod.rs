@@ -1,5 +1,4 @@
 pub mod anthropic;
-pub mod custom;
 pub mod gemini;
 pub mod openai;
 

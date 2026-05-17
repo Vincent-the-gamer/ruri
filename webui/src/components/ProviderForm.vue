@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, reactive } from "vue";
 import { useI18n } from "vue-i18n";
+import ModelSelector from "./ModelSelector.vue";
 import type {
     ProviderType,
     ProviderConfig,
     OpenAIProviderConfig,
     AnthropicProviderConfig,
     GeminiProviderConfig,
-    CustomProviderConfig,
     Provider,
 } from "../types";
 
@@ -68,38 +68,6 @@ const geminiConfig = reactive<GeminiProviderConfig>({
         : {}),
 });
 
-const customConfig = reactive<CustomProviderConfig>({
-    type: "custom",
-    base_url: "http://localhost:11434",
-    chat_path: "/v1/chat/completions",
-    method: "POST",
-    auth_header: "Authorization",
-    auth_prefix: "Bearer ",
-    extra_headers: {},
-    request_template: null,
-    response_content_path: "choices.0.message.content",
-    response_tool_calls_path: "choices.0.message.tool_calls",
-    response_model_path: "model",
-    response_finish_reason_path: "choices.0.finish_reason",
-    default_model: "default",
-    use_openai_format: true,
-    supports_multimodal: false,
-    ...(props.provider?.provider_type === "custom"
-        ? (props.provider.config as CustomProviderConfig)
-        : {}),
-});
-
-const extraHeadersText = ref(
-    props.provider?.provider_type === "custom"
-        ? JSON.stringify(
-              (props.provider.config as CustomProviderConfig).extra_headers ||
-                  {},
-              null,
-              2,
-          )
-        : "{}",
-);
-
 function handleSave() {
     if (!name.value.trim()) return;
 
@@ -113,16 +81,6 @@ function handleSave() {
             break;
         case "gemini":
             config = { ...geminiConfig };
-            break;
-        case "custom":
-            try {
-                customConfig.extra_headers = JSON.parse(
-                    extraHeadersText.value || "{}",
-                );
-            } catch {
-                customConfig.extra_headers = {};
-            }
-            config = { ...customConfig };
             break;
     }
 
@@ -188,7 +146,6 @@ function handleSave() {
                                     'openai',
                                     'anthropic',
                                     'gemini',
-                                    'custom',
                                 ] as ProviderType[]"
                                 :key="typeItem"
                                 @click="providerType = typeItem"
@@ -241,29 +198,12 @@ function handleSave() {
                                         points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
                                     />
                                 </svg>
-                                <svg
-                                    v-if="typeItem === 'custom'"
-                                    class="type-icon"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.5"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <circle cx="12" cy="12" r="3" />
-                                    <path
-                                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                                    />
-                                </svg>
                                 {{
                                     typeItem === "openai"
                                         ? t("providers.type.openai")
                                         : typeItem === "anthropic"
                                           ? t("providers.type.anthropic")
-                                          : typeItem === "gemini"
-                                            ? t("providers.type.gemini")
-                                            : t("providers.type.custom")
+                                          : t("providers.type.gemini")
                                 }}
                             </button>
                         </div>
@@ -329,19 +269,16 @@ function handleSave() {
                                 </button>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">{{
-                                t("providers.form.defaultModel")
-                            }}</label>
-                            <input
-                                v-model="openaiConfig.default_model"
-                                type="text"
-                                :placeholder="
-                                    t('providers.form.defaultModelPlaceholder')
-                                "
-                                class="form-input"
-                            />
-                        </div>
+                        <!-- Default Model -->
+                        <ModelSelector
+                            v-model="openaiConfig.default_model"
+                            :provider-type="'openai'"
+                            :base-url="openaiConfig.base_url"
+                            :api-key="openaiConfig.api_key"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
+                        />
                         <!-- Multimodal toggle -->
                         <div class="toggle-row">
                             <label class="form-label">{{
@@ -429,19 +366,16 @@ function handleSave() {
                                 </button>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">{{
-                                t("providers.form.defaultModel")
-                            }}</label>
-                            <input
-                                v-model="anthropicConfig.default_model"
-                                type="text"
-                                :placeholder="
-                                    t('providers.form.defaultModelPlaceholder')
-                                "
-                                class="form-input"
-                            />
-                        </div>
+                        <!-- Default Model -->
+                        <ModelSelector
+                            v-model="anthropicConfig.default_model"
+                            :provider-type="'anthropic'"
+                            :base-url="anthropicConfig.base_url"
+                            :api-key="anthropicConfig.api_key"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
+                        />
                         <div class="form-group">
                             <label class="form-label">{{
                                 t("providers.form.apiVersion")
@@ -542,19 +476,16 @@ function handleSave() {
                                 </button>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">{{
-                                t("providers.form.defaultModel")
-                            }}</label>
-                            <input
-                                v-model="geminiConfig.default_model"
-                                type="text"
-                                :placeholder="
-                                    t('providers.form.defaultModelPlaceholder')
-                                "
-                                class="form-input"
-                            />
-                        </div>
+                        <!-- Default Model -->
+                        <ModelSelector
+                            v-model="geminiConfig.default_model"
+                            :provider-type="'gemini'"
+                            :base-url="geminiConfig.base_url"
+                            :api-key="geminiConfig.api_key"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
+                        />
                         <div class="toggle-row">
                             <label class="form-label">{{
                                 t("providers.form.supportsMultimodal")
@@ -578,277 +509,6 @@ function handleSave() {
                                     }"
                                 ></span>
                             </button>
-                        </div>
-                    </template>
-
-                    <template v-if="providerType === 'custom'">
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.baseUrl")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.base_url"
-                                    type="text"
-                                    class="form-input"
-                                />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.chatPath")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.chat_path"
-                                    type="text"
-                                    class="form-input"
-                                />
-                            </div>
-                        </div>
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.method")
-                                }}</label>
-                                <select
-                                    v-model="customConfig.method"
-                                    class="form-select"
-                                >
-                                    <option value="POST">POST</option>
-                                    <option value="GET">GET</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.defaultModel")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.default_model"
-                                    type="text"
-                                    class="form-input"
-                                />
-                            </div>
-                        </div>
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.authHeader")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.auth_header"
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.authHeaderPlaceholder',
-                                        )
-                                    "
-                                    class="form-input"
-                                />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">{{
-                                    t("providers.form.authPrefix")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.auth_prefix"
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.authPrefixPlaceholder',
-                                        )
-                                    "
-                                    class="form-input"
-                                />
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">{{
-                                t("providers.form.apiKeyOptional")
-                            }}</label>
-                            <div class="input-with-action">
-                                <input
-                                    v-model="customConfig.api_key"
-                                    :type="showApiKey ? 'text' : 'password'"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.apiKeyOptionalPlaceholder',
-                                        )
-                                    "
-                                    class="form-input"
-                                />
-                                <button
-                                    @click="showApiKey = !showApiKey"
-                                    class="btn-eye"
-                                >
-                                    <svg
-                                        v-if="showApiKey"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.5"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                    >
-                                        <path
-                                            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
-                                        />
-                                        <line x1="1" y1="1" x2="23" y2="23" />
-                                    </svg>
-                                    <svg
-                                        v-else
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.5"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                    >
-                                        <path
-                                            d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
-                                        />
-                                        <circle cx="12" cy="12" r="3" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Response path mapping -->
-                        <div class="section-divider">
-                            <h4 class="section-title">
-                                {{ t("providers.form.responsePathMapping") }}
-                            </h4>
-                        </div>
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label class="form-label-sm">{{
-                                    t("providers.form.contentPath")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.response_content_path"
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.responseContentPathPlaceholder',
-                                        )
-                                    "
-                                    class="form-input-sm"
-                                />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label-sm">{{
-                                    t("providers.form.toolCallsPath")
-                                }}</label>
-                                <input
-                                    v-model="
-                                        customConfig.response_tool_calls_path
-                                    "
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.responseToolCallsPathPlaceholder',
-                                        )
-                                    "
-                                    class="form-input-sm"
-                                />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label-sm">{{
-                                    t("providers.form.modelPath")
-                                }}</label>
-                                <input
-                                    v-model="customConfig.response_model_path"
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.responseModelPathPlaceholder',
-                                        )
-                                    "
-                                    class="form-input-sm"
-                                />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label-sm">{{
-                                    t("providers.form.finishReasonPath")
-                                }}</label>
-                                <input
-                                    v-model="
-                                        customConfig.response_finish_reason_path
-                                    "
-                                    type="text"
-                                    :placeholder="
-                                        t(
-                                            'providers.form.responseFinishReasonPathPlaceholder',
-                                        )
-                                    "
-                                    class="form-input-sm"
-                                />
-                            </div>
-                        </div>
-
-                        <!-- Toggle -->
-                        <div class="toggle-row">
-                            <label class="form-label">{{
-                                t("providers.form.useOpenaiFormat")
-                            }}</label>
-                            <button
-                                @click="
-                                    customConfig.use_openai_format =
-                                        !customConfig.use_openai_format
-                                "
-                                class="toggle"
-                                :class="{
-                                    'toggle-active':
-                                        customConfig.use_openai_format,
-                                }"
-                            >
-                                <span
-                                    class="toggle-thumb"
-                                    :class="{
-                                        'toggle-thumb-active':
-                                            customConfig.use_openai_format,
-                                    }"
-                                ></span>
-                            </button>
-                        </div>
-
-                        <!-- Multimodal toggle -->
-                        <div class="toggle-row">
-                            <label class="form-label">{{
-                                t("providers.form.supportsMultimodal")
-                            }}</label>
-                            <button
-                                @click="
-                                    customConfig.supports_multimodal =
-                                        !customConfig.supports_multimodal
-                                "
-                                class="toggle"
-                                :class="{
-                                    'toggle-active':
-                                        customConfig.supports_multimodal,
-                                }"
-                            >
-                                <span
-                                    class="toggle-thumb"
-                                    :class="{
-                                        'toggle-thumb-active':
-                                            customConfig.supports_multimodal,
-                                    }"
-                                ></span>
-                            </button>
-                        </div>
-
-                        <!-- Extra headers -->
-                        <div class="form-group">
-                            <label class="form-label">{{
-                                t("providers.form.extraHeaders")
-                            }}</label>
-                            <textarea
-                                v-model="extraHeadersText"
-                                rows="3"
-                                class="form-textarea-sm"
-                                :placeholder="
-                                    t('providers.form.extraHeadersPlaceholder')
-                                "
-                            ></textarea>
                         </div>
                     </template>
                 </div>

@@ -70,7 +70,6 @@ pub enum ProviderConfigDto {
     Openai(OpenAIProviderConfigDto),
     Anthropic(AnthropicProviderConfigDto),
     Gemini(GeminiProviderConfigDto),
-    Custom(Box<CustomProviderConfigDto>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,43 +111,6 @@ pub struct AnthropicProviderConfigDto {
     pub supports_multimodal: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomProviderConfigDto {
-    pub base_url: String,
-    pub chat_path: String,
-    #[serde(default = "default_method")]
-    pub method: String,
-    pub auth_header: Option<String>,
-    #[serde(default = "default_auth_prefix")]
-    pub auth_prefix: String,
-    /// Optional API key for custom providers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-    #[serde(default)]
-    pub extra_headers: HashMap<String, String>,
-    pub request_template: Option<serde_json::Value>,
-    pub response_content_path: Option<String>,
-    pub response_tool_calls_path: Option<String>,
-    pub response_model_path: Option<String>,
-    pub response_finish_reason_path: Option<String>,
-    pub default_model: String,
-    #[serde(default = "default_true")]
-    pub use_openai_format: bool,
-    /// Whether this provider's backend supports multimodal (image) content.
-    ///
-    /// Defaults to `false` because custom providers are often self-hosted
-    /// servers (e.g., llama.cpp) that may not have multimodal processing
-    /// enabled.
-    #[serde(default)]
-    pub supports_multimodal: bool,
-}
-
-fn default_method() -> String {
-    "POST".into()
-}
-fn default_auth_prefix() -> String {
-    "Bearer ".into()
-}
 fn default_true() -> bool {
     true
 }
@@ -172,6 +134,26 @@ pub struct CreateProviderRequest {
     pub name: String,
     pub provider_type: String,
     pub config: ProviderConfigDto,
+}
+
+// ─── Provider Model List ────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchModelsRequest {
+    pub provider_type: String,
+    pub base_url: String,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfoDto {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchModelsResponse {
+    pub models: Vec<ModelInfoDto>,
 }
 
 // ─── Skill Models ────────────────────────────────────────────────

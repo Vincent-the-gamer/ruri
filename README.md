@@ -10,7 +10,7 @@
 
 ## Features
 
-- [x] Model Provider - Anthropic Compatible, OpenAI Compatible, Gemini API, Custom
+- [x] Model Provider - Anthropic Compatible, OpenAI Compatible, Gemini API
 - [x] Tool Call
 - [x] Skills
 - [x] Web Search

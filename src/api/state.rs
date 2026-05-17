@@ -76,7 +76,7 @@ pub struct EmbeddedProvider {
     pub id: String,
     /// Display name
     pub name: String,
-    /// Provider type (e.g., "openai", "anthropic", "gemini", "custom")
+    /// Provider type (e.g., "openai", "anthropic", "gemini")
     pub provider_type: String,
     /// Provider configuration as JSON
     pub config_json: serde_json::Value,
@@ -1551,29 +1551,6 @@ impl AppState {
                         .with_multimodal_support(supports_multimodal),
                 ))
             }
-            "custom" => {
-                // Extract api_key from the DTO before deserializing to CustomProviderConfig
-                let api_key = config
-                    .get("api_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                // Remove api_key from the value before deserializing (CustomProviderConfig doesn't have this field)
-                let mut config_value = config.clone();
-                if let Some(obj) = config_value.as_object_mut() {
-                    obj.remove("api_key");
-                    obj.remove("type"); // Also remove the serde tag
-                }
-
-                let custom_config: crate::provider::custom::CustomProviderConfig =
-                    serde_json::from_value(config_value)
-                        .map_err(|e| format!("Invalid custom provider config: {}", e))?;
-
-                Ok(Box::new(crate::provider::custom::CustomProvider::new(
-                    custom_config,
-                    api_key,
-                )))
-            }
             other => Err(format!("Unknown provider type: {}", other)),
         }
     }
@@ -1731,27 +1708,6 @@ impl AppState {
                     crate::provider::gemini::GeminiProvider::new(base_url, api_key, default_model)
                         .with_multimodal_support(supports_multimodal),
                 ))
-            }
-            "custom" => {
-                let api_key = config
-                    .get("api_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                let mut config_value = config.clone();
-                if let Some(obj) = config_value.as_object_mut() {
-                    obj.remove("api_key");
-                    obj.remove("type");
-                }
-
-                let custom_config: crate::provider::custom::CustomProviderConfig =
-                    serde_json::from_value(config_value)
-                        .map_err(|e| format!("Invalid custom provider config: {}", e))?;
-
-                Ok(Box::new(crate::provider::custom::CustomProvider::new(
-                    custom_config,
-                    api_key,
-                )))
             }
             other => Err(format!("Unknown provider type: {}", other)),
         }

@@ -755,8 +755,6 @@ impl ProviderFactory {
             "anthropic"
         } else if std::env::var("OPENAI_API_KEY").is_ok() {
             "openai"
-        } else if std::env::var("CUSTOM_API_URL").is_ok() {
-            "custom"
         } else {
             "openai"
         };
@@ -770,31 +768,6 @@ impl ProviderFactory {
                 Ok(Box::new(
                     crate::provider::anthropic::AnthropicProvider::new(api_key, model),
                 ))
-            }
-            "custom" => {
-                let url = std::env::var("CUSTOM_API_URL")
-                    .map_err(|_| anyhow::anyhow!("CUSTOM_API_URL not set"))?;
-                let api_key = std::env::var("CUSTOM_API_KEY").ok();
-                let model = std::env::var("CUSTOM_MODEL").unwrap_or_else(|_| "default".to_string());
-                let config = crate::provider::custom::CustomProviderConfig {
-                    base_url: url,
-                    chat_path: "/v1/chat/completions".to_string(),
-                    method: "POST".to_string(),
-                    auth_header: Some("Authorization".to_string()),
-                    auth_prefix: "Bearer ".to_string(),
-                    extra_headers: HashMap::new(),
-                    request_template: None,
-                    response_content_path: None,
-                    response_tool_calls_path: None,
-                    response_model_path: None,
-                    response_finish_reason_path: None,
-                    default_model: model,
-                    use_openai_format: true,
-                    supports_multimodal: false,
-                };
-                Ok(Box::new(crate::provider::custom::CustomProvider::new(
-                    config, api_key,
-                )))
             }
             _ => {
                 let base_url = std::env::var("OPENAI_BASE_URL")

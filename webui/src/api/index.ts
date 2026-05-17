@@ -17,6 +17,7 @@ import type {
   CreateProviderRequest,
   CreateSkillRequest,
   DebugSession,
+  FetchModelsResponse,
   KbDocument,
   KnowledgeBase,
   LogEntry,
@@ -108,6 +109,15 @@ export async function deleteProvider(id: string): Promise<void> {
 
 export async function activateProvider(id: string): Promise<Provider> {
   const res = await client.post(`/api/providers/${id}/activate`)
+  return res.data
+}
+
+export async function fetchProviderModels(data: {
+  provider_type: string
+  base_url: string
+  api_key: string
+}): Promise<FetchModelsResponse> {
+  const res = await client.post('/api/providers/models', data)
   return res.data
 }
 

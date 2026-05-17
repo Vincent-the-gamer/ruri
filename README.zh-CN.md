@@ -10,7 +10,7 @@
 
 ## 特性
 
-- [x] 模型提供商 - Anthropic兼容, OpenAI兼容, Gemini API, 自定义
+- [x] 模型提供商 - Anthropic兼容, OpenAI兼容, Gemini API
 - [x] 工具调用
 - [x] 技能
 - [x] 网页搜索
