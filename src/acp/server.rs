@@ -406,80 +406,180 @@ async fn handle_session_prompt(
         return Ok(PromptResponse::new(StopReason::Cancelled));
     }
 
-    // Process the prompt through the agent
-    let result = session.agent.chat(&text).await;
+    // Use streaming: create a channel and spawn the chat_streaming work in a
+    // separate task so we can process events in real-time and send ACP
+    // notifications as they arrive, rather than buffering everything.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<
+        Result<crate::types::StreamEvent, crate::provider::ProviderError>,
+    >(256);
 
-    match result {
-        Ok(response) => {
-            let content = response
-                .choices
-                .first()
-                .and_then(|c| c.message.content.as_ref())
-                .and_then(|c| c.as_text_full())
-                .unwrap_or_default();
+    // Move the agent into a spawned task that runs the streaming loop.
+    // When the task finishes, it returns the agent so we can put the session back.
+    let (agent_return_tx, agent_return_rx) = tokio::sync::oneshot::channel::<(
+        String,
+        crate::agent::runner::Agent,
+        Result<String, crate::provider::ProviderError>,
+    )>();
 
-            // Determine stop reason from the model's finish_reason
-            let stop_reason = response
-                .choices
-                .first()
-                .and_then(|c| c.finish_reason.as_deref())
-                .map(|fr| match fr {
-                    "stop" => StopReason::EndTurn,
-                    "length" => StopReason::MaxTokens,
-                    "content_filter" => StopReason::Refusal,
-                    _ => StopReason::EndTurn,
-                })
-                .unwrap_or(StopReason::EndTurn);
+    let mut agent = std::mem::replace(&mut session.agent, {
+        // Create a placeholder agent - it will be replaced when the spawned task completes
+        let placeholder_provider = crate::provider::openai::OpenAIProvider::new(
+            "http://localhost:1".to_string(),
+            None,
+            "placeholder".to_string(),
+        );
+        crate::agent::runner::Agent::with_config(
+            Box::new(placeholder_provider),
+            crate::agent::runner::AgentConfig::default(),
+        )
+    });
 
-            // Send the agent's response as a session/update notification
-            use agent_client_protocol::schema::{
-                AgentNotification, SessionNotification, SessionUpdate,
-            };
+    let session_id_for_task = session_id_str.clone();
+    tokio::spawn(async move {
+        let result = agent.chat_streaming(&text, &tx).await;
+        let _ = agent_return_tx.send((session_id_for_task, agent, result));
+    });
 
-            let text_content = agent_client_protocol::schema::TextContent::new(content);
-            let content_block = ContentBlock::Text(text_content);
-            let content_chunk = ContentChunk::new(content_block);
-            let update = SessionUpdate::AgentMessageChunk(content_chunk);
+    // Process stream events in real-time and send them as ACP notifications
+    use agent_client_protocol::schema::{AgentNotification, SessionNotification, SessionUpdate};
+    use agent_client_protocol::schema::{
+        ToolCall as AcpToolCall, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    };
 
-            // Debug log the notification content
-            tracing::debug!(
-                "Sending SessionNotification: session_id={}, update_type=AgentMessageChunk",
-                request.session_id.0.as_ref()
-            );
+    let mut provider_error = false;
 
-            let notification = AgentNotification::SessionNotification(SessionNotification::new(
-                request.session_id.clone(),
-                update,
-            ));
+    while let Some(event_result) = rx.recv().await {
+        match event_result {
+            Ok(event) => {
+                let update = match &event {
+                    crate::types::StreamEvent::ContentDelta { delta } => {
+                        // Stream each text delta as an AgentMessageChunk
+                        let text_content =
+                            agent_client_protocol::schema::TextContent::new(delta.clone());
+                        let content_block = ContentBlock::Text(text_content);
+                        let content_chunk = ContentChunk::new(content_block);
+                        Some(SessionUpdate::AgentMessageChunk(content_chunk))
+                    }
+                    crate::types::StreamEvent::ToolCallStart {
+                        tool_call_id,
+                        function_name,
+                    } => {
+                        // Notify the client that a tool call has started
+                        let acp_tool_call = AcpToolCall::new(
+                            ToolCallId::new(tool_call_id.clone()),
+                            function_name.clone(),
+                        )
+                        .status(ToolCallStatus::InProgress);
+                        Some(SessionUpdate::ToolCall(acp_tool_call))
+                    }
+                    crate::types::StreamEvent::ToolCallDelta { .. } => {
+                        // We don't send individual argument deltas to ACP clients
+                        None
+                    }
+                    crate::types::StreamEvent::ToolResult {
+                        tool_call_id,
+                        tool_name: _,
+                        content: result_content,
+                    } => {
+                        // Update the tool call with the result
+                        let text_content = agent_client_protocol::schema::TextContent::new(
+                            // Truncate very long tool results in the notification
+                            if result_content.len() > 2000 {
+                                format!("{}\n... (truncated)", &result_content[..2000])
+                            } else {
+                                result_content.clone()
+                            },
+                        );
+                        let content_block = ContentBlock::Text(text_content);
+                        let tool_call_content: agent_client_protocol::schema::ToolCallContent =
+                            content_block.into();
+                        let update_fields = ToolCallUpdateFields::new()
+                            .status(ToolCallStatus::Completed)
+                            .content(Some(vec![tool_call_content]));
+                        let tool_call_update = ToolCallUpdate::new(
+                            ToolCallId::new(tool_call_id.clone()),
+                            update_fields,
+                        );
+                        Some(SessionUpdate::ToolCallUpdate(tool_call_update))
+                    }
+                    crate::types::StreamEvent::Error { error } => {
+                        // Send error as an AgentMessageChunk so the user can see it
+                        tracing::warn!("Stream error from agent: {}", error);
+                        let text_content =
+                            agent_client_protocol::schema::TextContent::new(error.clone());
+                        let content_block = ContentBlock::Text(text_content);
+                        let content_chunk = ContentChunk::new(content_block);
+                        Some(SessionUpdate::AgentMessageChunk(content_chunk))
+                    }
+                    crate::types::StreamEvent::Done { .. } => {
+                        // Stream complete — we'll send PromptResponse after this
+                        None
+                    }
+                    crate::types::StreamEvent::ToolCallEnd { .. } => {
+                        // Internal event, not forwarded
+                        None
+                    }
+                };
 
-            cx.send_notification(notification)
-                .map_err(|e| Error::internal_error().data(e.to_string()))?;
+                if let Some(update) = update {
+                    let notification = AgentNotification::SessionNotification(
+                        SessionNotification::new(request.session_id.clone(), update),
+                    );
 
-            // Debug log the response
-            tracing::debug!("Sending PromptResponse: stop_reason={:?}", stop_reason);
-
-            session_manager
-                .return_session(session_id_str, session)
-                .await;
-
-            let response = PromptResponse::new(stop_reason);
-            tracing::debug!("PromptResponse created successfully");
-
-            // Log the serialized response for debugging
-            match serde_json::to_string(&response) {
-                Ok(json) => tracing::debug!("PromptResponse serialized: {}", json),
-                Err(e) => tracing::error!("Failed to serialize PromptResponse: {}", e),
+                    if let Err(e) = cx.send_notification(notification) {
+                        tracing::warn!("Failed to send ACP notification: {}", e);
+                    }
+                }
             }
-
-            Ok(response)
-        }
-        Err(e) => {
-            session_manager
-                .return_session(session_id_str, session)
-                .await;
-            Err(Error::internal_error().data(format!("Agent error: {}", e)))
+            Err(e) => {
+                tracing::error!("Provider error during streaming: {}", e);
+                provider_error = true;
+                break;
+            }
         }
     }
+
+    // Wait for the spawned task to complete and recover the agent
+    let stop_reason = match agent_return_rx.await {
+        Ok((_sid, agent, result)) => {
+            // Put the agent back in the session
+            session.agent = agent;
+            session_manager
+                .return_session(session_id_str, session)
+                .await;
+
+            // Determine final stop reason
+            match result {
+                Ok(reason) => match reason.as_str() {
+                    "stop" => StopReason::EndTurn,
+                    "length" => StopReason::MaxTokens,
+                    "cancelled" => StopReason::Cancelled,
+                    _ => StopReason::EndTurn,
+                },
+                Err(e) => {
+                    tracing::error!("Agent streaming error: {}", e);
+                    return Err(Error::internal_error().data(format!("Agent error: {}", e)));
+                }
+            }
+        }
+        Err(_) => {
+            // The spawned task panicked or was dropped — still return the session
+            session_manager
+                .return_session(session_id_str, session)
+                .await;
+            return Err(Error::internal_error()
+                .data("Agent streaming task failed unexpectedly".to_string()));
+        }
+    };
+
+    let stop_reason = if provider_error {
+        StopReason::Refusal
+    } else {
+        stop_reason
+    };
+
+    tracing::debug!("Sending PromptResponse: stop_reason={:?}", stop_reason);
+    Ok(PromptResponse::new(stop_reason))
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -626,11 +726,50 @@ impl ProviderFactory {
         None
     }
 
+    /// Resolve the proxy configuration from ACP config.
+    ///
+    /// Returns the `ProxyConfig` from `acp_config.proxy_config`, which is
+    /// independent of config profile proxy settings.
+    fn resolve_proxy_config(&self) -> Option<crate::types::ProxyConfig> {
+        let config = self.config.as_ref()?;
+        if config.acp_config.proxy_config.is_configured() {
+            Some(config.acp_config.proxy_config.clone())
+        } else {
+            None
+        }
+    }
+
     /// Create a provider from the persisted config or environment variables.
+    ///
+    /// If a proxy configuration is found in the ACP config and it is
+    /// enabled, the proxy will be applied directly to the provider so that
+    /// all model requests go through the proxy.
     pub fn create_provider(&mut self) -> anyhow::Result<Box<dyn Provider>> {
         // Hot-reload config so new sessions pick up WebUI changes
         self.reload_config();
 
+        let mut provider = self.create_provider_inner()?;
+
+        // ACP proxy mode: when enabled, all model (provider) requests go
+        // through the configured proxy. No host-based rule matching is
+        // needed — the proxy applies unconditionally to the provider.
+        if let Some(proxy_config) = self.resolve_proxy_config() {
+            provider.set_proxy(
+                &proxy_config.url,
+                proxy_config.username.as_deref(),
+                proxy_config.password.as_deref(),
+            );
+            tracing::info!(
+                proxy_url = %proxy_config.url,
+                "ACP applied proxy configuration to provider"
+            );
+        }
+
+        Ok(provider)
+    }
+
+    /// Inner implementation that creates the provider without applying proxy.
+    fn create_provider_inner(&self) -> anyhow::Result<Box<dyn Provider>> {
         // Try to create from persisted config first
         if let Some(provider_id) = self.resolve_acp_provider_id()
             && let Some(ref config) = self.config

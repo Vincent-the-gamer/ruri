@@ -182,6 +182,354 @@ impl Agent {
             .collect();
     }
 
+    /// Run a single turn of the conversation with streaming output.
+    ///
+    /// This is similar to [`chat`], but instead of returning the full response,
+    /// it streams [`StreamEvent`]s to the provided sender as they arrive.
+    /// The agent remains owned by the caller and is updated in place.
+    ///
+    /// Returns a string indicating the stop reason (e.g. "stop", "length", "cancelled")
+    /// when the turn completes, or an error.
+    pub async fn chat_streaming(
+        &mut self,
+        user_message: impl Into<String>,
+        tx: &tokio::sync::mpsc::Sender<Result<StreamEvent, ProviderError>>,
+    ) -> Result<String, ProviderError> {
+        let user_msg = ChatMessage::user(user_message);
+
+        // Auto-initialize skills on first call
+        if !self.skills_initialized {
+            tracing::info!(
+                "Skills not yet initialized, auto-initializing before first streaming chat"
+            );
+            self.initialize_skills().await;
+        }
+
+        // Add user message to history
+        self.history.push(user_msg);
+
+        // Run skill pre-processing
+        self.run_skills_on_user_message().await;
+
+        // Inject skill contexts into the user message
+        self.inject_skill_contexts().await;
+
+        // Tool loop
+        let mut round = 0u32;
+        let max_rounds = self.config.max_tool_rounds;
+
+        loop {
+            // Check cancellation before each round
+            if let Some(ref token) = self.cancel_token {
+                if token.is_cancelled() {
+                    tracing::info!(
+                        round = round,
+                        "Streaming agent loop cancelled via CancellationToken"
+                    );
+                    let _ = tx
+                        .send(Ok(StreamEvent::Error {
+                            error: "任务已停止".to_string(),
+                        }))
+                        .await;
+                    return Ok("cancelled".to_string());
+                }
+            }
+
+            let request = self.build_request();
+
+            tracing::info!(
+                round = round,
+                provider = %self.transport.provider_name(),
+                model = %self.transport.default_model(),
+                messages = request.messages.len(),
+                "Sending streaming chat request"
+            );
+
+            // Stream from the provider (with multimodal fallback)
+            let request_clone = request.clone();
+            let mut stream = self.transport.send_stream(request_clone);
+
+            let mut has_tool_calls = false;
+            let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
+            let mut content_text = String::new();
+
+            while let Some(event_result) = stream.next().await {
+                // Check cancellation at the top of each stream iteration
+                if let Some(ref token) = self.cancel_token {
+                    if token.is_cancelled() {
+                        tracing::info!(
+                            round = round,
+                            "Streaming agent cancelled during stream processing"
+                        );
+                        let _ = tx
+                            .send(Ok(StreamEvent::Error {
+                                error: "任务已停止".to_string(),
+                            }))
+                            .await;
+                        return Ok("cancelled".to_string());
+                    }
+                }
+
+                match event_result {
+                    Ok(event) => {
+                        match &event {
+                            StreamEvent::ToolCallStart {
+                                tool_call_id,
+                                function_name,
+                            } => {
+                                has_tool_calls = true;
+                                tool_calls_accum.push(AccumulatedToolCall {
+                                    id: tool_call_id.clone(),
+                                    function_name: function_name.clone(),
+                                    arguments: String::new(),
+                                });
+                            }
+                            StreamEvent::ToolCallDelta {
+                                tool_call_id,
+                                arguments_delta,
+                            } => {
+                                if let Some(tc) = tool_calls_accum
+                                    .iter_mut()
+                                    .find(|tc| &tc.id == tool_call_id)
+                                {
+                                    tc.arguments.push_str(arguments_delta);
+                                }
+                            }
+                            StreamEvent::ToolCallEnd { .. } => {
+                                // Tool call completed, don't forward
+                            }
+                            StreamEvent::ContentDelta { delta } => {
+                                content_text.push_str(delta);
+                            }
+                            StreamEvent::Done { .. } => {
+                                // End of this streaming round
+                            }
+                            StreamEvent::ToolResult { .. } => {
+                                // Shouldn't happen from provider
+                            }
+                            StreamEvent::Error { .. } => {
+                                // Forward errors
+                            }
+                        }
+                        // Forward all events except ToolCallEnd and Done
+                        if !matches!(
+                            event,
+                            StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                        ) {
+                            if tx.send(Ok(event)).await.is_err() {
+                                return Ok("stop".to_string());
+                            }
+                        }
+                    }
+                    Err(ProviderError::MultimodalNotSupported) => {
+                        tracing::warn!(
+                            "Streaming request failed because the model does not support multimodal. \
+                             Retrying with image content stripped."
+                        );
+                        let stripped = request.strip_multimodal_content();
+                        let mut retry_stream = self.transport.send_stream(stripped);
+
+                        while let Some(retry_event) = retry_stream.next().await {
+                            match retry_event {
+                                Ok(event) => {
+                                    match &event {
+                                        StreamEvent::ToolCallStart {
+                                            tool_call_id,
+                                            function_name,
+                                        } => {
+                                            has_tool_calls = true;
+                                            tool_calls_accum.push(AccumulatedToolCall {
+                                                id: tool_call_id.clone(),
+                                                function_name: function_name.clone(),
+                                                arguments: String::new(),
+                                            });
+                                        }
+                                        StreamEvent::ToolCallDelta {
+                                            tool_call_id,
+                                            arguments_delta,
+                                        } => {
+                                            if let Some(tc) = tool_calls_accum
+                                                .iter_mut()
+                                                .find(|tc| &tc.id == tool_call_id)
+                                            {
+                                                tc.arguments.push_str(arguments_delta);
+                                            }
+                                        }
+                                        StreamEvent::ContentDelta { delta } => {
+                                            content_text.push_str(delta);
+                                        }
+                                        _ => {}
+                                    }
+                                    if !matches!(
+                                        event,
+                                        StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                                    ) {
+                                        if tx.send(Ok(event)).await.is_err() {
+                                            return Ok("stop".to_string());
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(Err(e)).await;
+                                    return Err(ProviderError::MultimodalNotSupported);
+                                }
+                            }
+                        }
+                        break; // Exit the retry, continue to tool handling below
+                    }
+                    Err(e) => {
+                        // Send the error to the stream receiver
+                        let error_msg = e.to_string();
+                        let _ = tx.send(Err(e)).await;
+                        return Err(ProviderError::Custom(error_msg));
+                    }
+                }
+            }
+
+            // Handle what happened in this round
+            if has_tool_calls && self.config.auto_execute_tools {
+                // Build assistant message with tool calls for history
+                let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
+                    .iter()
+                    .map(|tc| ToolCall {
+                        id: tc.id.clone(),
+                        call_type: crate::types::ToolCallType::Function,
+                        function: FunctionCall {
+                            name: tc.function_name.clone(),
+                            arguments: tc.arguments.clone(),
+                        },
+                    })
+                    .collect();
+
+                let assistant_msg = ChatMessage::assistant_with_tool_calls(
+                    if content_text.is_empty() {
+                        None
+                    } else {
+                        Some(content_text)
+                    },
+                    tool_calls_for_history.clone(),
+                );
+                self.history.push(assistant_msg);
+
+                // Execute each tool call
+                for call in &tool_calls_for_history {
+                    tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                    let result = if let Some(ref token) = self.cancel_token {
+                        tokio::select! {
+                            r = self.tool_executor.execute_with_id(&call.id, &call.function) => r,
+                            _ = token.cancelled() => {
+                                tracing::info!(
+                                    tool = %call.function.name,
+                                    round = round,
+                                    "Streaming tool execution cancelled via CancellationToken"
+                                );
+                                ToolResult {
+                                    tool_call_id: call.id.clone(),
+                                    content: "⏹ 任务已停止。".to_string(),
+                                }
+                            }
+                        }
+                    } else {
+                        self.tool_executor
+                            .execute_with_id(&call.id, &call.function)
+                            .await
+                    };
+
+                    // Notify skills
+                    for skill in &self.skills {
+                        if skill.is_active() {
+                            skill
+                                .on_tool_result(&call.function.name, &result.content)
+                                .await;
+                        }
+                    }
+
+                    // Add tool result to history
+                    self.history.push(ChatMessage::tool_result(
+                        &result.tool_call_id,
+                        &result.content,
+                    ));
+
+                    // Emit tool result event
+                    if tx
+                        .send(Ok(StreamEvent::ToolResult {
+                            tool_call_id: result.tool_call_id,
+                            tool_name: call.function.name.clone(),
+                            content: result.content,
+                        }))
+                        .await
+                        .is_err()
+                    {
+                        return Ok("stop".to_string());
+                    }
+
+                    // Check cancellation after each tool call
+                    if let Some(ref token) = self.cancel_token {
+                        if token.is_cancelled() {
+                            tracing::info!(
+                                tool = %call.function.name,
+                                round = round,
+                                "Streaming agent loop cancelled after tool execution"
+                            );
+                            let _ = tx
+                                .send(Ok(StreamEvent::Error {
+                                    error: "任务已停止".to_string(),
+                                }))
+                                .await;
+                            return Ok("cancelled".to_string());
+                        }
+                    }
+                }
+
+                round += 1;
+                if round >= max_rounds {
+                    tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
+                    let warning = self.config.max_rounds_reached_message();
+                    self.history.push(ChatMessage::assistant(&warning));
+                    if tx
+                        .send(Ok(StreamEvent::ContentDelta { delta: warning }))
+                        .await
+                        .is_err()
+                    {
+                        return Ok("length".to_string());
+                    }
+                    return Ok("length".to_string());
+                }
+
+                // Check cancellation between rounds
+                if let Some(ref token) = self.cancel_token {
+                    if token.is_cancelled() {
+                        tracing::info!(
+                            round = round,
+                            "Streaming agent loop cancelled between rounds"
+                        );
+                        let _ = tx
+                            .send(Ok(StreamEvent::Error {
+                                error: "任务已停止".to_string(),
+                            }))
+                            .await;
+                        return Ok("cancelled".to_string());
+                    }
+                }
+
+                // Loop back for next round
+            } else {
+                // No tool calls — add the assistant message to history
+                self.history.push(ChatMessage::assistant(&content_text));
+                break;
+            }
+        }
+
+        // Run skill post-processing
+        self.run_skills_on_response().await;
+
+        // Emit final Done event
+        let _ = tx.send(Ok(StreamEvent::Done { usage: None })).await;
+
+        Ok("stop".to_string())
+    }
+
     /// Run a single turn of the conversation.
     ///
     /// This method:

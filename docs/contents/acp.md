@@ -79,6 +79,8 @@ When connected via ACP, Ruri brings your full configuration into the IDE:
 - **File tools** — Read, write, edit, and search files
 - **Knowledge base** — If active in your profile, the AI can search your documents
 - **Shell commands** — If Computer Use is enabled, the AI can run commands
+- **Streaming responses** — The AI's output is streamed in real-time to your IDE
+- **Independent proxy** — ACP has its own proxy configuration for routing LLM requests
 
 ::: tip
 Make sure Computer Use is enabled in your [Config Profile](/config-profiles) if you want the AI to execute shell commands through the IDE.

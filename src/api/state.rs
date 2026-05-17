@@ -168,6 +168,9 @@ pub struct AcpConfig {
     /// Knowledge base IDs to enable in ACP mode.
     #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
+    /// Proxy configuration for ACP mode (independent of config profile proxy).
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
 }
 
 /// The top-level persisted config file format.

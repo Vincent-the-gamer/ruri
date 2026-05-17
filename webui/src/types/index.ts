@@ -234,6 +234,7 @@ export interface AcpConfig {
   active_provider_id: string | null
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
+  proxy_config: ProxyConfig
   available_providers: AcpProviderOption[]
   available_skills: AcpSkillOption[]
 }
@@ -242,6 +243,7 @@ export interface UpdateAcpConfigRequest {
   active_provider_id: string | null
   active_skill_names: string[]
   active_knowledge_base_ids?: string[]
+  proxy_config?: ProxyConfig
 }
 
 // ─── Log Types ────────────────────────────────────────────────────────

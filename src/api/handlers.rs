@@ -1954,6 +1954,7 @@ async fn get_acp_config(State(state): State<Arc<AppState>>) -> Json<AcpConfigDto
         active_provider_id: acp_config.active_provider_id.clone(),
         active_skill_names: acp_config.active_skill_names.clone(),
         active_knowledge_base_ids: acp_config.active_knowledge_base_ids.clone(),
+        proxy_config: acp_config.proxy_config.clone(),
         available_providers,
         available_skills,
     })
@@ -1991,6 +1992,10 @@ async fn update_acp_config(
 
     if let Some(active_knowledge_base_ids) = req.active_knowledge_base_ids {
         acp_config.active_knowledge_base_ids = active_knowledge_base_ids;
+    }
+
+    if let Some(proxy_config) = req.proxy_config {
+        acp_config.proxy_config = proxy_config;
     }
 
     let providers = state.providers.read().await;
@@ -2031,6 +2036,7 @@ async fn update_acp_config(
         active_provider_id: acp_config.active_provider_id.clone(),
         active_skill_names: acp_config.active_skill_names.clone(),
         active_knowledge_base_ids: acp_config.active_knowledge_base_ids.clone(),
+        proxy_config: acp_config.proxy_config.clone(),
         available_providers,
         available_skills,
     };

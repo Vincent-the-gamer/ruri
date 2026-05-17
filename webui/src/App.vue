@@ -6,6 +6,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
 import LocaleSwitcher from "./components/LocaleSwitcher.vue";
 import UserMenu from "./components/UserMenu.vue";
+import ToastContainer from "./components/Toast/ToastContainer.vue";
 import ruriAvatar from "../assets/ruri-avatar.png";
 
 const route = useRoute();
@@ -101,6 +102,9 @@ onMounted(() => {
                 <router-view />
             </div>
         </div>
+
+        <!-- Global Toast Notifications -->
+        <ToastContainer />
     </div>
 </template>
 

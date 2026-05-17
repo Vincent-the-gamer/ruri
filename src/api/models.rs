@@ -345,6 +345,8 @@ pub struct AcpConfigDto {
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
+    #[serde(default)]
+    pub proxy_config: crate::types::ProxyConfig,
     pub available_providers: Vec<AcpProviderOptionDto>,
     pub available_skills: Vec<AcpSkillOptionDto>,
 }
@@ -357,6 +359,8 @@ pub struct UpdateAcpConfigRequest {
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_knowledge_base_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_config: Option<crate::types::ProxyConfig>,
 }
 
 // ─── Persona Models ──────────────────────────────────────────────
