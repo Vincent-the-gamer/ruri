@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useAcpStore } from "../stores/acp";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
 import { useToast } from "../composables/useToast";
-import type { ProxyConfig, ProxyRule, ProxyRuleType } from "../types";
+import type { ProxyConfig, ProxyRuleType } from "../types";
 import { ProxyRuleTypeLabels } from "../types";
 
 const { t } = useI18n();

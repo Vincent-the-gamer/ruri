@@ -108,6 +108,11 @@ pub struct Agent {
     /// between rounds (not mid-API-call). Set by the caller before invoking
     /// `chat_with_message` to allow `/stop` to fully terminate the agent.
     cancel_token: Option<tokio_util::sync::CancellationToken>,
+    /// Optional channel for requesting tool execution permission.
+    /// When set, before executing a tool, the agent sends (tool_name, args)
+    /// through the channel and waits for a response (true = allow, false = deny).
+    tool_permission_tx:
+        Option<tokio::sync::mpsc::Sender<(String, String, tokio::sync::oneshot::Sender<bool>)>>,
 }
 
 impl Agent {
@@ -124,6 +129,7 @@ impl Agent {
             skill_contexts: Vec::new(),
             skills_initialized: false,
             cancel_token: None,
+            tool_permission_tx: None,
         }
     }
 
@@ -134,6 +140,18 @@ impl Agent {
     /// the agent instead of just cancelling the current tool call.
     pub fn set_cancel_token(&mut self, token: tokio_util::sync::CancellationToken) {
         self.cancel_token = Some(token);
+    }
+
+    /// Set the tool permission channel for this agent.
+    ///
+    /// When set, before executing each tool call, the agent sends
+    /// `(tool_name, arguments, oneshot_sender)` through this channel and
+    /// waits for a response. `true` allows execution, `false` denies it.
+    pub fn set_tool_permission_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::Sender<(String, String, tokio::sync::oneshot::Sender<bool>)>,
+    ) {
+        self.tool_permission_tx = Some(tx);
     }
 
     /// Set the system prompt (persona) for this agent.
@@ -296,7 +314,7 @@ impl Agent {
                                 }
                             }
                             StreamEvent::ToolCallEnd { .. } => {
-                                // Tool call completed, don't forward
+                                // Tool call completed — now forwarded to consumers
                             }
                             StreamEvent::ContentDelta { delta } => {
                                 content_text.push_str(delta);
@@ -311,11 +329,8 @@ impl Agent {
                                 // Forward errors
                             }
                         }
-                        // Forward all events except ToolCallEnd and Done
-                        if !matches!(
-                            event,
-                            StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
-                        ) {
+                        // Forward all events except Done
+                        if !matches!(event, StreamEvent::Done { .. }) {
                             if tx.send(Ok(event)).await.is_err() {
                                 return Ok("stop".to_string());
                             }
@@ -360,10 +375,7 @@ impl Agent {
                                         }
                                         _ => {}
                                     }
-                                    if !matches!(
-                                        event,
-                                        StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
-                                    ) {
+                                    if !matches!(event, StreamEvent::Done { .. }) {
                                         if tx.send(Ok(event)).await.is_err() {
                                             return Ok("stop".to_string());
                                         }
@@ -415,7 +427,41 @@ impl Agent {
                 for call in &tool_calls_for_history {
                     tracing::info!(tool = %call.function.name, "Executing tool call");
 
-                    let result = if let Some(ref token) = self.cancel_token {
+                    // Check permission if a permission channel is configured
+                    let allowed = if let Some(ref perm_tx) = self.tool_permission_tx {
+                        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+                        if perm_tx
+                            .send((
+                                call.function.name.clone(),
+                                call.function.arguments.clone(),
+                                resp_tx,
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            tracing::warn!("Permission channel closed, denying tool execution");
+                            false
+                        } else {
+                            match resp_rx.await {
+                                Ok(allowed) => allowed,
+                                Err(_) => {
+                                    tracing::warn!(
+                                        "Permission response dropped, denying tool execution"
+                                    );
+                                    false
+                                }
+                            }
+                        }
+                    } else {
+                        true
+                    };
+
+                    let result = if !allowed {
+                        ToolResult {
+                            tool_call_id: call.id.clone(),
+                            content: "Permission denied by user".to_string(),
+                        }
+                    } else if let Some(ref token) = self.cancel_token {
                         tokio::select! {
                             r = self.tool_executor.execute_with_id(&call.id, &call.function) => r,
                             _ = token.cancelled() => {
@@ -528,25 +574,6 @@ impl Agent {
         let _ = tx.send(Ok(StreamEvent::Done { usage: None })).await;
 
         Ok("stop".to_string())
-    }
-
-    /// Run a single turn of the conversation.
-    ///
-    /// This method:
-    /// 1. Initializes skills on first call (collects context, but does NOT
-    ///    inject system messages)
-    /// 2. Pre-processes user messages through skills (dynamic context injection)
-    /// 3. Injects skill context into the user message
-    /// 4. Sends the request to the model (with persona as the sole system message)
-    /// 5. If the model requests tool calls, executes them and loops
-    /// 6. Post-processes the response through skills
-    /// 7. Returns the final response
-    pub async fn chat(
-        &mut self,
-        user_message: impl Into<String>,
-    ) -> Result<ChatResponse, crate::provider::ProviderError> {
-        let user_msg = ChatMessage::user(user_message);
-        self.chat_with_message(user_msg).await
     }
 
     /// Run a single turn with a pre-constructed message.
@@ -1055,8 +1082,7 @@ impl AgentStreamer {
                                         }
                                     }
                                     StreamEvent::ToolCallEnd { .. } => {
-                                        // Tool call completed, don't forward this to the client
-                                        // We'll execute the tool and emit ToolResult instead
+                                        // Tool call completed — now forwarded to consumers
                                     }
                                     StreamEvent::ContentDelta { delta } => {
                                         content_text.push_str(delta);
@@ -1071,12 +1097,9 @@ impl AgentStreamer {
                                         // Forward errors
                                     }
                                 }
-                                // Forward all events to the client except ToolCallEnd and Done
-                                // (we manage those ourselves after tool execution)
-                                if !matches!(
-                                    event,
-                                    StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
-                                ) {
+                                // Forward all events to the client except Done
+                                // (we manage Done ourselves after tool execution)
+                                if !matches!(event, StreamEvent::Done { .. }) {
                                     if tx.send(Ok(event)).await.is_err() {
                                         return; // receiver dropped
                                     }
@@ -1126,7 +1149,7 @@ impl AgentStreamer {
                                             }
                                             if !matches!(
                                                 event,
-                                                StreamEvent::ToolCallEnd { .. } | StreamEvent::Done { .. }
+                                                StreamEvent::Done { .. }
                                             ) {
                                                 if tx.send(Ok(event)).await.is_err() {
                                                     return;

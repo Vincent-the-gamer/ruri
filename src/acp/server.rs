@@ -3,12 +3,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use agent_client_protocol::schema::{
-    AuthenticateRequest, AuthenticateResponse, CancelNotification, CloseSessionRequest,
-    CloseSessionResponse, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
-    ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, ProtocolVersion,
-    SessionId, SessionMode, SessionModeId, SessionModeState, SetSessionConfigOptionRequest,
-    SetSessionConfigOptionResponse, SetSessionModeRequest, SetSessionModeResponse, StopReason,
+    AgentCapabilities, AuthenticateRequest, AuthenticateResponse, CancelNotification,
+    CloseSessionRequest, CloseSessionResponse, ContentBlock, ContentChunk, Diff, Implementation,
+    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
+    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
+    PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
+    RequestPermissionOutcome, RequestPermissionRequest, SessionCapabilities, SessionId,
+    SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+    SetSessionModeResponse, StopReason, ToolCallContent, ToolCallLocation, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -254,7 +258,15 @@ async fn handle_initialize(
     _agent_state: Arc<RuriAgentState>,
     _request: InitializeRequest,
 ) -> Result<InitializeResponse, Error> {
-    Ok(InitializeResponse::new(ProtocolVersion::from(1u16)))
+    Ok(InitializeResponse::new(ProtocolVersion::from(1u16))
+        .agent_capabilities(
+            AgentCapabilities::new()
+                .load_session(true)
+                .session_capabilities(
+                    SessionCapabilities::new().list(SessionListCapabilities::default()),
+                ),
+        )
+        .agent_info(Implementation::new("ruri-acp", env!("CARGO_PKG_VERSION")).title("Ruri")))
 }
 
 async fn handle_session_new(
@@ -379,6 +391,74 @@ async fn handle_session_set_config_option(
     Ok(SetSessionConfigOptionResponse::new(vec![]))
 }
 
+/// Maps internal tool function names to ACP `ToolKind` values.
+fn tool_name_to_kind(name: &str) -> ToolKind {
+    // Handle "wrapped_" prefix by stripping it and recursing
+    let unwrapped = name.strip_prefix("wrapped_").unwrap_or(name);
+    match unwrapped {
+        "read_file" => ToolKind::Read,
+        "write_file" | "create_file" | "edit_file" => ToolKind::Edit,
+        "list_directory" | "search_files" | "knowledge_base_search" => ToolKind::Search,
+        "bash" => ToolKind::Execute,
+        "web_search" => ToolKind::Fetch,
+        other
+            if other.starts_with("shell_")
+                || other.starts_with("python")
+                || other.starts_with("sandbox_") =>
+        {
+            ToolKind::Execute
+        }
+        _ => ToolKind::Other,
+    }
+}
+
+/// Creates a human-readable title for a tool call.
+fn tool_name_to_title(name: &str, args: &str) -> String {
+    let unwrapped = name.strip_prefix("wrapped_").unwrap_or(name);
+    let path = extract_path_from_args(args);
+    match unwrapped {
+        "read_file" => path.map_or("Reading file".to_string(), |p| format!("Reading {p}")),
+        "write_file" => path.map_or("Writing file".to_string(), |p| format!("Writing {p}")),
+        "create_file" => path.map_or("Creating file".to_string(), |p| format!("Creating {p}")),
+        "edit_file" => path.map_or("Editing file".to_string(), |p| format!("Editing {p}")),
+        "list_directory" => {
+            path.map_or("Listing directory".to_string(), |p| format!("Listing {p}"))
+        }
+        "search_files" => "Searching files".to_string(),
+        "bash" => {
+            // Try to extract command from args for a more descriptive title
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(args) {
+                if let Some(cmd) = parsed.get("command").and_then(|v| v.as_str()) {
+                    let preview = if cmd.len() > 60 {
+                        format!("{}...", &cmd[..cmd.floor_char_boundary(60)])
+                    } else {
+                        cmd.to_string()
+                    };
+                    return format!("Running: {preview}");
+                }
+            }
+            "Running command".to_string()
+        }
+        "web_search" => "Searching the web".to_string(),
+        "knowledge_base_search" => "Searching knowledge base".to_string(),
+        _ => format!("Running {name}"),
+    }
+}
+
+/// Parses JSON arguments and extracts the `path` field.
+fn extract_path_from_args(args: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(args)
+        .ok()
+        .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
+}
+
+/// Extracts file locations from JSON arguments.
+fn extract_locations_from_args(args: &str) -> Vec<ToolCallLocation> {
+    extract_path_from_args(args)
+        .map(|p| vec![ToolCallLocation::new(&p)])
+        .unwrap_or_default()
+}
+
 async fn handle_session_prompt(
     session_manager: Arc<SessionManager>,
     request: PromptRequest,
@@ -434,19 +514,116 @@ async fn handle_session_prompt(
         )
     });
 
+    // Set up tool permission channel so the agent can request user approval
+    // before executing dangerous tools. In "code" mode, all tools are auto-approved.
+    let (perm_tx, mut perm_rx) =
+        tokio::sync::mpsc::channel::<(String, String, tokio::sync::oneshot::Sender<bool>)>(32);
+    agent.set_tool_permission_tx(perm_tx);
+
     let session_id_for_task = session_id_str.clone();
     tokio::spawn(async move {
         let result = agent.chat_streaming(&text, &tx).await;
         let _ = agent_return_tx.send((session_id_for_task, agent, result));
     });
 
+    // Spawn permission handler task — receives permission requests from the
+    // agent's tool execution loop and sends `session/request_permission` to
+    // the ACP client (editor) for user approval.
+    let perm_session_id = request.session_id.clone();
+    let perm_cx = cx.clone();
+    let current_mode = session.current_mode.clone();
+    let _perm_handle = tokio::spawn(async move {
+        while let Some((tool_name, args, resp_tx)) = perm_rx.recv().await {
+            // In "code" mode, auto-allow all tools
+            if current_mode == "code" {
+                let _ = resp_tx.send(true);
+                continue;
+            }
+
+            // Only request permission for dangerous tools
+            let unwrapped = tool_name.strip_prefix("wrapped_").unwrap_or(&tool_name);
+            let needs_permission = matches!(
+                unwrapped,
+                "bash"
+                    | "shell"
+                    | "python"
+                    | "sandbox_shell"
+                    | "sandbox_python"
+                    | "write_file"
+                    | "edit_file"
+                    | "create_file"
+                    | "sandbox_write_file"
+                    | "sandbox_edit_file"
+                    | "sandbox_create_file"
+            );
+
+            if !needs_permission {
+                let _ = resp_tx.send(true);
+                continue;
+            }
+
+            // Build ToolCallUpdate for the permission request
+            let kind = tool_name_to_kind(&tool_name);
+            let title = tool_name_to_title(&tool_name, &args);
+            let locations = extract_locations_from_args(&args);
+            let raw_input = serde_json::from_str(&args).unwrap_or(serde_json::Value::Null);
+
+            let update_fields = ToolCallUpdateFields::new()
+                .title(title)
+                .kind(kind)
+                .status(ToolCallStatus::Pending)
+                .locations(locations)
+                .raw_input(raw_input);
+
+            // Use a temporary ID for the permission request — this is separate
+            // from the actual tool call ID which is already tracked.
+            let perm_tool_call_id = agent_client_protocol::schema::ToolCallId::new(format!(
+                "perm_{}",
+                uuid::Uuid::new_v4()
+            ));
+            let tool_call_update = ToolCallUpdate::new(perm_tool_call_id, update_fields);
+
+            let options = vec![
+                PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+                PermissionOption::new(
+                    "allow_always",
+                    "Allow always",
+                    PermissionOptionKind::AllowAlways,
+                ),
+                PermissionOption::new("reject_once", "Reject", PermissionOptionKind::RejectOnce),
+            ];
+
+            let perm_request =
+                RequestPermissionRequest::new(perm_session_id.clone(), tool_call_update, options);
+
+            let response = perm_cx.send_request(perm_request).block_task().await;
+
+            match response {
+                Ok(resp) => {
+                    let allowed = match resp.outcome {
+                        RequestPermissionOutcome::Selected(sel) => {
+                            sel.option_id.0.as_ref().starts_with("allow")
+                        }
+                        RequestPermissionOutcome::Cancelled => false,
+                        _ => false,
+                    };
+                    let _ = resp_tx.send(allowed);
+                }
+                Err(e) => {
+                    tracing::warn!("Permission request failed: {}", e);
+                    let _ = resp_tx.send(false);
+                }
+            }
+        }
+    });
+
     // Process stream events in real-time and send them as ACP notifications
     use agent_client_protocol::schema::{AgentNotification, SessionNotification, SessionUpdate};
-    use agent_client_protocol::schema::{
-        ToolCall as AcpToolCall, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
-    };
+    use agent_client_protocol::schema::{ToolCall as AcpToolCall, ToolCallId};
 
     let mut provider_error = false;
+    // Track tool call arguments so we can include diffs and locations in ToolResult
+    let mut tool_call_info: HashMap<String, (String, String)> = HashMap::new(); // id → (name, args)
 
     while let Some(event_result) = rx.recv().await {
         match event_result {
@@ -465,37 +642,146 @@ async fn handle_session_prompt(
                         function_name,
                     } => {
                         // Notify the client that a tool call has started
-                        let acp_tool_call = AcpToolCall::new(
-                            ToolCallId::new(tool_call_id.clone()),
-                            function_name.clone(),
-                        )
-                        .status(ToolCallStatus::InProgress);
+                        let kind = tool_name_to_kind(function_name);
+                        let title = tool_name_to_title(function_name, ""); // no args yet at start
+                        let acp_tool_call =
+                            AcpToolCall::new(ToolCallId::new(tool_call_id.clone()), title)
+                                .kind(kind)
+                                .status(ToolCallStatus::Pending);
                         Some(SessionUpdate::ToolCall(acp_tool_call))
                     }
-                    crate::types::StreamEvent::ToolCallDelta { .. } => {
-                        // We don't send individual argument deltas to ACP clients
-                        None
+                    crate::types::StreamEvent::ToolCallDelta {
+                        tool_call_id,
+                        arguments_delta,
+                    } => {
+                        // Try to parse the arguments delta to extract a path for locations
+                        if let Ok(parsed) =
+                            serde_json::from_str::<serde_json::Value>(arguments_delta)
+                        {
+                            let path = parsed
+                                .get("path")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            if let Some(path) = path {
+                                let locations = vec![ToolCallLocation::new(&path)];
+                                let update_fields =
+                                    ToolCallUpdateFields::new().locations(locations);
+                                let tool_call_update = ToolCallUpdate::new(
+                                    ToolCallId::new(tool_call_id.clone()),
+                                    update_fields,
+                                );
+                                Some(SessionUpdate::ToolCallUpdate(tool_call_update))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    crate::types::StreamEvent::ToolCallEnd {
+                        tool_call_id,
+                        function_name,
+                        arguments,
+                    } => {
+                        // Store arguments for later use in ToolResult, and send an
+                        // update with better title, kind, locations, and raw_input.
+                        tool_call_info.insert(
+                            tool_call_id.clone(),
+                            (function_name.clone(), arguments.clone()),
+                        );
+                        let kind = tool_name_to_kind(function_name);
+                        let title = tool_name_to_title(function_name, arguments);
+                        let locations = extract_locations_from_args(arguments);
+                        let raw_input =
+                            serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+                        let update_fields = ToolCallUpdateFields::new()
+                            .title(title)
+                            .kind(kind)
+                            .status(ToolCallStatus::InProgress)
+                            .locations(locations)
+                            .raw_input(raw_input);
+                        let tool_call_update = ToolCallUpdate::new(
+                            ToolCallId::new(tool_call_id.clone()),
+                            update_fields,
+                        );
+                        Some(SessionUpdate::ToolCallUpdate(tool_call_update))
                     }
                     crate::types::StreamEvent::ToolResult {
                         tool_call_id,
-                        tool_name: _,
+                        tool_name,
                         content: result_content,
                     } => {
-                        // Update the tool call with the result
-                        let text_content = agent_client_protocol::schema::TextContent::new(
-                            // Truncate very long tool results in the notification
-                            if result_content.len() > 2000 {
-                                format!("{}\n... (truncated)", &result_content[..2000])
-                            } else {
-                                result_content.clone()
-                            },
-                        );
+                        // Look up stored arguments for this tool call
+                        let args = tool_call_info
+                            .get(tool_call_id)
+                            .map(|(_name, args)| args.clone())
+                            .unwrap_or_default();
+
+                        let path = extract_path_from_args(&args);
+                        let locations = if let Some(ref p) = path {
+                            vec![ToolCallLocation::new(p)]
+                        } else {
+                            vec![]
+                        };
+
+                        // Build content list
+                        let mut content_list: Vec<ToolCallContent> = Vec::new();
+
+                        // Resolve the unwrapped tool name for diff logic
+                        let unwrapped_name =
+                            tool_name.strip_prefix("wrapped_").unwrap_or(tool_name);
+
+                        // For write/edit/create tools, include a Diff
+                        if matches!(unwrapped_name, "write_file" | "create_file" | "edit_file") {
+                            if let Some(ref p) = path {
+                                if unwrapped_name == "edit_file" {
+                                    if let Ok(parsed) =
+                                        serde_json::from_str::<serde_json::Value>(&args)
+                                    {
+                                        let old_text =
+                                            parsed.get("old_text").and_then(|v| v.as_str());
+                                        let new_text =
+                                            parsed.get("new_text").and_then(|v| v.as_str());
+                                        if let (Some(old), Some(new)) = (old_text, new_text) {
+                                            let diff = Diff::new(p, new.to_string())
+                                                .old_text(old.to_string());
+                                            content_list.push(ToolCallContent::Diff(diff));
+                                        }
+                                    }
+                                } else if unwrapped_name == "write_file"
+                                    || unwrapped_name == "create_file"
+                                {
+                                    if let Ok(parsed) =
+                                        serde_json::from_str::<serde_json::Value>(&args)
+                                    {
+                                        if let Some(new_text) =
+                                            parsed.get("content").and_then(|v| v.as_str())
+                                        {
+                                            let diff = Diff::new(p, new_text.to_string());
+                                            content_list.push(ToolCallContent::Diff(diff));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Also include a text summary of the result
+                        let summary = if result_content.len() > 2000 {
+                            format!(
+                                "{}\n... (truncated)",
+                                &result_content[..result_content.floor_char_boundary(2000)]
+                            )
+                        } else {
+                            result_content.clone()
+                        };
+                        let text_content = agent_client_protocol::schema::TextContent::new(summary);
                         let content_block = ContentBlock::Text(text_content);
-                        let tool_call_content: agent_client_protocol::schema::ToolCallContent =
-                            content_block.into();
+                        content_list.push(content_block.into());
+
                         let update_fields = ToolCallUpdateFields::new()
                             .status(ToolCallStatus::Completed)
-                            .content(Some(vec![tool_call_content]));
+                            .content(Some(content_list))
+                            .locations(locations);
                         let tool_call_update = ToolCallUpdate::new(
                             ToolCallId::new(tool_call_id.clone()),
                             update_fields,
@@ -513,10 +799,6 @@ async fn handle_session_prompt(
                     }
                     crate::types::StreamEvent::Done { .. } => {
                         // Stream complete — we'll send PromptResponse after this
-                        None
-                    }
-                    crate::types::StreamEvent::ToolCallEnd { .. } => {
-                        // Internal event, not forwarded
                         None
                     }
                 };
@@ -539,7 +821,10 @@ async fn handle_session_prompt(
         }
     }
 
-    // Wait for the spawned task to complete and recover the agent
+    // Wait for the spawned task to complete and recover the agent.
+    // The permission handler task (_perm_handle) will exit naturally when
+    // the perm_rx channel closes after the agent task completes and
+    // drops its perm_tx sender.
     let stop_reason = match agent_return_rx.await {
         Ok((_sid, agent, result)) => {
             // Put the agent back in the session
