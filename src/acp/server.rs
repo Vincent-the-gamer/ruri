@@ -596,32 +596,56 @@ fn extract_locations_from_args(args: &str) -> Vec<ToolCallLocation> {
 /// Tool call arguments arrive as streaming deltas (fragments of JSON).  The
 /// complete JSON is often not parseable until the full argument string has
 /// been accumulated.  This function uses a simple regex-based approach to
-/// pull out a value even when the surrounding JSON is incomplete.
+/// pull out a value even when the surrounding JSON is incomplete — including
+/// the case where the string value itself has not yet been closed (no trailing `"`),
+/// which happens during streaming of large file content.
 fn extract_string_from_partial_json(partial: &str, key: &str) -> Option<String> {
     // First try parsing as valid JSON (works for fully accumulated args).
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(partial) {
         return v.get(key).and_then(|v| v.as_str()).map(String::from);
     }
 
-    // Fall back to regex search for "key":"value" or "key": "value".
-    // This works for partial JSON where the closing braces may be missing.
-    let pattern = format!(r#""{key}""\s*:\s*"((?:[^"\\]|\\.)*)""#);
-    if let Ok(re) = regex::Regex::new(&pattern) {
+    // Try regex search for a *closed* string: "key":"value" or "key": "value".
+    // This works for partial JSON where the closing braces may be missing
+    // but the string value itself is complete (has the closing quote).
+    let closed_pattern = format!(r#""{key}""\s*:\s*"((?:[^"\\]|\\.)*)""#);
+    if let Ok(re) = regex::Regex::new(&closed_pattern) {
         if let Some(caps) = re.captures(partial) {
             if let Some(m) = caps.get(1) {
-                // Unescape basic JSON string escapes
                 let s = m.as_str();
-                let unescaped = s
-                    .replace("\\n", "\n")
-                    .replace("\\t", "\t")
-                    .replace("\\\\", "\\")
-                    .replace("\\\"", "\"")
-                    .replace("\\r", "\r");
+                let unescaped = unescape_json_string(s);
                 return Some(unescaped);
             }
         }
     }
+
+    // Try regex search for an *open* (unclosed) string: the trailing quote
+    // has not arrived yet.  For example, during streaming of file content:
+    //   {"path":"src/main.rs","content":"fn main() {\n    println
+    //                                                            ^ no closing "
+    // Match everything from the opening quote to the end of the accumulated
+    // partial text.  The content is what we have so far.
+    let open_pattern = format!(r#""{key}""\s*:\s*"((?:[^"\\]|\\.)*)$"#);
+    if let Ok(re) = regex::Regex::new(&open_pattern) {
+        if let Some(caps) = re.captures(partial) {
+            if let Some(m) = caps.get(1) {
+                let s = m.as_str();
+                let unescaped = unescape_json_string(s);
+                return Some(unescaped);
+            }
+        }
+    }
+
     None
+}
+
+/// Unescape basic JSON string escape sequences.
+fn unescape_json_string(s: &str) -> String {
+    s.replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\\\", "\\")
+        .replace("\\\"", "\"")
+        .replace("\\r", "\r")
 }
 
 /// State tracked per tool-call while its arguments are streaming in.
@@ -740,8 +764,8 @@ async fn handle_session_prompt(
     let perm_cx = cx.clone();
     let _perm_handle = tokio::spawn(async move {
         while let Some((tool_name, args, resp_tx)) = perm_rx.recv().await {
-            // All file operations and shell commands require user consent,
-            // regardless of the current mode.
+            // Only write, delete, and execution tools require user consent.
+            // Read and listing operations are auto-approved.
             let unwrapped = tool_name.strip_prefix("wrapped_").unwrap_or(&tool_name);
             let needs_permission = matches!(
                 unwrapped,
@@ -767,14 +791,6 @@ async fn handle_session_prompt(
                     | "sandbox_remove_file"
                     | "sandbox_delete_directory"
                     | "sandbox_remove_directory"
-                    // File read / listing tools
-                    | "read_file"
-                    | "list_directory"
-                    | "search_files"
-                    | "sandbox_read_file"
-                    | "sandbox_list_directory"
-                    | "sandbox_find_files"
-                    | "sandbox_search_in_file"
             );
 
             if !needs_permission {
@@ -918,20 +934,33 @@ async fn handle_session_prompt(
                         // For file-content tools, stream a live Diff preview so the
                         // user can see file contents being written in real-time.
                         if is_file_content_tool(&tc.function_name) {
-                            let content = extract_string_from_partial_json(accumulated, "content");
+                            let unwrapped_name = tc
+                                .function_name
+                                .strip_prefix("wrapped_")
+                                .unwrap_or(&tc.function_name);
+
+                            // edit_file uses "new_text" instead of "content"
+                            let content_key = if unwrapped_name == "edit_file" {
+                                "new_text"
+                            } else {
+                                "content"
+                            };
+                            let content =
+                                extract_string_from_partial_json(accumulated, content_key);
                             if let (Some(ref p), Some(ref c)) = (path, content) {
-                                // Only send an update if we have accumulated significantly
-                                // more content since the last update (throttle to avoid
-                                // flooding the client).
-                                if c.len() >= tc.last_content_update_len + 256
-                                    || (c.len() > tc.last_content_update_len && c.len() < 256)
+                                // Throttle updates to avoid flooding the client, but keep
+                                // the threshold low enough for a smooth streaming experience.
+                                // Short files (<128 chars) get updates on every delta;
+                                // longer files get updates every 64 new characters.
+                                let threshold = if tc.last_content_update_len < 128 {
+                                    32
+                                } else {
+                                    64
+                                };
+                                if c.len() >= tc.last_content_update_len + threshold
+                                    || (c.len() > tc.last_content_update_len && c.len() < threshold)
                                 {
                                     tc.last_content_update_len = c.len();
-                                    // For create_file/write_file, old_text is None (new file)
-                                    let unwrapped_name = tc
-                                        .function_name
-                                        .strip_prefix("wrapped_")
-                                        .unwrap_or(&tc.function_name);
                                     let diff = if unwrapped_name == "edit_file" {
                                         // For edit_file, try to extract old_text as well
                                         let old_text = extract_string_from_partial_json(
@@ -982,12 +1011,50 @@ async fn handle_session_prompt(
                         let locations = extract_locations_from_args(arguments);
                         let raw_input =
                             serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-                        let update_fields = ToolCallUpdateFields::new()
+                        let mut update_fields = ToolCallUpdateFields::new()
                             .title(title)
                             .kind(kind)
                             .status(ToolCallStatus::InProgress)
                             .locations(locations)
                             .raw_input(raw_input);
+
+                        // For file-content tools, include the final complete Diff so
+                        // the client always has the full file content. This ensures
+                        // that any content missed by throttling is flushed at the end.
+                        let unwrapped_name = function_name
+                            .strip_prefix("wrapped_")
+                            .unwrap_or(function_name);
+                        if is_file_content_tool(function_name) {
+                            let path = extract_path_from_args(arguments);
+                            if let Some(ref p) = path {
+                                if let Ok(parsed) =
+                                    serde_json::from_str::<serde_json::Value>(arguments)
+                                {
+                                    if unwrapped_name == "edit_file" {
+                                        let old_text =
+                                            parsed.get("old_text").and_then(|v| v.as_str());
+                                        let new_text =
+                                            parsed.get("new_text").and_then(|v| v.as_str());
+                                        if let (Some(old), Some(new)) = (old_text, new_text) {
+                                            let diff = Diff::new(p, new.to_string())
+                                                .old_text(old.to_string());
+                                            update_fields = update_fields
+                                                .content(vec![ToolCallContent::Diff(diff)]);
+                                        }
+                                    } else {
+                                        // write_file / create_file
+                                        if let Some(new_text) =
+                                            parsed.get("content").and_then(|v| v.as_str())
+                                        {
+                                            let diff = Diff::new(p, new_text.to_string());
+                                            update_fields = update_fields
+                                                .content(vec![ToolCallContent::Diff(diff)]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let tool_call_update = ToolCallUpdate::new(
                             ToolCallId::new(tool_call_id.clone()),
                             update_fields,
