@@ -69,7 +69,7 @@ cargo run
 
 ### ACP (Agent Client Protocol，Agent客户端协议) 服务端配置
 
-Zed配置范例:
+Zed/JetBrains IDE配置:
 
 ```json
 {

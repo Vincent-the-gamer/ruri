@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use agent_client_protocol::schema::{
     AgentCapabilities, AuthenticateRequest, AuthenticateResponse, CancelNotification,
-    CloseSessionRequest, CloseSessionResponse, ContentBlock, ContentChunk, Diff, Implementation,
-    InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
-    LoadSessionRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
-    PermissionOption, PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion,
-    RequestPermissionOutcome, RequestPermissionRequest, SessionCapabilities, SessionId,
-    SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    SetSessionModeResponse, StopReason, ToolCallContent, ToolCallLocation, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    CloseSessionRequest, CloseSessionResponse, ContentBlock, ContentChunk, Diff,
+    ForkSessionRequest, ForkSessionResponse, Implementation, InitializeRequest, InitializeResponse,
+    ListSessionsRequest, ListSessionsResponse, LoadSessionRequest, LoadSessionResponse,
+    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind, PromptRequest,
+    PromptResponse, ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest,
+    SessionCapabilities, SessionForkCapabilities, SessionId, SessionListCapabilities, SessionMode,
+    SessionModeId, SessionModeState, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+    SetSessionModeRequest, SetSessionModeResponse, StopReason, ToolCallContent, ToolCallLocation,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo, Error};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -122,6 +122,24 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
                     let session_manager = session_manager.clone();
                     let result = handle_session_close(session_manager, request).await;
                     responder.respond_with_result(result)
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let agent_state = agent_state.clone();
+                let session_manager = session_manager.clone();
+                async move |request: ForkSessionRequest, responder, cx: ConnectionTo<Client>| {
+                    let agent_state = agent_state.clone();
+                    let session_manager = session_manager.clone();
+                    let cx2 = cx.clone();
+                    cx.spawn(async move {
+                        let result =
+                            handle_session_fork(agent_state, session_manager, request, cx2).await;
+                        responder.respond_with_result(result)
+                    })?;
+                    Ok(())
                 }
             },
             agent_client_protocol::on_receive_request!(),
@@ -263,7 +281,9 @@ async fn handle_initialize(
             AgentCapabilities::new()
                 .load_session(true)
                 .session_capabilities(
-                    SessionCapabilities::new().list(SessionListCapabilities::default()),
+                    SessionCapabilities::new()
+                        .list(SessionListCapabilities::default())
+                        .fork(SessionForkCapabilities::default()),
                 ),
         )
         .agent_info(Implementation::new("ruri-acp", env!("CARGO_PKG_VERSION")).title("Ruri")))
@@ -284,6 +304,10 @@ async fn handle_session_new(
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
     let (skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
+
+    // Read AGENTS.md from the working directory and merge with persona prompt
+    let agents_md = read_agents_md(&cwd);
+    let persona_prompt = merge_agents_md_into_prompt(persona_prompt, agents_md);
 
     let session_id = session_manager
         .create_session_with_skills_and_persona(provider, cwd, skills, persona_prompt)
@@ -325,6 +349,10 @@ async fn handle_session_load(
     let (skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
+    // Read AGENTS.md from the working directory and merge with persona prompt
+    let agents_md = read_agents_md(&cwd);
+    let persona_prompt = merge_agents_md_into_prompt(persona_prompt, agents_md);
+
     session_manager
         .load_session_with_skills_and_persona(
             provider,
@@ -351,6 +379,55 @@ async fn handle_session_load(
     registration.run_indefinitely();
 
     Ok(LoadSessionResponse::new().modes(modes))
+}
+
+async fn handle_session_fork(
+    agent_state: Arc<RuriAgentState>,
+    session_manager: Arc<SessionManager>,
+    request: ForkSessionRequest,
+    cx: ConnectionTo<Client>,
+) -> Result<ForkSessionResponse, Error> {
+    let source_session_id = request.session_id.0.as_ref().to_string();
+    let cwd = request.cwd.display().to_string();
+    tracing::info!(
+        "Forking ACP session: {} -> new session, cwd={}",
+        source_session_id,
+        cwd
+    );
+
+    // Extract the source session's conversation history
+    let summary = session_manager
+        .get_session_summary(&source_session_id)
+        .await;
+
+    let mut pf = agent_state.provider_factory.write().await;
+    let provider = pf
+        .create_provider()
+        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+    let (skills, persona_prompt) = pf.build_skills_and_persona();
+    drop(pf);
+
+    let session_id = session_manager
+        .create_forked_session(provider, cwd, skills, persona_prompt, summary)
+        .await;
+
+    // Register connection for ACP file system operations
+    session_manager
+        .register_connection(session_id.clone(), Arc::new(cx.clone()))
+        .await;
+
+    let modes = build_mode_state();
+
+    // Register a dynamic handler for session-update notifications from this session
+    let session_id_clone = session_id.clone();
+    let sm = session_manager.clone();
+    let registration = cx
+        .add_dynamic_handler(async_stream_handler(session_id_clone, sm))
+        .map_err(|e| Error::internal_error().data(e.to_string()))?;
+
+    registration.run_indefinitely();
+
+    Ok(ForkSessionResponse::new(SessionId::new(session_id)).modes(modes))
 }
 
 async fn handle_session_list(_request: ListSessionsRequest) -> Result<ListSessionsResponse, Error> {
@@ -391,6 +468,53 @@ async fn handle_session_set_config_option(
     Ok(SetSessionConfigOptionResponse::new(vec![]))
 }
 
+/// Read AGENTS.md from the given working directory, if it exists.
+/// Returns the content of the file, or None if it doesn't exist or can't be read.
+fn read_agents_md(cwd: &str) -> Option<String> {
+    let agents_path = Path::new(cwd).join("AGENTS.md");
+    if agents_path.exists() {
+        match std::fs::read_to_string(&agents_path) {
+            Ok(content) => {
+                if content.trim().is_empty() {
+                    tracing::debug!("AGENTS.md exists but is empty: {}", agents_path.display());
+                    None
+                } else {
+                    tracing::info!("Loaded AGENTS.md from: {}", agents_path.display());
+                    Some(content)
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to read AGENTS.md at {}: {}",
+                    agents_path.display(),
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        tracing::debug!("No AGENTS.md found at: {}", agents_path.display());
+        None
+    }
+}
+
+/// Merge AGENTS.md content into the persona/system prompt.
+/// If both exist, append the AGENTS.md content under a clearly marked section.
+fn merge_agents_md_into_prompt(
+    persona_prompt: Option<String>,
+    agents_md: Option<String>,
+) -> Option<String> {
+    match (persona_prompt, agents_md) {
+        (Some(persona), Some(agents)) => Some(format!(
+            "{}\n\n---\n\n# Project Rules (AGENTS.md)\n\n{}",
+            persona, agents
+        )),
+        (Some(persona), None) => Some(persona),
+        (None, Some(agents)) => Some(format!("# Project Rules (AGENTS.md)\n\n{}", agents)),
+        (None, None) => None,
+    }
+}
+
 /// Maps internal tool function names to ACP `ToolKind` values.
 fn tool_name_to_kind(name: &str) -> ToolKind {
     // Handle "wrapped_" prefix by stripping it and recursing
@@ -398,6 +522,7 @@ fn tool_name_to_kind(name: &str) -> ToolKind {
     match unwrapped {
         "read_file" => ToolKind::Read,
         "write_file" | "create_file" | "edit_file" => ToolKind::Edit,
+        "delete_file" | "remove_file" | "delete_directory" | "remove_directory" => ToolKind::Delete,
         "list_directory" | "search_files" | "knowledge_base_search" => ToolKind::Search,
         "bash" => ToolKind::Execute,
         "web_search" => ToolKind::Fetch,
@@ -421,6 +546,13 @@ fn tool_name_to_title(name: &str, args: &str) -> String {
         "write_file" => path.map_or("Writing file".to_string(), |p| format!("Writing {p}")),
         "create_file" => path.map_or("Creating file".to_string(), |p| format!("Creating {p}")),
         "edit_file" => path.map_or("Editing file".to_string(), |p| format!("Editing {p}")),
+        "delete_file" | "remove_file" => {
+            path.map_or("Deleting file".to_string(), |p| format!("Deleting {p}"))
+        }
+        "delete_directory" | "remove_directory" => path
+            .map_or("Deleting directory".to_string(), |p| {
+                format!("Deleting {p}")
+            }),
         "list_directory" => {
             path.map_or("Listing directory".to_string(), |p| format!("Listing {p}"))
         }
@@ -459,6 +591,65 @@ fn extract_locations_from_args(args: &str) -> Vec<ToolCallLocation> {
         .unwrap_or_default()
 }
 
+/// Try to extract a string value for a given key from a *partial* JSON string.
+///
+/// Tool call arguments arrive as streaming deltas (fragments of JSON).  The
+/// complete JSON is often not parseable until the full argument string has
+/// been accumulated.  This function uses a simple regex-based approach to
+/// pull out a value even when the surrounding JSON is incomplete.
+fn extract_string_from_partial_json(partial: &str, key: &str) -> Option<String> {
+    // First try parsing as valid JSON (works for fully accumulated args).
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(partial) {
+        return v.get(key).and_then(|v| v.as_str()).map(String::from);
+    }
+
+    // Fall back to regex search for "key":"value" or "key": "value".
+    // This works for partial JSON where the closing braces may be missing.
+    let pattern = format!(r#""{key}""\s*:\s*"((?:[^"\\]|\\.)*)""#);
+    if let Ok(re) = regex::Regex::new(&pattern) {
+        if let Some(caps) = re.captures(partial) {
+            if let Some(m) = caps.get(1) {
+                // Unescape basic JSON string escapes
+                let s = m.as_str();
+                let unescaped = s
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\\\", "\\")
+                    .replace("\\\"", "\"")
+                    .replace("\\r", "\r");
+                return Some(unescaped);
+            }
+        }
+    }
+    None
+}
+
+/// State tracked per tool-call while its arguments are streaming in.
+struct StreamingToolCall {
+    /// Accumulated raw argument string (built from `ToolCallDelta` events).
+    args: String,
+    /// The function/tool name (set on `ToolCallStart`).
+    function_name: String,
+    /// How many content-delta updates we have already sent for this tool call.
+    /// We use this to decide whether to send an update on each new delta.
+    last_content_update_len: usize,
+}
+
+/// Determines whether a tool writes file content that should be streamed
+/// as a live diff preview to the ACP client.
+fn is_file_content_tool(name: &str) -> bool {
+    let unwrapped = name.strip_prefix("wrapped_").unwrap_or(name);
+    matches!(
+        unwrapped,
+        "write_file"
+            | "create_file"
+            | "edit_file"
+            | "sandbox_write_file"
+            | "sandbox_create_file"
+            | "sandbox_edit_file"
+    )
+}
+
 async fn handle_session_prompt(
     session_manager: Arc<SessionManager>,
     request: PromptRequest,
@@ -479,11 +670,16 @@ async fn handle_session_prompt(
         .await
         .ok_or_else(|| Error::resource_not_found(None))?;
 
+    // Reset the cancelled flag — even if a previous prompt was cancelled,
+    // the user is sending a new message and wants to continue the conversation.
+    // The agent's history is preserved, so the new prompt will have full
+    // context from the previous (possibly partial) conversation.
     if session.cancelled {
-        session_manager
-            .return_session(session_id_str.clone(), session)
-            .await;
-        return Ok(PromptResponse::new(StopReason::Cancelled));
+        tracing::info!(
+            session_id = %session_id_str,
+            "Resetting cancelled flag for new prompt — continuing conversation context"
+        );
+        session.cancelled = false;
     }
 
     // Use streaming: create a channel and spawn the chat_streaming work in a
@@ -520,6 +716,17 @@ async fn handle_session_prompt(
         tokio::sync::mpsc::channel::<(String, String, tokio::sync::oneshot::Sender<bool>)>(32);
     agent.set_tool_permission_tx(perm_tx);
 
+    // Create a CancellationToken for this prompt so the running agent loop
+    // can be cancelled via CancelNotification.
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    agent.set_cancel_token(cancel_token.clone());
+
+    // Register the token with SessionManager so `cancel_session()` can find
+    // and cancel it even while this session is taken out of the sessions map.
+    session_manager
+        .register_prompt_token(session_id_str.clone(), cancel_token.clone())
+        .await;
+
     let session_id_for_task = session_id_str.clone();
     tokio::spawn(async move {
         let result = agent.chat_streaming(&text, &tx).await;
@@ -531,30 +738,43 @@ async fn handle_session_prompt(
     // the ACP client (editor) for user approval.
     let perm_session_id = request.session_id.clone();
     let perm_cx = cx.clone();
-    let current_mode = session.current_mode.clone();
     let _perm_handle = tokio::spawn(async move {
         while let Some((tool_name, args, resp_tx)) = perm_rx.recv().await {
-            // In "code" mode, auto-allow all tools
-            if current_mode == "code" {
-                let _ = resp_tx.send(true);
-                continue;
-            }
-
-            // Only request permission for dangerous tools
+            // All file operations and shell commands require user consent,
+            // regardless of the current mode.
             let unwrapped = tool_name.strip_prefix("wrapped_").unwrap_or(&tool_name);
             let needs_permission = matches!(
                 unwrapped,
+                // Shell / execution tools
                 "bash"
                     | "shell"
                     | "python"
                     | "sandbox_shell"
                     | "sandbox_python"
+                    // File write / edit tools
                     | "write_file"
                     | "edit_file"
                     | "create_file"
                     | "sandbox_write_file"
                     | "sandbox_edit_file"
                     | "sandbox_create_file"
+                    // File delete tools
+                    | "delete_file"
+                    | "remove_file"
+                    | "delete_directory"
+                    | "remove_directory"
+                    | "sandbox_delete_file"
+                    | "sandbox_remove_file"
+                    | "sandbox_delete_directory"
+                    | "sandbox_remove_directory"
+                    // File read / listing tools
+                    | "read_file"
+                    | "list_directory"
+                    | "search_files"
+                    | "sandbox_read_file"
+                    | "sandbox_list_directory"
+                    | "sandbox_find_files"
+                    | "sandbox_search_in_file"
             );
 
             if !needs_permission {
@@ -624,6 +844,8 @@ async fn handle_session_prompt(
     let mut provider_error = false;
     // Track tool call arguments so we can include diffs and locations in ToolResult
     let mut tool_call_info: HashMap<String, (String, String)> = HashMap::new(); // id → (name, args)
+    // Track streaming tool calls for progressive content display
+    let mut streaming_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
 
     while let Some(event_result) = rx.recv().await {
         match event_result {
@@ -641,6 +863,16 @@ async fn handle_session_prompt(
                         tool_call_id,
                         function_name,
                     } => {
+                        // Initialize streaming state for this tool call
+                        streaming_tool_calls.insert(
+                            tool_call_id.clone(),
+                            StreamingToolCall {
+                                args: String::new(),
+                                function_name: function_name.clone(),
+                                last_content_update_len: 0,
+                            },
+                        );
+
                         // Notify the client that a tool call has started
                         let kind = tool_name_to_kind(function_name);
                         let title = tool_name_to_title(function_name, ""); // no args yet at start
@@ -654,26 +886,80 @@ async fn handle_session_prompt(
                         tool_call_id,
                         arguments_delta,
                     } => {
-                        // Try to parse the arguments delta to extract a path for locations
-                        if let Ok(parsed) =
-                            serde_json::from_str::<serde_json::Value>(arguments_delta)
-                        {
-                            let path = parsed
-                                .get("path")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            if let Some(path) = path {
-                                let locations = vec![ToolCallLocation::new(&path)];
-                                let update_fields =
-                                    ToolCallUpdateFields::new().locations(locations);
-                                let tool_call_update = ToolCallUpdate::new(
-                                    ToolCallId::new(tool_call_id.clone()),
-                                    update_fields,
-                                );
-                                Some(SessionUpdate::ToolCallUpdate(tool_call_update))
-                            } else {
-                                None
+                        // Accumulate the arguments delta into the streaming state
+                        let tc = match streaming_tool_calls.get_mut(tool_call_id) {
+                            Some(tc) => tc,
+                            None => {
+                                // No prior ToolCallStart — create entry on the fly
+                                streaming_tool_calls
+                                    .entry(tool_call_id.clone())
+                                    .or_insert_with(|| StreamingToolCall {
+                                        args: String::new(),
+                                        function_name: String::new(),
+                                        last_content_update_len: 0,
+                                    })
                             }
+                        };
+                        tc.args.push_str(arguments_delta);
+
+                        let accumulated = &tc.args;
+
+                        // Extract path from accumulated partial JSON
+                        let path = extract_string_from_partial_json(accumulated, "path");
+                        let mut update_fields = ToolCallUpdateFields::new();
+                        let mut has_update = false;
+
+                        // Update locations if we found a path
+                        if let Some(ref p) = path {
+                            update_fields = update_fields.locations(vec![ToolCallLocation::new(p)]);
+                            has_update = true;
+                        }
+
+                        // For file-content tools, stream a live Diff preview so the
+                        // user can see file contents being written in real-time.
+                        if is_file_content_tool(&tc.function_name) {
+                            let content = extract_string_from_partial_json(accumulated, "content");
+                            if let (Some(ref p), Some(ref c)) = (path, content) {
+                                // Only send an update if we have accumulated significantly
+                                // more content since the last update (throttle to avoid
+                                // flooding the client).
+                                if c.len() >= tc.last_content_update_len + 256
+                                    || (c.len() > tc.last_content_update_len && c.len() < 256)
+                                {
+                                    tc.last_content_update_len = c.len();
+                                    // For create_file/write_file, old_text is None (new file)
+                                    let unwrapped_name = tc
+                                        .function_name
+                                        .strip_prefix("wrapped_")
+                                        .unwrap_or(&tc.function_name);
+                                    let diff = if unwrapped_name == "edit_file" {
+                                        // For edit_file, try to extract old_text as well
+                                        let old_text = extract_string_from_partial_json(
+                                            accumulated,
+                                            "old_text",
+                                        );
+                                        let mut d = Diff::new(p, c.clone());
+                                        if let Some(old) = old_text {
+                                            d = d.old_text(old);
+                                        }
+                                        d
+                                    } else {
+                                        // create_file / write_file — new file, no old_text
+                                        Diff::new(p, c.clone())
+                                    };
+                                    update_fields =
+                                        update_fields.content(vec![ToolCallContent::Diff(diff)]);
+                                    has_update = true;
+                                }
+                            }
+                        }
+
+                        if has_update {
+                            let tool_call_update = ToolCallUpdate::new(
+                                ToolCallId::new(tool_call_id.clone()),
+                                update_fields,
+                            );
+                            Some(SessionUpdate::ToolCallUpdate(tool_call_update))
                         } else {
                             None
                         }
@@ -689,6 +975,8 @@ async fn handle_session_prompt(
                             tool_call_id.clone(),
                             (function_name.clone(), arguments.clone()),
                         );
+                        // Clean up streaming state
+                        streaming_tool_calls.remove(tool_call_id);
                         let kind = tool_name_to_kind(function_name);
                         let title = tool_name_to_title(function_name, arguments);
                         let locations = extract_locations_from_args(arguments);
@@ -821,6 +1109,12 @@ async fn handle_session_prompt(
         }
     }
 
+    // Unregister the prompt cancellation token — the prompt has finished
+    // (whether successfully, cancelled, or errored).
+    session_manager
+        .unregister_prompt_token(&session_id_str)
+        .await;
+
     // Wait for the spawned task to complete and recover the agent.
     // The permission handler task (_perm_handle) will exit naturally when
     // the perm_rx channel closes after the agent task completes and
@@ -829,6 +1123,8 @@ async fn handle_session_prompt(
         Ok((_sid, agent, result)) => {
             // Put the agent back in the session
             session.agent = agent;
+            // Reset cancelled flag so the session can accept new prompts
+            session.cancelled = false;
             session_manager
                 .return_session(session_id_str, session)
                 .await;
@@ -849,6 +1145,8 @@ async fn handle_session_prompt(
         }
         Err(_) => {
             // The spawned task panicked or was dropped — still return the session
+            // Reset cancelled flag so the session can accept new prompts
+            session.cancelled = false;
             session_manager
                 .return_session(session_id_str, session)
                 .await;

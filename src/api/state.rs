@@ -2167,6 +2167,7 @@ impl AppState {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool));
@@ -2226,6 +2227,7 @@ impl AppState {
                 // Register other basic tools
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
             }
             crate::computer_use::ComputerUseRuntime::AioSandbox => {
@@ -2270,6 +2272,7 @@ impl AppState {
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                         agent.register_tool(Arc::new(
                             crate::agent::builtin_tools::ListDirectoryTool,
                         ));

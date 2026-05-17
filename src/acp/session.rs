@@ -17,7 +17,11 @@ pub struct AcpSession {
     pub agent: Agent,
     /// Current mode ID.
     pub current_mode: String,
-    /// Cancellation flag.
+    /// Cancellation flag — set to `true` when the client sends a
+    /// CancelNotification. This flag is checked at the start of
+    /// `handle_session_prompt` only to detect stale cancel requests.
+    /// It is always reset to `false` before a new prompt is accepted,
+    /// ensuring the session remains usable for continued conversation.
     pub cancelled: bool,
 }
 
@@ -53,6 +57,7 @@ impl AcpSession {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool));
@@ -104,6 +109,7 @@ impl AcpSession {
                 // Register other basic tools (not wrapped)
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
             }
             crate::computer_use::ComputerUseRuntime::AioSandbox => {
@@ -146,6 +152,7 @@ impl AcpSession {
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
                         agent.register_tool(Arc::new(crate::agent::builtin_tools::EditFileTool));
+                        agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                         agent.register_tool(Arc::new(
                             crate::agent::builtin_tools::ListDirectoryTool,
                         ));
@@ -237,6 +244,11 @@ pub struct SessionManager {
     sessions: RwLock<HashMap<String, AcpSession>>,
     /// Maps session IDs to client connections for sending requests.
     connections: RwLock<HashMap<String, Arc<ConnectionTo<Client>>>>,
+    /// Maps session IDs to cancellation tokens for currently-running prompts.
+    /// Registered when a prompt starts, unregistered when it finishes.
+    /// Used by `cancel_session` to stop the running agent loop even when
+    /// the session has been taken out of the `sessions` map.
+    running_prompt_tokens: RwLock<HashMap<String, tokio_util::sync::CancellationToken>>,
     /// Web search configuration shared across sessions.
     web_search_config: Arc<RwLock<WebSearchConfig>>,
     /// Computer use configuration shared across sessions.
@@ -258,6 +270,7 @@ impl SessionManager {
         Self {
             sessions: RwLock::new(HashMap::new()),
             connections: RwLock::new(HashMap::new()),
+            running_prompt_tokens: RwLock::new(HashMap::new()),
             web_search_config,
             computer_use_config,
             knowledge_base_service,
@@ -329,11 +342,74 @@ impl SessionManager {
         self.sessions.write().await.insert(session_id, session);
     }
 
+    /// Register a cancellation token for a currently-running prompt.
+    ///
+    /// Called by `handle_session_prompt` before spawning the agent task.
+    /// The token is unregistered when the prompt finishes.
+    pub async fn register_prompt_token(
+        &self,
+        session_id: String,
+        token: tokio_util::sync::CancellationToken,
+    ) {
+        self.running_prompt_tokens
+            .write()
+            .await
+            .insert(session_id, token);
+    }
+
+    /// Unregister the cancellation token for a completed prompt.
+    ///
+    /// Called by `handle_session_prompt` after the agent task finishes.
+    pub async fn unregister_prompt_token(&self, session_id: &str) {
+        self.running_prompt_tokens.write().await.remove(session_id);
+    }
+
     /// Cancel a session.
+    ///
+    /// This performs two actions:
+    /// 1. Cancels the `CancellationToken` for any currently-running prompt,
+    ///    which causes the agent loop to stop promptly (between rounds,
+    ///    during tool execution, etc.).
+    /// 2. Sets the `cancelled` flag on the session (if it is currently in
+    ///    the sessions map) to prevent a queued prompt from starting.
+    ///
+    /// After cancellation, the `cancelled` flag is reset to `false` by
+    /// `handle_session_prompt` when the next prompt is accepted, so the
+    /// session remains usable for continued conversation.
     pub async fn cancel_session(&self, session_id: &str) {
+        // 1. Cancel the running prompt's token — this stops the active agent loop
+        let token_opt = self
+            .running_prompt_tokens
+            .read()
+            .await
+            .get(session_id)
+            .cloned();
+        if let Some(token) = token_opt {
+            tracing::info!(
+                session_id = %session_id,
+                "Cancelling running prompt via CancellationToken"
+            );
+            token.cancel();
+        } else {
+            tracing::debug!(
+                session_id = %session_id,
+                "No running prompt token found for cancellation"
+            );
+        }
+
+        // 2. Set cancelled flag on the session (if it's in the map)
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(session_id) {
             session.cancelled = true;
+            tracing::info!(
+                session_id = %session_id,
+                "Set cancelled flag on session in map"
+            );
+        } else {
+            tracing::debug!(
+                session_id = %session_id,
+                "Session not in map (likely taken out for prompt processing), cancelled via token only"
+            );
         }
     }
 
@@ -364,8 +440,74 @@ impl SessionManager {
 
     /// Close a session and free resources.
     pub async fn close_session(&self, session_id: &str) -> bool {
+        // Also cancel any running prompt
+        let token_opt = self
+            .running_prompt_tokens
+            .read()
+            .await
+            .get(session_id)
+            .cloned();
+        if let Some(token) = token_opt {
+            token.cancel();
+        }
+        self.running_prompt_tokens.write().await.remove(session_id);
         self.connections.write().await.remove(session_id);
         self.sessions.write().await.remove(session_id).is_some()
+    }
+
+    /// Get a summary of a session's conversation history for forking.
+    ///
+    /// Returns `None` if the session does not exist, or `Some(summary)`
+    /// containing a plain-text concatenation of the last few messages.
+    pub async fn get_session_summary(&self, session_id: &str) -> Option<String> {
+        let sessions = self.sessions.read().await;
+        if let Some(session) = sessions.get(session_id) {
+            Some(session.agent.get_conversation_summary())
+        } else {
+            None
+        }
+    }
+
+    /// Create a forked session with an optional summary injected as initial history.
+    ///
+    /// This creates a brand-new session (new ID, fresh agent) that carries
+    /// over the provider, skills, and persona from the source session. If a
+    /// summary is provided it is injected as the first user/assistant pair so
+    /// the forked agent has context from the previous conversation.
+    pub async fn create_forked_session(
+        &self,
+        provider: Box<dyn Provider>,
+        cwd: String,
+        skills: Vec<Arc<dyn Skill>>,
+        persona_prompt: Option<String>,
+        summary: Option<String>,
+    ) -> String {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let mut session = AcpSession::new_with_skills_and_acp(
+            provider,
+            cwd,
+            skills,
+            session_id.clone(),
+            Arc::clone(&self.web_search_config),
+            self.computer_use_config.clone(),
+            Arc::clone(&self.knowledge_base_service),
+            self.active_knowledge_base_ids.clone(),
+            persona_prompt,
+        )
+        .await;
+
+        // Inject the summary as initial conversation history if available
+        if let Some(ref summary_text) = summary {
+            if !summary_text.is_empty() {
+                session.agent.inject_history_summary(summary_text.clone());
+            }
+        }
+
+        self.sessions
+            .write()
+            .await
+            .insert(session_id.clone(), session);
+        session_id
     }
 }
 

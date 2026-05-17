@@ -290,6 +290,54 @@ impl Tool for EditFileTool {
     }
 }
 
+// ─── DeleteFileTool ─────────────────────────────────────────────────
+
+/// Delete a file or directory at the given path.
+pub struct DeleteFileTool;
+
+#[async_trait]
+impl Tool for DeleteFileTool {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition::function("delete_file")
+            .description(
+                "Delete a file or directory at the given path. \
+                 If the path is a directory, it will be deleted recursively \
+                 along with all its contents. This action cannot be undone.",
+            )
+            .parameter("path", ParameterType::String, true)
+            .build()
+    }
+
+    async fn execute(&self, args: &str) -> Result<String, ToolError> {
+        let parsed = parse_args(args)?;
+        let path = parsed["path"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
+
+        validate_file_path(path)?;
+
+        let file_path = Path::new(path);
+        if !file_path.exists() {
+            return Err(ToolError::ExecutionError(format!(
+                "Path '{}' does not exist",
+                path
+            )));
+        }
+
+        if file_path.is_dir() {
+            tokio::fs::remove_dir_all(file_path).await.map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to delete directory '{}': {}", path, e))
+            })?;
+            Ok(format!("Successfully deleted directory {}", path))
+        } else {
+            tokio::fs::remove_file(file_path).await.map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to delete file '{}': {}", path, e))
+            })?;
+            Ok(format!("Successfully deleted file {}", path))
+        }
+    }
+}
+
 // ─── ListDirectoryTool ─────────────────────────────────────────────
 
 /// List files and directories at a given path.

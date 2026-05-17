@@ -933,6 +933,85 @@ impl Agent {
             }
         }
     }
+
+    /// Get a summary of the conversation history for forking.
+    ///
+    /// Concatenates the last few user/assistant messages (skipping tool
+    /// messages) into a plain-text summary that can be injected into a
+    /// forked session so the new agent has context from the previous
+    /// conversation.
+    pub fn get_conversation_summary(&self) -> String {
+        if self.history.is_empty() {
+            return String::new();
+        }
+
+        let mut summary_parts = Vec::new();
+        let max_messages = 20;
+        let start = if self.history.len() > max_messages {
+            self.history.len() - max_messages
+        } else {
+            0
+        };
+
+        if start > 0 {
+            summary_parts.push(format!(
+                "(Previous conversation with {} messages summarized)",
+                start
+            ));
+        }
+
+        for msg in &self.history[start..] {
+            match msg.role {
+                MessageRole::User => {
+                    let text = msg
+                        .content
+                        .as_ref()
+                        .and_then(|c| c.as_text_full())
+                        .unwrap_or_default();
+                    let truncated: String = text.chars().take(500).collect();
+                    summary_parts.push(format!("User: {}", truncated));
+                }
+                MessageRole::Assistant => {
+                    // Skip assistant messages that are just tool-call wrappers
+                    if msg.tool_calls.is_some() {
+                        continue;
+                    }
+                    let text = msg
+                        .content
+                        .as_ref()
+                        .and_then(|c| c.as_text_full())
+                        .unwrap_or_default();
+                    let truncated: String = text.chars().take(500).collect();
+                    summary_parts.push(format!("Assistant: {}", truncated));
+                }
+                MessageRole::System | MessageRole::Tool => {
+                    // Skip system and tool messages in summary
+                }
+            }
+        }
+
+        summary_parts.join("\n\n")
+    }
+
+    /// Inject a conversation summary as the initial history for a forked session.
+    ///
+    /// Adds the summary as the first user message with an assistant
+    /// acknowledgment, so the new agent has context from the previous
+    /// conversation while keeping the conversation history balanced.
+    pub fn inject_history_summary(&mut self, summary: String) {
+        if summary.is_empty() {
+            return;
+        }
+
+        self.history.push(ChatMessage::user(format!(
+            "[Conversation Context from Previous Session]\n\n{}",
+            summary
+        )));
+
+        self.history.push(ChatMessage::assistant(
+            "Understood. I have the context from the previous conversation. How can I help you continue?",
+        ));
+    }
 }
 
 /// Streaming version of the Agent that yields [`StreamEvent`]s as they arrive.

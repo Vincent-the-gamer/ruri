@@ -68,7 +68,7 @@ Open the web UI at `http://localhost:3000`.
 
 ### ACP (Agent Client Protocol) Server Config
 
-Config example in Zed:
+Config in Zed/JetBrains IDE:
 
 ```json
 {
