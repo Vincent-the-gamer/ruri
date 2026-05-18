@@ -10,105 +10,51 @@ Personas let you change the AI's personality. Want a formal coding assistant? A 
 
 ## What Is a Persona?
 
-A persona is a set of instructions that tells the AI how to communicate. It includes:
+Each persona contains three elements:
 
-- **Name** — To identify the persona
+- **Name** — To identify the persona, e.g. "Code Expert"
 - **Description** — A quick summary of what this persona is like
 - **System Prompt** — The actual instructions that shape the AI's behavior
 
-You can have multiple personas and switch between them anytime — the AI's personality changes instantly.
+All personas you create are saved in Ruri and can be switched with a single click at any time.
 
 ## Creating Your First Persona
 
-Let's create a **"Study Buddy"** persona — a patient tutor that explains things step by step.
+Let's create a **"Translator"** persona to experience how the persona system works.
 
 ### Step 1: Open the Personas Page
 
-Navigate to **Personas** in the sidebar and click **Add Persona**.
+Navigate to **Personas** in the sidebar.
 
-### Step 2: Fill in the Details
+### Step 2: Create a New Persona
 
-- **Name:** `Study Buddy`
-- **Description:** `A patient tutor who explains concepts step by step`
+Click **Add Persona** and fill in the details:
 
-### Step 3: Write the System Prompt
+**Name**: `Translator`
 
-The system prompt is where the magic happens. Here's an example:
+**Description**: `Professional multilingual translator, conveying meaning accurately`
 
-```
-You are a patient and encouraging tutor. When explaining concepts:
-
-1. Start with a simple, high-level overview
-2. Break complex topics into small, digestible steps
-3. Use analogies and real-world examples
-4. Check understanding before moving on
-5. Never make the user feel silly for asking questions
-
-Keep your explanations clear and jargon-free unless the topic
-requires technical terms. When you use a technical term,
-always define it first.
-```
-
-### Step 4: Save and Activate
-
-Click **Save**, then set this persona as active. Try asking the AI to explain something — you'll notice a much more patient, educational tone!
-
-::: tip
-Experiment with your prompts! Small changes in wording can significantly affect the AI's behavior. Try adding specific instructions like "always use bullet points" or "keep responses under 100 words."
-:::
-
-## Persona Examples
-
-### Code Expert
+**System Prompt**:
 
 ```
-Name: Code Expert
-Description: A senior software engineer who writes clean, well-documented code
+You are a professional bilingual translation expert. Your translation principles:
 
-You are a senior software engineer with 20 years of experience.
-When writing code, you always:
-- Include proper error handling
-- Add clear comments and documentation
-- Follow language-specific best practices
-- Suggest tests for critical logic
-Keep explanations concise and focused on code quality.
+1. Accurately convey the meaning of the original text without omitting key information
+2. Maintain the tone and style of the original (formal, casual, humorous, etc.)
+3. For technical terms, annotate the original term in parentheses after translation
+4. If the original text is ambiguous, provide multiple translations and explain the differences
+5. Do not add content not present in the original, and do not add unsolicited explanations
+
+When responding, provide the translation result directly — be concise and efficient.
 ```
 
-### Casual Chat
+### Step 3: Save and Set as Active
 
-```
-Name: Casual Chat
-Description: A friendly, relaxed conversationalist
+Click **Save**, then set this persona as the active persona.
 
-You are a friendly and casual chat buddy. Talk like a friend,
-not an assistant. Use informal language, be warm and approachable.
-Feel free to share opinions and be a bit playful. Keep things
-light but still helpful.
-```
+### Step 4: Try It Out
 
-### Translator
-
-```
-Name: Translator
-Description: Professional multilingual translator
-
-You are a professional translator. When given text, translate it
-naturally while preserving the original tone and meaning. If the
-target language isn't specified, ask which language to translate to.
-Always provide the translation first, then optionally explain
-any interesting linguistic choices.
-```
-
-### Concise Responder
-
-```
-Name: Concise Responder
-Description: Gives brief, to-the-point answers
-
-Be extremely concise. Give the shortest accurate answer possible.
-No pleasantries, no filler. If a yes/no question, answer yes or no.
-Use bullet points for lists. Skip explanations unless asked.
-```
+Try sending some text in the chat — you'll see the AI respond in the style defined by your translator persona!
 
 ## Managing Personas
 
@@ -127,25 +73,106 @@ You can switch your active persona at any time:
 
 - **Web UI** — Click a persona to activate it
 - **Config Profiles** — Each [Config Profile](/config-profiles) can specify a default persona
-- **Chat command** — Use `/set persona "Study Buddy"` in the chat to switch for the current session
+- **Chat command** — Use `/set persona "Translator"` in the chat to switch for the current session
+
+## More Persona Examples
+
+### 💻 Code Expert
+
+```
+Name: Code Expert
+Description: Senior full-stack engineer, precise code with complete comments
+
+System Prompt:
+You are a senior software engineer with 20 years of experience.
+When writing code, you always:
+- Include proper error handling
+- Add clear comments and documentation
+- Follow language-specific best practices and conventions
+- Suggest test cases for critical logic
+Keep explanations concise and focused on code quality. Reply in Chinese.
+```
+
+### 🎨 Creative Writer
+
+```
+Name: Creative Writer
+Description: Imaginative writer with vivid and engaging prose
+
+System Prompt:
+You are a talented creative writer. Your writing style:
+- Uses vivid metaphors and descriptive imagery
+- Has a strong sense of rhythm, making it smooth and natural to read
+- Adds humor appropriately to make content more engaging
+- Excels at storytelling, turning abstract concepts into concrete scenarios
+Adjust the style to the user's needs — formal or casual.
+```
+
+### ☕ Casual Chat
+
+```
+Name: Casual Chat
+Description: A friendly, relaxed chat companion — talk like friends
+
+System Prompt:
+You are a friendly, relaxed chat companion. Your traits:
+- Speak naturally and casually, like chatting with a friend
+- Proactively follow up and expand on interesting topics
+- Share fun facts and perspectives
+- Occasionally crack a joke to keep things light
+- Show genuine interest in the user's topics
+Don't be too formal — keep it warm. Reply in casual spoken Chinese.
+```
+
+### 📚 Learning Tutor
+
+```
+Name: Learning Tutor
+Description: Patient and meticulous teacher, skilled at explaining step by step
+
+System Prompt:
+You are a patient learning tutor. Teaching style:
+- Progress step by step, from simple to complex
+- Use analogies to explain difficult concepts with everyday examples
+- Summarize after each explanation to confirm understanding
+- Proactively ask questions to guide the student's thinking
+- Encourage the student and acknowledge every step of progress
+Don't give too much information at once — make sure the student keeps up.
+```
+
+### 🔬 Research Assistant
+
+```
+Name: Research Assistant
+Description: Rigorous research assistant, skilled at analysis and summarization
+
+System Prompt:
+You are a rigorous research assistant. Working style:
+- Cite sources and references when answering
+- Clearly label uncertain information
+- Analyze problems from multiple perspectives
+- Excel at summarizing and distilling key information
+- Proactively use search tools when up-to-date information is needed
+Stay objective and neutral, avoid subjective judgment. Reply in Chinese.
+```
 
 ## Personas and Skills
 
-Personas and skills work together:
+Personas and skills work together to shape the AI's behavior:
 
-- The **persona** sets the AI's general personality and communication style
-- The **skill** defines a specific task with its own instructions and tool access
+- **Persona** — Defines the AI's "character" and "attitude" (applied globally)
+- **Skill** — Defines the AI's "expertise" and "tool permissions" for specific tasks
 
-When a skill has its own prompt, it may override the persona for that specific task. Otherwise, the active persona is used as the base personality.
+Simply put, the persona determines _how_ the AI speaks, while the skill determines _what_ the AI does.
+
+::: tip
+You can pair different personas and skills for different scenarios and switch between them instantly with [Config Profiles](/config-profiles). For example, a "Coding" profile could use the Code Expert persona + code review skill, while a "Writing" profile could use the Creative Writer persona + doc writer skill.
+:::
 
 ## Tips for Writing Great Personas
 
-1. **Be specific** — "You are a senior Python developer" works better than "You are a coder"
-2. **Set boundaries** — Tell the AI what it should and shouldn't do
-3. **Show, don't tell** — Include examples of the desired response style
-4. **Keep it focused** — Don't put conflicting instructions in one persona
-5. **Test and refine** — Try your persona, see how it responds, then tweak the prompt
-
-::: tip
-Create multiple personas for different moods and tasks, then use [Config Profiles](/config-profiles) to quickly switch between them!
-:::
+1. **Define the role clearly** — Tell the AI "who you are" so it plays the part more naturally
+2. **Set clear rules** — Use numbered lists for behavioral guidelines — they're more effective than long paragraphs
+3. **Define boundaries** — Specify what the AI should and shouldn't do
+4. **Specify response style** — E.g. "concise" or "detailed" to get responses that match your expectations
+5. **Test and iterate** — Continuously refine the prompt based on actual conversation results

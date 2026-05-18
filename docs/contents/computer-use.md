@@ -6,95 +6,84 @@ lastUpdated: true
 
 # Computer Use
 
-Computer Use lets the AI take real actions on your computer — running commands, installing packages, executing scripts, and more. It's like giving the AI hands to work with your system.
+Computer Use lets the AI execute commands and run scripts on your computer. This is a powerful feature that enables the AI to help you with compiling code, running tests, installing dependencies, and more.
 
 ## What Computer Use Enables
 
 When enabled, the AI can:
 
-- **Run shell commands** — Execute any command you could type in a terminal
-- **Build and test projects** — Run `cargo build`, `npm test`, `python manage.py test`, etc.
-- **Install dependencies** — Run `npm install`, `pip install`, and similar commands
-- **Manage files** — Beyond reading and writing, the AI can move, rename, and organize files via commands
-- **Interact with the OS** — Check system info, manage processes, network diagnostics
-
-### When to Use Computer Use
-
-- **"Run my test suite and tell me if anything fails"**
-- **"Install the dependencies for this project"**
-- **"Start the development server"**
-- **"Check what processes are using port 3000"**
-- **"Build the project and show me any errors"**
-
-### When You Don't Need It
-
-For simple chat, file reading, or web search, you don't need Computer Use. Keep it off unless you want the AI to actually execute commands on your system.
+- 💻 **Run shell commands** — Execute `git status`, `cargo build`, `npm install`, and more
+- 🐍 **Run Python scripts** — Execute Python code for data processing or computation
+- 🔧 **Automate tasks** — Handle repetitive command-line operations for you
 
 ## Runtime Modes
 
-Computer Use offers three runtime modes with different safety levels:
+Computer Use offers three runtime modes, giving you a choice between safety and flexibility:
 
-| Mode               | Description                                                  | Best For                          |
-| ------------------ | ------------------------------------------------------------ | --------------------------------- |
-| **None**           | Computer Use is disabled                                     | Simple chat sessions              |
-| **AIO Sandbox** ⭐ | Commands run in an isolated Docker container via AIO Sandbox | Daily use (recommended)           |
-| **Local**          | Commands run directly on your system                         | When full system access is needed |
+| Mode               | Description                                                                                | Best For                          |
+| ------------------ | ------------------------------------------------------------------------------------------ | --------------------------------- |
+| **None**           | Computer Use is disabled                                                                   | Simple chat sessions              |
+| **AIO Sandbox** ⭐ | Commands run in an isolated Docker container via AIO Sandbox, fully isolated from the host | ✅ Recommended for daily use      |
+| **Local**          | Commands run directly on your system, with the same permissions as the Ruri process        | When full system access is needed |
 
 ### AIO Sandbox Mode (Recommended)
 
-AIO Sandbox runs commands inside an isolated Docker container, communicating with Ruri via HTTP API. This provides the strongest security boundary:
+AIO Sandbox mode executes commands in an isolated Docker container via the [AIO Sandbox](https://github.com/agent-infra/sandbox) service, providing the strongest security isolation:
 
-- 🔒 Commands execute in an isolated container, isolated from the host system
-- 📦 The AI can use 8 sandbox-specific tools (see below)
+- 🔒 Commands execute in an isolated container, completely isolated from the host system
+- 📦 The AI can use 8 sandbox-specific tools covering shell execution, file read/write/edit, directory browsing, file finding, and content searching (see below)
 - 🌐 Sandbox endpoint is configurable, supporting remote sandbox instances
 - 🛡️ Host filesystem and system commands are not directly accessible
-- 🔄 Automatic retry with exponential backoff for transient server errors
-- 🔗 Shell commands maintain a session ID for continuity across invocations
+
+If AIO Sandbox mode is selected but no endpoint is configured, Ruri will fall back to basic local file tools and log a warning.
+
+To use AIO Sandbox, you need to deploy the [AIO Sandbox](https://github.com/agent-infra/sandbox) service first, then configure the sandbox endpoint in Ruri.
 
 ### AIO Sandbox Tools
 
-When AIO Sandbox mode is active, the AI has access to the following tools for interacting with the sandbox container:
+When AIO Sandbox mode is active, the AI has access to 8 dedicated tools for rich file operations and command execution within the isolated container:
 
-| Tool               | ID               | Description                                                                               |
-| ------------------ | ---------------- | ----------------------------------------------------------------------------------------- |
-| **Shell**          | `shell`          | Execute shell commands in the sandbox container, with an optional timeout                 |
-| **Read File**      | `read_file`      | Read file contents from the sandbox                                                       |
-| **Write File**     | `write_file`     | Write content to a file in the sandbox                                                    |
-| **Create File**    | `create_file`    | Create a new file (fails if the file already exists; auto-creates parent directories)     |
-| **Edit File**      | `edit_file`      | Find and replace exact text in a file — surgical edits using `old_text`/`new_text` pairs  |
-| **List Directory** | `list_directory` | List directory contents with file info (size, type, permissions), defaults to `/home/gem` |
-| **Find Files**     | `find_files`     | Find files by name pattern using glob syntax (e.g., `**/*.py`, `src/**/*.rs`)             |
-| **Search in File** | `search_in_file` | Search within a file using a regex pattern, returns matches with line numbers             |
+| Tool               | ID               | Description                                                                               | Parameters                                                                                    |
+| ------------------ | ---------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Shell**          | `shell`          | Execute shell commands in the sandbox container, with an optional timeout                 | `command` (required) — command to run; `timeout` (optional) — timeout in seconds (default 30) |
+| **Read File**      | `read_file`      | Read file contents from the sandbox                                                       | `path` (required) — file path                                                                 |
+| **Write File**     | `write_file`     | Write content to a file in the sandbox                                                    | `path` (required) — file path; `content` (required) — content to write                        |
+| **Create File**    | `create_file`    | Create a new file (fails if already exists; auto-creates parent directories)              | `path` (required) — file path; `content` (required) — file content                            |
+| **Edit File**      | `edit_file`      | Find and replace exact text in a file — surgical edits using `old_text`/`new_text` pairs  | `path` (required); `old_text` (required); `new_text` (required)                               |
+| **List Directory** | `list_directory` | List directory contents with file info (size, type, permissions), defaults to `/home/gem` | `path` (optional) — directory path (default `/home/gem`)                                      |
+| **Find Files**     | `find_files`     | Find files by name pattern using glob syntax (e.g., `**/*.py`, `src/**/*.rs`)             | `path` (required) — search directory; `glob` (required) — filename pattern                    |
+| **Search in File** | `search_in_file` | Search within a file using a regex pattern, returns matches with line numbers             | `path` (required) — file path; `regex` (required) — regex pattern                             |
 
-#### Tool Details
+::: details Tool Details
 
-- **Shell** — Runs commands in a persistent shell session. The sandbox maintains a `session_id` so environment variables, `cd` changes, and other side effects persist across multiple shell calls within the same conversation. You can optionally specify a timeout (in seconds) for long-running commands.
+**Shell** — Executes arbitrary shell commands inside the sandbox's Docker container. Results include stdout, exit code, and execution status. Commands that time out may still return partial output. Shell sessions are managed via `session_id` for context continuity.
 
-- **Read File** — Reads the full content of a file at a given path inside the sandbox.
+**Read File** — Reads the content of a file at a given path inside the sandbox. Useful for viewing configs, scripts, logs, and more.
 
-- **Write File** — Writes content to a file, overwriting any existing content. The parent directory must already exist.
+**Write File** — Writes content to a file at a given path in the sandbox, overwriting any existing content. Can also be used to create a file when it doesn't already exist.
 
-- **Create File** — Creates a new file only if it does not already exist. Unlike Write File, it automatically creates any missing parent directories, making it safe for building out new project structures.
+**Create File** — Creates a new file at the specified path with the given content. Unlike Write File, it errors if the file already exists, preventing accidental overwrites. Missing parent directories are auto-created.
 
-- **Edit File** — Performs precise, surgical edits by replacing an exact `old_text` snippet with `new_text`. This avoids the risk of overwriting unrelated content. Returns the number of replacements made.
+**Edit File** — Performs precise text replacement in a file using `old_text` (text to find) and `new_text` (replacement). `old_text` must match file content exactly (including whitespace and indentation). Errors if not found or if multiple matches are found. Ideal for surgical code changes rather than rewriting entire files.
 
-- **List Directory** — Lists the contents of a directory with rich metadata: file name, whether it's a file or directory, size, modification time, and permissions. Results include a summary of total, directory, and file counts.
+**List Directory** — Lists all entries in a directory, showing file/directory icons (📁/📄), names, and file sizes, with a summary of total entries, directories, and files at the end. Defaults to `/home/gem` if no path is specified.
 
-- **Find Files** — Searches for files matching a glob pattern. Supports standard glob syntax like `**/*.py` (all Python files recursively) or `src/**/*.rs` (Rust files under `src/`). Returns a list of matching file paths.
+**Find Files** — Uses glob patterns to find files within a specified directory. Supports standard glob syntax like `**/*.py` (recursively find all Python files), `src/**/*.rs` (recursively find Rust files under `src/`), etc.
 
-- **Search in File** — Searches within a specific file using a regular expression pattern. Returns the matched text along with the corresponding line numbers, making it easy to locate specific code or content.
+**Search in File** — Searches within a specific file using a regular expression. Returns matched text content with corresponding line numbers. Useful for finding specific functions, variables, or patterns in code.
+
+:::
 
 ### Retry & Error Handling
 
-The AIO Sandbox client includes built-in resilience to handle transient server issues:
+The AIO Sandbox client includes built-in automatic retry mechanisms to ensure reliable execution even when the sandbox service is temporarily unavailable:
 
-- **Automatic retry** — When the sandbox API returns a transient server error (HTTP 502 Bad Gateway, 503 Service Unavailable, or 504 Gateway Timeout), the client automatically retries the request.
-- **Exponential backoff** — Retries use exponential backoff delays: 1s, 2s, 4s between attempts.
-- **Up to 3 retries** — The client will retry up to 3 times (4 total attempts) before giving up.
-- **Descriptive error messages** — Transient errors include helpful context, such as reminding you to check whether the sandbox container is running and whether the configured endpoint is reachable.
-- **No retry on client errors** — HTTP 4xx errors and parse errors are returned immediately without retry, since they indicate a problem with the request itself rather than a transient server issue.
+- **Automatic exponential backoff retry** — When a request encounters a transient server error (HTTP 502 / 503 / 504), the client automatically retries up to **3 times**
+- **Exponential backoff intervals** — Retry intervals grow exponentially: 1s for the 1st retry, 2s for the 2nd, 4s for the 3rd
+- **Only transient errors are retried** — Client errors (4xx) and other non-transient errors do not trigger retries and are returned immediately
+- **Descriptive error messages** — Transient errors include detailed hints reminding you to check whether the sandbox container is running and whether the endpoint is reachable
 
-To use AIO Sandbox, you need to deploy the [AIO Sandbox](https://github.com/agent-infra/sandbox) service first, then configure the sandbox endpoint in Ruri.
+For example, when the sandbox service is restarting, the client automatically retries requests without manual intervention. If all retries fail, an error message with diagnostic information is returned to help with troubleshooting.
 
 ### Local Mode
 
@@ -105,7 +94,7 @@ Commands run directly on your system with full access:
 - Maximum flexibility, but requires trust
 
 ::: warning
-In Local mode, the AI can execute any command your system allows. Only use this mode if you trust the environment and carefully review the AI's actions.
+In **Local mode**, the AI has the full permissions of the Ruri process on your system. Only use this in trusted environments. We strongly recommend using AIO Sandbox mode instead.
 :::
 
 ## Enabling Computer Use
@@ -114,13 +103,18 @@ In Local mode, the AI can execute any command your system allows. Only use this 
 
 1. Go to **Settings** in the sidebar
 2. Find the **Computer Use** section
-3. Choose your runtime mode:
+3. Turn on the feature
+4. Choose your runtime mode:
    - **None** — Disable Computer Use
    - **AIO Sandbox** — Isolated Docker container (recommended)
    - **Local** — Full system access
-4. If AIO Sandbox is selected, configure the **Sandbox Endpoint** (e.g. `http://localhost:8080`)
-5. Set the **workspace directory** — This is where commands will run by default
-6. Save the configuration
+5. If AIO Sandbox is selected, configure the **Sandbox Endpoint** (e.g. `http://localhost:8080`)
+6. Set the **workspace directory** — This is where commands will run by default
+7. Save
+
+::: tip
+For first-time use, we recommend AIO Sandbox mode — it handles most use cases while keeping your system safe.
+:::
 
 ### AIO Sandbox Configuration
 
@@ -129,8 +123,6 @@ AIO Sandbox connects to a remote sandbox service via HTTP API. The configuration
 | Setting      | Description             | Default                 |
 | ------------ | ----------------------- | ----------------------- |
 | **Endpoint** | AIO Sandbox service URL | `http://localhost:8080` |
-
-When AIO Sandbox mode is selected but no endpoint is configured, Ruri will fall back to basic local file tools and log a warning.
 
 ::: tip
 You can deploy the AIO Sandbox service on the same machine or a remote server. For team environments, a shared sandbox instance allows multiple users to safely run commands without affecting the host system.
@@ -143,6 +135,32 @@ You can include Computer Use settings in your [Config Profile](/config-profiles)
 - A "Development" profile with Computer Use enabled in Sandbox mode
 - A "Casual Chat" profile with Computer Use disabled
 - Quick switching between them without changing settings manually
+
+## When to Use Computer Use
+
+### ✅ Recommended Scenarios
+
+- "**Run my project's tests**" — The AI can execute test commands and analyze results
+- "**Install this project's dependencies**" — The AI can run `npm install`, `pip install`, etc.
+- "**Build and check for errors**" — The AI can run build commands and interpret error messages
+- "**Check git repository status**" — The AI can run `git` commands to help manage code
+- "**Process this data with Python**" — The AI can write and execute Python scripts
+
+### ❌ When You Don't Need It
+
+- Just chatting with the AI
+- Only need the AI to read/write files (file tools are available by default)
+- Only need the AI to search code (search tools are available by default)
+- Using Ruri in untrusted environments
+
+## Workspace
+
+The workspace defines the scope of the AI's operations:
+
+- **Working directory** — The default path where the AI executes commands
+- **Allowed paths** — The directory scope the AI can access
+
+By configuring the workspace appropriately, you can restrict the AI to only operate within directories you allow, improving security.
 
 ## What You'll See
 
@@ -157,12 +175,11 @@ This gives you full visibility into what the AI is doing on your system.
 
 ## Safety Tips
 
-- **Start with Sandbox mode** — It's the safest option and handles most development tasks
-- **Set a specific workspace** — Only give the AI access to the directory it needs
-- **Review commands** — Check what the AI runs, especially in Local mode
-- **Disable when not needed** — Turn off Computer Use for simple chat sessions
-- **Use profiles** — Keep Computer Use off by default and only enable it in specific [Config Profiles](/config-profiles)
+1. 🛡️ **Prefer sandbox mode** — It's sufficient for most tasks
+2. 📂 **Limit workspace scope** — Only give the AI access to the directories it needs
+3. 👀 **Watch what the AI does** — All commands executed by the AI are shown in the chat — pay attention
+4. 🚫 **Turn it off if unsure** — If you don't need the AI to execute commands, keep Computer Use off
 
-::: warning
-All command executions are logged. You can review logs in the Web UI to see what the AI has done on your system.
+::: info
+Every time the AI executes a command, you can see the exact command content in the chat interface. If you notice anything unusual, use the `/stop` command to interrupt immediately.
 :::

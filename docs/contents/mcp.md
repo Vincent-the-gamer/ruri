@@ -69,21 +69,39 @@ Give the AI controlled access to specific directories on your computer:
 
 This lets the AI safely read and write files within the specified directory only.
 
-### Database Server
+### SQLite Database Server
 
-Connect the AI to a database for queries and analysis. Various MCP servers exist for PostgreSQL, SQLite, and more.
+Let the AI query and manipulate SQLite databases:
 
-### Git Server
+- **Transport:** Stdio
+- **Command:** `npx`
+- **Arguments:** `@modelcontextprotocol/server-sqlite /path/to/database.db`
 
-Let the AI interact with your Git repositories — check status, view diffs, create branches, and more.
+### GitHub Server
 
-### Web Search Server
+Let the AI work with GitHub repositories (view issues, PRs, etc.):
 
-Enhanced web search capabilities through dedicated search APIs.
+- **Transport:** Stdio
+- **Command:** `npx`
+- **Arguments:** `@modelcontextprotocol/server-github`
+- **Environment:** Requires `GITHUB_PERSONAL_ACCESS_TOKEN`
 
-### Slack / Discord Server
+### Puppeteer Browser Control Server
 
-Allow the AI to read and send messages in your team channels.
+Let the AI control a browser for web operations:
+
+- **Transport:** Stdio
+- **Command:** `npx`
+- **Arguments:** `@modelcontextprotocol/server-puppeteer`
+
+### Brave Search Server
+
+Use Brave Search as an alternative search engine:
+
+- **Transport:** Stdio
+- **Command:** `npx`
+- **Arguments:** `@modelcontextprotocol/server-brave-search`
+- **Environment:** Requires `BRAVE_API_KEY`
 
 ::: tip
 Browse the [MCP Servers repository](https://github.com/modelcontextprotocol/servers) for a growing list of available servers you can connect to.
@@ -108,5 +126,7 @@ When adding a server, you'll choose how Ruri connects:
 - **SSE / WebSocket / HTTP** — For servers running remotely. You'll need to provide the URL and optionally authentication headers.
 
 ::: warning
-Only connect to MCP servers you trust. The tools they provide can access files, execute commands, or make network requests on behalf of the AI agent. Use [Skills](/skills) with `allowed_tools` to restrict which MCP tools are available in specific contexts.
+Only connect to MCP servers you trust. The tools they provide can access files, execute commands, or make network requests on behalf of the AI agent. Use `allowed_tools` in the [Skills](/skills) system to restrict which MCP tools are available in specific contexts.
+
+Untrusted MCP servers may offer dangerous tools (such as executing commands or accessing files) — add them with caution. Local servers run with the same permissions as Ruri, so always verify the server's source. For remote servers, use HTTPS connections whenever possible.
 :::

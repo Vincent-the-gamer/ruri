@@ -10,30 +10,19 @@ Want Ruri's AI power right inside your code editor? The **Agent Client Protocol 
 
 ## Supported IDEs
 
-ACP works with editors that support the Agent Client Protocol:
+| IDE                   | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| **Zed**               | High-performance code editor with native ACP support |
+| **JetBrains**         | IntelliJ IDEA, PyCharm, WebStorm, and more           |
+| **Other ACP clients** | Any tool that supports the Agent Client Protocol     |
 
-- **Zed** — High-performance code editor
-- **JetBrains** — IntelliJ IDEA, PyCharm, WebStorm, and more
-- **Any ACP-compatible client**
+## Setup Guide
 
-## Quick Setup
+### Using Ruri in Zed
 
-### Step 1: Enable ACP in Ruri
-
-1. Open the Ruri Web UI and go to **Settings**
-2. Find the ACP section and enable it
-3. Choose which tools the ACP server should have access to
-4. Save the configuration
-
-::: tip
-You can also enable ACP through your [Config Profile](/config-profiles) settings.
-:::
-
-### Step 2: Configure Your IDE
-
-#### Zed
-
-Add the following to your Zed settings:
+1. Make sure Ruri is installed and available (the `ruri --acp` command should run successfully)
+2. Open Zed's settings file
+3. Add the following to the `agent_servers` section:
 
 ```json
 {
@@ -47,44 +36,43 @@ Add the following to your Zed settings:
 }
 ```
 
-Replace `/path/to/ruri` with the actual path to your Ruri binary.
+4. Replace `/path/to/ruri` with the actual path to your Ruri binary
+5. After saving, Ruri will be available as an AI agent in Zed
 
-#### JetBrains
+### Using Ruri in JetBrains
 
-1. Open **Settings** → **Tools** → **AI Assistant**
-2. Add an external agent server
-3. Set the command to the path of your Ruri binary
-4. Add `--acp` as an argument
-5. Save and restart the IDE if needed
+1. Make sure Ruri is installed and available
+2. Open the AI Assistant settings in your JetBrains IDE
+3. Configure Ruri as an external agent server
+4. Set the command to the path of your Ruri binary, and add `--acp` as an argument
+5. Save and you're ready to use it
 
-### Step 3: Start Using It
+## What You Can Do in Your IDE
 
-Once configured, Ruri appears as an AI assistant in your editor. Ask it to:
+When using Ruri in your IDE, the AI has the same capabilities as in the Web UI:
 
-- Explain code
-- Refactor functions
-- Write tests
-- Debug issues
-- Generate documentation
-
-The AI has access to all your configured tools, skills, and knowledge bases!
-
-## What Works in ACP Mode
-
-When connected via ACP, Ruri brings your full configuration into the IDE:
-
-- **Your model provider** — Use whichever AI model you've configured
-- **Your persona** — The AI's personality follows your settings
-- **Your skills** — Active skills from your config profile are available
-- **File tools** — Read, write, edit, and search files
-- **Knowledge base** — If active in your profile, the AI can search your documents
-- **Shell commands** — If Computer Use is enabled, the AI can run commands
-- **Streaming responses** — The AI's output is streamed in real-time to your IDE
-- **Independent proxy** — ACP has its own proxy configuration for routing LLM requests
+- 📖 **Read code** — The AI can read project files and understand code structure
+- ✏️ **Edit code** — The AI can directly modify and create files
+- 🔍 **Search code** — The AI can search for code and files in your project
+- 💻 **Execute commands** — If Computer Use is enabled, the AI can run build and test commands
+- 🛠️ **Use skills** — All active skills from your current config profile are available
+- 🔄 **Streaming responses** — The AI's output is streamed in real-time to your IDE
+- 🌐 **Independent proxy** — ACP has its own proxy configuration for routing LLM requests
 
 ::: tip
-Make sure Computer Use is enabled in your [Config Profile](/config-profiles) if you want the AI to execute shell commands through the IDE.
+When using Ruri in your IDE, make sure your [Config Profile](/config-profiles) settings match your needs. You can create a dedicated profile for IDE use.
 :::
+
+## How It Works
+
+In IDE mode, Ruri runs as a background service:
+
+1. Your IDE sends requests to Ruri
+2. Ruri processes them using the current persona, skills, and tools
+3. The AI generates a response (potentially using tools like file operations)
+4. The result is returned to your IDE
+
+From the AI's perspective, it doesn't matter whether the request comes from the Web UI or the IDE — the processing is the same.
 
 ## Recommended Setup
 
@@ -101,23 +89,23 @@ This way, the AI in your IDE is specialized for development work, while your reg
 
 ## Troubleshooting
 
-### ACP Server Not Responding
+### AI Not Responding in IDE
 
-- Make sure Ruri is installed and the binary path in your IDE settings is correct
-- Verify the binary has execute permissions (`chmod +x ruri` on macOS/Linux)
-- Check that your model provider is configured and the API key is valid
+- Make sure the Ruri binary path is correct
+- Try running `ruri --acp` manually in a terminal to check for errors
+- Verify that Ruri has execute permissions
 
 ### Tools Not Available
 
-- Check which tools are enabled in the active [Config Profile](/config-profiles)
-- Make sure Computer Use is enabled if you need shell commands
-- Verify that skills aren't restricting tool access via `allowed_tools`
+- Check that the required tools are enabled in the current [Config Profile](/config-profiles)
+- Computer Use (shell commands, etc.) needs to be enabled separately in the profile
+- Check if skills' `allowed_tools` restrictions are limiting access to certain tools
 
-### AI Not Responding
+### Model Not Responding
 
-- Confirm the model provider is active and the API key has credits
-- Check your network connection to the model provider
-- Try chatting via the Web UI first to verify the provider works
+- Confirm that the provider is correctly configured and active
+- Check that your API key is valid
+- Verify your network connection is working
 
 ## Security Notes
 

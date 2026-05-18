@@ -19,15 +19,15 @@ hero:
 
 features:
   - title: 模型提供商
-    details: 支持 Anthropic 兼容、OpenAI 兼容和自定义模型提供商。
+    details: 支持 Anthropic、OpenAI 兼容、Gemini 和自定义模型提供商，支持多模态图像输入。
     icon:
       src: "/imgs/model-providers.svg"
   - title: 工具调用
-    details: 内置文件操作、Shell 执行和网页搜索工具。
+    details: 内置文件操作（读、写、编辑、删除）、Shell 执行、网页搜索和图像分析工具。
     icon:
       src: "/imgs/tool-call.svg"
   - title: 技能系统
-    details: 基于 Markdown 和 YAML frontmatter 的技能系统，支持自定义行为。
+    details: 基于 Markdown 和 YAML frontmatter 的技能系统，支持 hooks、shell 命令和 agent 覆写。
     icon:
       src: "/imgs/skills.svg"
   - title: MCP 客户端
@@ -39,7 +39,7 @@ features:
     icon:
       src: "/imgs/knowledge-base.svg"
   - title: 聊天平台
-    details: 钉钉、Discord、微信集成，支持热重载配置。
+    details: 钉钉、Discord、微信、OneBot12 集成，支持热重载配置。
     icon:
       src: "/imgs/chat-platforms.svg"
   - title: AIO 沙盒

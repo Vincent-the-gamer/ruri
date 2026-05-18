@@ -67,24 +67,58 @@ You are a summarization expert. When given a file or text:
 The `allowed_tools` field is important — by only listing `read_file`, `search_files`, and `list_directory`, you're telling the AI it can look at files but NOT modify them. This makes the skill safe to use.
 :::
 
+---
+
+### Another Example: Translation Assistant
+
+You can also create skills tailored to your needs. Here's an example of a "Translation Assistant":
+
+**Name**: `translator`
+
+**Description**: `Professional Chinese-English translation assistant`
+
+**Skill Content** (in Markdown):
+
+```markdown
+---
+name: "translator"
+description: "Professional Chinese-English translation assistant, auto-detects language and translates"
+when_to_use: "When the user needs to translate text"
+user_invocable: true
+---
+
+You are a professional Chinese-English translation expert. Your rules:
+
+1. Auto-detect the input text's language
+2. If Chinese, translate to English; if English, translate to Chinese
+3. Preserve the original tone and style during translation
+4. For technical terms, annotate the original term in parentheses after translation
+5. If the original text is ambiguous, provide multiple translation options with explanations
+
+Provide the translation result directly without additional explanation.
+```
+
 ## Skill Frontmatter Reference
 
 Here's a quick reference for the fields you can use in a skill:
 
-| Field            | Required | What It Does                                          |
-| ---------------- | -------- | ----------------------------------------------------- |
-| `name`           | Yes      | Unique name for the skill                             |
-| `description`    | Yes      | What the skill does (shown in the UI)                 |
-| `when_to_use`    | No       | When the AI should automatically use this skill       |
-| `argument_hint`  | No       | Hint for what arguments the user should provide       |
-| `arguments`      | No       | Define specific arguments the skill accepts           |
-| `user_invocable` | No       | Whether users can manually trigger it (default: true) |
-| `allowed_tools`  | No       | List of tools this skill can use (default: all)       |
-| `model`          | No       | Override the active model for this skill              |
-| `effort`         | No       | Reasoning effort: `low`, `medium`, or `high`          |
-| `context`        | No       | Extra files to include when the skill runs            |
-| `hooks`          | No       | Run custom logic before or after the skill executes   |
-| `paths`          | No       | File patterns that trigger this skill automatically   |
+| Field                      | Required | What It Does                                                     |
+| -------------------------- | -------- | ---------------------------------------------------------------- |
+| `name`                     | Yes      | Unique name for the skill                                        |
+| `description`              | Yes      | What the skill does (shown in the UI)                            |
+| `when_to_use`              | No       | When the AI should automatically use this skill                  |
+| `argument_hint`            | No       | Hint for what arguments the user should provide                  |
+| `arguments`                | No       | Define specific arguments the skill accepts                      |
+| `user_invocable`           | No       | Whether users can manually trigger it (default: true)            |
+| `disable_model_invocation` | No       | Prevent the AI model from being called for this skill            |
+| `allowed_tools`            | No       | List of tools this skill can use (default: all)                  |
+| `model`                    | No       | Override the active model for this skill                         |
+| `effort`                   | No       | Reasoning effort: `low`, `medium`, or `high`                     |
+| `agent`                    | No       | Override the agent configuration for this skill                  |
+| `context`                  | No       | Extra files to include when the skill runs                       |
+| `hooks`                    | No       | Run shell commands before or after the skill executes            |
+| `paths`                    | No       | File patterns that trigger this skill automatically              |
+| `shell`                    | No       | Run a shell command before the skill executes and include output |
 
 ### Arguments
 
@@ -96,6 +130,56 @@ arguments:
 - name: "path"
   description: "File or directory path to review"
   required: true
+```
+
+### Disable Model Invocation
+
+When `disable_model_invocation` is set to `true`, the skill executes without calling the AI model. This is useful for skills that only run shell commands or hooks without needing an AI response:
+
+```markdown
+---
+disable_model_invocation: true
+shell: "cat {{path}}"
+---
+```
+
+### Hooks
+
+Hooks let you run shell commands at specific points during skill execution:
+
+```markdown
+---
+hooks:
+  pre: "echo 'Starting analysis...'"
+  post: "echo 'Analysis complete!'"
+---
+```
+
+- **pre** — Runs before the skill executes
+- **post** — Runs after the skill completes
+
+### Shell
+
+Run a shell command and include its output as context for the skill:
+
+```markdown
+---
+shell: "git diff --stat"
+---
+```
+
+The command output is captured and included in the prompt sent to the AI, giving the skill real-time context from your system.
+
+### Agent Override
+
+Customize the agent behavior for this skill:
+
+```markdown
+---
+agent:
+  max_tool_rounds: 10
+  auto_execute_tools: true
+---
 ```
 
 ### Effort Levels
@@ -143,6 +227,25 @@ allowed_tools: []
 You are a professional translator. Translate the given text naturally,
 preserving the tone and meaning. If no target language is specified,
 ask the user which language they want.
+```
+
+### Doc Writer
+
+```markdown
+---
+name: "doc-writer"
+description: "Auto-generate documentation from code"
+when_to_use: "When the user needs to generate documentation"
+allowed_tools:
+  - read_file
+  - write_file
+  - create_file
+  - list_directory
+---
+
+You are a technical documentation expert. Generate clear, structured documentation
+based on the given code or project. Use Markdown format, including code examples
+and usage instructions.
 ```
 
 ## Managing Skills

@@ -18,6 +18,7 @@ Here's a quick overview of the tools available to the AI:
 | **Write File**     | Create or overwrite files                         |
 | **Create File**    | Create a brand new file with content              |
 | **Edit File**      | Make precise edits to existing files              |
+| **Delete File**    | Delete a file at a specified path                 |
 | **List Directory** | Browse folders and see what's inside              |
 | **Search Files**   | Find files by name or search within file contents |
 | **Bash**           | Run shell commands (requires Computer Use)        |
@@ -32,8 +33,19 @@ You can ask the AI to help with your code projects, and it will use tools to get
 - **"Read my `main.rs` file and explain what it does"** — The AI uses Read File to inspect your code
 - **"Fix the typo in `config.toml` on line 42"** — The AI uses Edit File to make a precise change
 - **"Create a new Python script that processes CSV files"** — The AI uses Create File to write a brand new file
+- **"Delete the temporary log files"** — The AI uses Delete File to clean up
 - **"Show me what's in my project directory"** — The AI uses List Directory to browse your folders
 - **"Find all files that import `axios`"** — The AI uses Search Files to scan your project
+
+### Analyzing Images
+
+If your model provider supports multimodal input, you can share images with the AI:
+
+- **"What does this screenshot show?"** — Paste an image and the AI describes it
+- **"Analyze this chart and summarize the trends"** — The AI reads charts and graphs
+- **"What error do you see in this screenshot?"** — The AI diagnoses issues from error screenshots
+
+The AI processes images automatically — just paste them into the chat. If the model doesn't support images, Ruri gracefully falls back to text-only mode. See [Model Providers](/providers#multimodal-support) for setup details.
 
 ### Searching the Web
 
@@ -80,9 +92,11 @@ By default, the AI has access to all file tools. You can control what's availabl
 - **Web Search** — Enable or disable in your [Config Profile](/config-profiles)
 - **Bash / Command Execution** — Enable through [Computer Use](/computer-use) settings
 - **Per-skill restrictions** — When creating [Skills](/skills), you can limit which tools the AI can use for that specific skill
+- **Config Profile command settings** — Control which slash commands are enabled and which require admin privileges in each [Config Profile](/config-profiles)
 
 ## Tips
 
-- **Be specific** — Instead of "help with my code", say "read my `src/main.rs` and find potential bugs". The AI will know exactly which tools to use.
-- **Review tool calls** — Always check what the AI is doing, especially when it writes files or runs commands
-- **Use Computer Use wisely** — Only enable command execution when you need it. Keep it off for simple chat sessions.
+- 📝 **Be specific** — Instead of "help with my code", say "read my `src/main.rs` and find potential bugs". The AI will know exactly which tools to use.
+- 👀 **Review tool calls** — Always check what the AI is doing, especially when it writes files or runs commands
+- ⚠️ **Use Computer Use wisely** — Only enable command execution when you need it. Keep it off for simple chat sessions.
+- 🖼️ **Share images** — If your model supports it, paste screenshots and images directly into chat for the AI to analyze

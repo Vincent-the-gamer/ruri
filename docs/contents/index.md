@@ -19,15 +19,15 @@ hero:
 
 features:
   - title: Model Providers
-    details: Support for Anthropic, OpenAI compatible, and custom model providers.
+    details: Support for Anthropic, OpenAI compatible, Gemini, and custom model providers with multimodal image input.
     icon:
       src: "/imgs/model-providers.svg"
   - title: Tool Call
-    details: Built-in file operations, shell execution, and web search tools.
+    details: Built-in file operations (read, write, edit, delete), shell execution, web search, and image analysis tools.
     icon:
       src: "/imgs/tool-call.svg"
   - title: Skills
-    details: Markdown-based skill system with YAML frontmatter for custom behaviors.
+    details: Markdown-based skill system with YAML frontmatter, hooks, shell commands, and agent overrides.
     icon:
       src: "/imgs/skills.svg"
   - title: MCP Client
@@ -39,7 +39,7 @@ features:
     icon:
       src: "/imgs/knowledge-base.svg"
   - title: Chat Platforms
-    details: DingTalk, Discord, WeChat integration with hot-reload config.
+    details: DingTalk, Discord, WeChat, OneBot12 integration with hot-reload config.
     icon:
       src: "/imgs/chat-platforms.svg"
   - title: AIO Sandbox
