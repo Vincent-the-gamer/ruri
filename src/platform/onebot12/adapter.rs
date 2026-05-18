@@ -32,8 +32,13 @@ pub struct OneBot12Adapter {
     status: PlatformStatus,
     /// Shared server state.
     server_state: Arc<Ob12ServerState>,
-    /// Channel to signal shutdown.
+    /// Channel to signal shutdown of the main `run()` loop.
     shutdown_tx: Option<watch::Sender<bool>>,
+    /// Channel to signal shutdown of the HTTP/WS servers.
+    /// Separate from `shutdown_tx` because the servers are spawned tasks
+    /// that need their own signal; terminating the adapter must also
+    /// stop the listeners so ports are released.
+    server_shutdown_tx: Option<watch::Sender<bool>>,
     /// Pending outbound messages from action callbacks.
     /// When a OneBot app sends `send_message`, the result goes here
     /// and the adapter's `run()` method picks it up to forward as a PlatformEvent.
@@ -122,6 +127,7 @@ impl OneBot12Adapter {
             status: PlatformStatus::Pending,
             server_state,
             shutdown_tx: None,
+            server_shutdown_tx: None,
             _outbound_tx: outbound_tx,
             outbound_rx,
         })
@@ -280,6 +286,13 @@ impl Platform for OneBot12Adapter {
     async fn run(&mut self, event_sender: mpsc::Sender<PlatformEvent>) -> anyhow::Result<()> {
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         self.shutdown_tx = Some(shutdown_tx);
+
+        // Create a separate shutdown channel for the HTTP/WS servers so that
+        // `terminate()` can stop them (and release their ports) independently
+        // of the main adapter loop.
+        let (server_shutdown_tx, server_shutdown_rx) = watch::channel(false);
+        self.server_shutdown_tx = Some(server_shutdown_tx);
+
         self.status = PlatformStatus::Running;
 
         let state = self.server_state.clone();
@@ -290,8 +303,11 @@ impl Platform for OneBot12Adapter {
         if let Some(ref http_config) = config.http {
             let state = state.clone();
             let http_config = http_config.clone();
+            let shutdown_rx_clone = server_shutdown_rx.clone();
             tokio::spawn(async move {
-                if let Err(e) = server::start_http_server(state, &http_config).await {
+                if let Err(e) =
+                    server::start_http_server(state, &http_config, shutdown_rx_clone).await
+                {
                     tracing::error!(error = %e, "OneBot v12 HTTP server error");
                 }
             });
@@ -300,8 +316,10 @@ impl Platform for OneBot12Adapter {
         if let Some(ref ws_config) = config.ws {
             let state = state.clone();
             let ws_config = ws_config.clone();
+            let shutdown_rx_clone = server_shutdown_rx.clone();
             tokio::spawn(async move {
-                if let Err(e) = server::start_ws_server(state, &ws_config).await {
+                if let Err(e) = server::start_ws_server(state, &ws_config, shutdown_rx_clone).await
+                {
                     tracing::error!(error = %e, "OneBot v12 WebSocket server error");
                 }
             });
@@ -386,6 +404,13 @@ impl Platform for OneBot12Adapter {
 
     async fn terminate(&mut self) -> anyhow::Result<()> {
         self.status = PlatformStatus::Stopped;
+
+        // Stop the HTTP/WS servers first so their ports are released.
+        if let Some(tx) = &self.server_shutdown_tx {
+            let _ = tx.send(true);
+        }
+
+        // Then signal the main run() loop to exit.
         if let Some(tx) = &self.shutdown_tx {
             let _ = tx.send(true);
         }

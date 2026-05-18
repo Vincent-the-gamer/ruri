@@ -274,7 +274,10 @@ function renderMarkdown(
             </div>
             <div class="message-content-wrapper">
                 <div class="message-label">
-                    <span>Tool</span>
+                    <span v-if="message.tool_name" class="tool-result-name"
+                        >🔧 {{ message.tool_name }}</span
+                    >
+                    <span v-else>Tool</span>
                     <span v-if="message.tool_call_id" class="tool-id">{{
                         message.tool_call_id
                     }}</span>
@@ -698,6 +701,15 @@ function renderMarkdown(
 }
 
 .dark .tool-id {
+    color: hsl(38 92% 70%);
+}
+
+.tool-result-name {
+    font-weight: 600;
+    color: hsl(38 92% 40%);
+}
+
+.dark .tool-result-name {
     color: hsl(38 92% 70%);
 }
 

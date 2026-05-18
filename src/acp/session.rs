@@ -31,6 +31,7 @@ impl AcpSession {
         provider: Box<dyn Provider>,
         _cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        available_skills: Vec<(String, String, Option<String>)>,
         session_id: String,
         web_search_config: Arc<RwLock<WebSearchConfig>>,
         computer_use_config: crate::computer_use::ComputerUseConfig,
@@ -47,6 +48,12 @@ impl AcpSession {
         // Add skills before built-in tools so they can be initialized
         for skill in skills {
             agent.add_skill(skill);
+        }
+
+        // Index available skills for routing (non-active skills are listed
+        // in the system prompt so the model knows they exist and can route to them)
+        for (name, description, when_to_use) in available_skills {
+            agent.add_available_skill(name, description, when_to_use);
         }
 
         // Register tools based on computer_use_config runtime
@@ -296,10 +303,18 @@ impl SessionManager {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        available_skills: Vec<(String, String, Option<String>)>,
         persona_prompt: Option<String>,
     ) -> String {
-        self.create_session_with_skills_and_acp(provider, cwd, skills, None, persona_prompt)
-            .await
+        self.create_session_with_skills_and_acp(
+            provider,
+            cwd,
+            skills,
+            None,
+            available_skills,
+            persona_prompt,
+        )
+        .await
     }
 
     /// Create a new session with skills and ACP tools, optionally with a session ID.
@@ -309,6 +324,7 @@ impl SessionManager {
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
         session_id: Option<String>,
+        available_skills: Vec<(String, String, Option<String>)>,
         persona_prompt: Option<String>,
     ) -> String {
         let session_id_val = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -316,6 +332,7 @@ impl SessionManager {
             provider,
             cwd,
             skills,
+            available_skills,
             session_id_val.clone(),
             Arc::clone(&self.web_search_config),
             self.computer_use_config.clone(),
@@ -420,12 +437,14 @@ impl SessionManager {
         session_id: String,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        available_skills: Vec<(String, String, Option<String>)>,
         persona_prompt: Option<String>,
     ) -> bool {
         let session = AcpSession::new_with_skills_and_acp(
             provider,
             cwd,
             skills,
+            available_skills,
             session_id.clone(),
             Arc::clone(&self.web_search_config),
             self.computer_use_config.clone(),
@@ -479,6 +498,7 @@ impl SessionManager {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
+        available_skills: Vec<(String, String, Option<String>)>,
         persona_prompt: Option<String>,
         summary: Option<String>,
     ) -> String {
@@ -487,6 +507,7 @@ impl SessionManager {
             provider,
             cwd,
             skills,
+            available_skills,
             session_id.clone(),
             Arc::clone(&self.web_search_config),
             self.computer_use_config.clone(),

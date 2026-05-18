@@ -1127,6 +1127,7 @@ async fn send_chat_message(
                 content: serde_json::Value::String(result.reply),
                 tool_calls: None,
                 tool_call_id: None,
+                tool_name: None,
             };
             return Ok(Json(ChatResponseDto {
                 message: message_dto,
@@ -1281,8 +1282,8 @@ async fn send_chat_message(
     };
 
     // Send message with cancellation support
-    let response = tokio::select! {
-        result = agent.chat_with_message(user_msg) => {
+    let (response, tool_messages) = tokio::select! {
+        result = agent.chat_with_message_and_tool_history(user_msg) => {
             // Remove the cancellation token when done
             {
                 let mut tasks = state.running_agent_tasks.write().await;
@@ -1355,6 +1356,36 @@ async fn send_chat_message(
         .and_then(|c| c.as_text_full())
         .unwrap_or_default();
 
+    // Build the assistant DB content, embedding tool_calls as structured JSON if present
+    let has_tool_calls = choice
+        .message
+        .tool_calls
+        .as_ref()
+        .is_some_and(|c| !c.is_empty());
+    let assistant_db_content = if has_tool_calls {
+        let tool_calls = choice.message.tool_calls.as_ref().unwrap();
+        let tool_calls_json: Vec<serde_json::Value> = tool_calls
+            .iter()
+            .map(|tc| {
+                serde_json::json!({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                })
+            })
+            .collect();
+        let structured = serde_json::json!({
+            "text": assistant_content,
+            "tool_calls": tool_calls_json,
+        });
+        serde_json::to_string(&structured).unwrap_or(assistant_content)
+    } else {
+        assistant_content
+    };
+
     // Add assistant message to conversation database
     let conv_db = state.conversation_db.read().await;
     if let Some(db) = conv_db.as_ref() {
@@ -1362,11 +1393,85 @@ async fn send_chat_message(
             .add_message(crate::conversation::models::AddMessageRequest {
                 conversation_id: conversation_id.clone(),
                 role: "assistant".to_string(),
-                content: assistant_content,
+                content: assistant_db_content,
             })
             .await
         {
             tracing::error!("Failed to add assistant message to database: {}", e);
+        }
+
+        // Persist tool-related messages (intermediate assistant tool-call messages
+        // and tool results) as separate DB messages.
+        for msg in &tool_messages {
+            match msg.role {
+                crate::types::MessageRole::Assistant => {
+                    // Intermediate assistant message with tool_calls
+                    let text_content = msg
+                        .content
+                        .as_ref()
+                        .and_then(|c| c.as_text_full())
+                        .unwrap_or_default();
+                    let tool_calls_json: Vec<serde_json::Value> = msg
+                        .tool_calls
+                        .as_ref()
+                        .map(|calls| {
+                            calls
+                                .iter()
+                                .map(|tc| {
+                                    serde_json::json!({
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments,
+                                        }
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let structured = serde_json::json!({
+                        "text": text_content,
+                        "tool_calls": tool_calls_json,
+                    });
+                    let content_str = serde_json::to_string(&structured).unwrap_or_default();
+                    if let Err(e) = db
+                        .add_message(crate::conversation::models::AddMessageRequest {
+                            conversation_id: conversation_id.clone(),
+                            role: "assistant".to_string(),
+                            content: content_str,
+                        })
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to add intermediate assistant tool-call message to database: {}",
+                            e
+                        );
+                    }
+                }
+                crate::types::MessageRole::Tool => {
+                    // Tool result message
+                    let tool_db_content = serde_json::json!({
+                        "tool_call_id": msg.tool_call_id.as_deref().unwrap_or(""),
+                        "tool_name": "", // tool_name is not in ChatMessage; left empty
+                        "content": msg.content.as_ref().and_then(|c| c.as_text_full()).unwrap_or_default(),
+                    });
+                    let content_str = serde_json::to_string(&tool_db_content).unwrap_or_default();
+                    if let Err(e) = db
+                        .add_message(crate::conversation::models::AddMessageRequest {
+                            conversation_id: conversation_id.clone(),
+                            role: "tool".to_string(),
+                            content: content_str,
+                        })
+                        .await
+                    {
+                        tracing::error!("Failed to add tool result message to database: {}", e);
+                    }
+                }
+                _ => {
+                    // Skip other message types (user, system)
+                }
+            }
         }
     }
     drop(conv_db);
@@ -1396,6 +1501,24 @@ async fn send_chat_message(
         tool_results: tool_results_dto,
         usage: usage_dto,
     }))
+}
+
+// Helper structs for accumulating tool call/result data during streaming
+
+/// Accumulated tool call data from a streaming response.
+#[derive(Debug, Clone)]
+struct AccumulatedToolCall {
+    id: String,
+    function_name: String,
+    arguments: String,
+}
+
+/// Accumulated tool result data from a streaming response.
+#[derive(Debug, Clone)]
+struct AccumulatedToolResult {
+    tool_call_id: String,
+    tool_name: String,
+    content: String,
 }
 
 /// Stream a chat message response using Server-Sent Events (SSE).
@@ -1608,11 +1731,13 @@ async fn stream_chat_message(
     // Convert StreamEvents to SSE Events, and persist messages to DB on completion
     let sse_stream = async_stream::stream! {
         let mut full_content = String::new();
+        let mut accumulated_tool_calls: Vec<AccumulatedToolCall> = Vec::new();
+        let mut accumulated_tool_results: Vec<AccumulatedToolResult> = Vec::new();
         let mut stream = event_stream;
 
-        // Closure to persist user and assistant messages to the conversation database.
+        // Closure to persist user, assistant, and tool messages to the conversation database.
         // Should be called in every termination path (Done, Error, Cancelled, None).
-        let persist_to_db = |full_content: &str| {
+        let persist_to_db = |full_content: &str, tool_calls: Vec<AccumulatedToolCall>, tool_results: Vec<AccumulatedToolResult>| {
             let state = state_clone.clone();
             let user_text = user_message_text.clone();
             let content = full_content.to_string();
@@ -1621,6 +1746,7 @@ async fn stream_chat_message(
                 if let Some(db) = conv_db.as_ref() {
                     let conversation_id = state.ensure_chat_conversation().await.ok();
                     if let Some(conv_id) = conversation_id {
+                        // Persist user message
                         if let Err(e) = db
                             .add_message(crate::conversation::models::AddMessageRequest {
                                 conversation_id: conv_id.clone(),
@@ -1631,16 +1757,60 @@ async fn stream_chat_message(
                         {
                             tracing::error!("Failed to add user message to database: {}", e);
                         }
-                        if !content.is_empty() {
+
+                        // Persist assistant message
+                        // If tool_calls exist, embed them as structured JSON;
+                        // otherwise store plain text (backward compatible).
+                        if !content.is_empty() || !tool_calls.is_empty() {
+                            let assistant_db_content = if tool_calls.is_empty() {
+                                content
+                            } else {
+                                // Build structured JSON: {"text": "...", "tool_calls": [...]}
+                                let tool_calls_json: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
+                                    serde_json::json!({
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function_name,
+                                            "arguments": tc.arguments,
+                                        }
+                                    })
+                                }).collect();
+                                let structured = serde_json::json!({
+                                    "text": content,
+                                    "tool_calls": tool_calls_json,
+                                });
+                                serde_json::to_string(&structured).unwrap_or(content)
+                            };
                             if let Err(e) = db
                                 .add_message(crate::conversation::models::AddMessageRequest {
-                                    conversation_id: conv_id,
+                                    conversation_id: conv_id.clone(),
                                     role: "assistant".to_string(),
-                                    content,
+                                    content: assistant_db_content,
                                 })
                                 .await
                             {
                                 tracing::error!("Failed to add assistant message to database: {}", e);
+                            }
+                        }
+
+                        // Persist each tool result as a separate DB message
+                        for tr in &tool_results {
+                            let tool_db_content = serde_json::json!({
+                                "tool_call_id": tr.tool_call_id,
+                                "tool_name": tr.tool_name,
+                                "content": tr.content,
+                            });
+                            let content_str = serde_json::to_string(&tool_db_content).unwrap_or_default();
+                            if let Err(e) = db
+                                .add_message(crate::conversation::models::AddMessageRequest {
+                                    conversation_id: conv_id.clone(),
+                                    role: "tool".to_string(),
+                                    content: content_str,
+                                })
+                                .await
+                            {
+                                tracing::error!("Failed to add tool result message to database: {}", e);
                             }
                         }
                     }
@@ -1654,9 +1824,26 @@ async fn stream_chat_message(
                 event_result = stream.next() => {
                     match event_result {
                         Some(Ok(event)) => {
-                            // Track content for DB persistence
-                            if let crate::types::StreamEvent::ContentDelta { delta } = &event {
-                                full_content.push_str(delta);
+                            // Track content and tool data for DB persistence
+                            match &event {
+                                crate::types::StreamEvent::ContentDelta { delta } => {
+                                    full_content.push_str(delta);
+                                }
+                                crate::types::StreamEvent::ToolCallEnd { tool_call_id, function_name, arguments } => {
+                                    accumulated_tool_calls.push(AccumulatedToolCall {
+                                        id: tool_call_id.clone(),
+                                        function_name: function_name.clone(),
+                                        arguments: arguments.clone(),
+                                    });
+                                }
+                                crate::types::StreamEvent::ToolResult { tool_call_id, tool_name, content } => {
+                                    accumulated_tool_results.push(AccumulatedToolResult {
+                                        tool_call_id: tool_call_id.clone(),
+                                        tool_name: tool_name.clone(),
+                                        content: content.clone(),
+                                    });
+                                }
+                                _ => {}
                             }
 
                             // Convert to SSE event
@@ -1665,7 +1852,7 @@ async fn stream_chat_message(
 
                             // On Done, persist messages to DB
                             if let crate::types::StreamEvent::Done { .. } = &event {
-                                persist_to_db(&full_content).await;
+                                persist_to_db(&full_content, accumulated_tool_calls.clone(), accumulated_tool_results.clone()).await;
                                 // Remove the cancellation token
                                 {
                                     let mut tasks = state_clone.running_agent_tasks.write().await;
@@ -1692,7 +1879,7 @@ async fn stream_chat_message(
                             let data = serde_json::to_string(&error_event).unwrap_or_default();
                             yield Ok(Event::default().data(data));
                             // Persist partial content to DB before breaking
-                            persist_to_db(&full_content).await;
+                            persist_to_db(&full_content, accumulated_tool_calls.clone(), accumulated_tool_results.clone()).await;
                             // Remove cancellation token
                             {
                                 let mut tasks = state_clone.running_agent_tasks.write().await;
@@ -1702,7 +1889,7 @@ async fn stream_chat_message(
                         }
                         None => {
                             // Stream ended without Done – persist any partial content
-                            persist_to_db(&full_content).await;
+                            persist_to_db(&full_content, accumulated_tool_calls.clone(), accumulated_tool_results.clone()).await;
                             // Remove cancellation token
                             {
                                 let mut tasks = state_clone.running_agent_tasks.write().await;
@@ -1723,7 +1910,7 @@ async fn stream_chat_message(
                     let data = serde_json::to_string(&stopped_event).unwrap_or_default();
                     yield Ok(Event::default().data(data));
                     // Persist partial content to DB before breaking
-                    persist_to_db(&full_content).await;
+                    persist_to_db(&full_content, accumulated_tool_calls.clone(), accumulated_tool_results.clone()).await;
                     // Remove cancellation token
                     {
                         let mut tasks = state_clone.running_agent_tasks.write().await;
@@ -1755,14 +1942,133 @@ async fn get_chat_history(State(state): State<Arc<AppState>>) -> Json<Vec<ChatMe
     if let Some(db) = conv_db.as_ref() {
         match db.get_conversation_messages(&conversation_id).await {
             Ok(messages) => {
-                // Convert database messages to DTOs
+                // Convert database messages to DTOs, parsing structured content
                 let list: Vec<ChatMessageDto> = messages
                     .iter()
-                    .map(|m| ChatMessageDto {
-                        role: m.role.clone(),
-                        content: serde_json::Value::String(m.content.clone()),
-                        tool_calls: None,
-                        tool_call_id: None,
+                    .map(|m| {
+                        // Parse role-specific structured content from DB
+                        match m.role.as_str() {
+                            "assistant" => {
+                                // Check if content is structured JSON (has tool_calls)
+                                if m.content.starts_with("{\"text\":") {
+                                    if let Ok(parsed) =
+                                        serde_json::from_str::<serde_json::Value>(&m.content)
+                                    {
+                                        let text = parsed
+                                            .get("text")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or(&m.content)
+                                            .to_string();
+                                        let tool_calls = parsed
+                                            .get("tool_calls")
+                                            .and_then(|v| v.as_array())
+                                            .map(|arr| {
+                                                arr.iter()
+                                                    .filter_map(|tc| {
+                                                        Some(ToolCallDto {
+                                                            id: tc.get("id")?.as_str()?.to_string(),
+                                                            call_type: tc
+                                                                .get("type")
+                                                                .and_then(|v| v.as_str())
+                                                                .unwrap_or("function")
+                                                                .to_string(),
+                                                            function: ToolCallFunctionDto {
+                                                                name: tc
+                                                                    .get("function")?
+                                                                    .get("name")?
+                                                                    .as_str()?
+                                                                    .to_string(),
+                                                                arguments: tc
+                                                                    .get("function")?
+                                                                    .get("arguments")?
+                                                                    .as_str()?
+                                                                    .to_string(),
+                                                            },
+                                                        })
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                            });
+                                        ChatMessageDto {
+                                            role: m.role.clone(),
+                                            content: serde_json::Value::String(text),
+                                            tool_calls,
+                                            tool_call_id: None,
+                                            tool_name: None,
+                                        }
+                                    } else {
+                                        // JSON parse failed – fall back to plain text
+                                        ChatMessageDto {
+                                            role: m.role.clone(),
+                                            content: serde_json::Value::String(m.content.clone()),
+                                            tool_calls: None,
+                                            tool_call_id: None,
+                                            tool_name: None,
+                                        }
+                                    }
+                                } else {
+                                    // Plain text assistant message (backward compatible)
+                                    ChatMessageDto {
+                                        role: m.role.clone(),
+                                        content: serde_json::Value::String(m.content.clone()),
+                                        tool_calls: None,
+                                        tool_call_id: None,
+                                        tool_name: None,
+                                    }
+                                }
+                            }
+                            "tool" => {
+                                // Parse tool result JSON
+                                if let Ok(parsed) =
+                                    serde_json::from_str::<serde_json::Value>(&m.content)
+                                {
+                                    let tool_call_id = parsed
+                                        .get("tool_call_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let tool_name = parsed
+                                        .get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let result_content = parsed
+                                        .get("content")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(&m.content)
+                                        .to_string();
+                                    ChatMessageDto {
+                                        role: m.role.clone(),
+                                        content: serde_json::Value::String(result_content),
+                                        tool_calls: None,
+                                        tool_call_id: Some(tool_call_id),
+                                        tool_name: if tool_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(tool_name)
+                                        },
+                                    }
+                                } else {
+                                    // JSON parse failed – use content as-is
+                                    ChatMessageDto {
+                                        role: m.role.clone(),
+                                        content: serde_json::Value::String(m.content.clone()),
+                                        tool_calls: None,
+                                        tool_call_id: None,
+                                        tool_name: None,
+                                    }
+                                }
+                            }
+                            _ => {
+                                // "user" or any other role – plain text
+                                ChatMessageDto {
+                                    role: m.role.clone(),
+                                    content: serde_json::Value::String(m.content.clone()),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                    tool_name: None,
+                                }
+                            }
+                        }
                     })
                     .collect();
                 return Json(list);
@@ -3953,6 +4259,14 @@ async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         tracing::info!("Restarting Ruri server...");
+
+        // Trigger graceful shutdown of the main HTTP server so that
+        // the TCP listener is released before we start a new process.
+        let _ = state.server_shutdown_tx.send(true);
+
+        // Wait a short while for the server to finish shutting down
+        // and release the port.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Re-execute the current binary
         let current_exe = match std::env::current_exe() {

@@ -875,7 +875,20 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  Compatible with Zed, JetBrains, and other ACP clients");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+
+    // Use graceful shutdown so that `restart_system` can trigger a clean
+    // server teardown before re-executing the binary.  Without this the
+    // TCP listener may still be held when the new process starts, causing
+    // an "address already in use" error.
+    let shutdown_rx = state.server_shutdown_rx.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            // Block until the shutdown signal is received
+            let mut rx = shutdown_rx;
+            let _ = rx.changed().await;
+            tracing::info!("Main HTTP server shutting down gracefully");
+        })
+        .await?;
 
     Ok(())
 }

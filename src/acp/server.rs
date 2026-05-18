@@ -302,7 +302,7 @@ async fn handle_session_new(
     let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let (skills, persona_prompt) = pf.build_skills_and_persona();
+    let (skills, available_skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
     // Read AGENTS.md from the working directory and merge with persona prompt
@@ -310,7 +310,13 @@ async fn handle_session_new(
     let persona_prompt = merge_agents_md_into_prompt(persona_prompt, agents_md);
 
     let session_id = session_manager
-        .create_session_with_skills_and_persona(provider, cwd, skills, persona_prompt)
+        .create_session_with_skills_and_persona(
+            provider,
+            cwd,
+            skills,
+            available_skills,
+            persona_prompt,
+        )
         .await;
 
     // Register connection for ACP file system operations
@@ -346,7 +352,7 @@ async fn handle_session_load(
     let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let (skills, persona_prompt) = pf.build_skills_and_persona();
+    let (skills, available_skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
     // Read AGENTS.md from the working directory and merge with persona prompt
@@ -359,6 +365,7 @@ async fn handle_session_load(
             session_id.clone(),
             cwd,
             skills,
+            available_skills,
             persona_prompt,
         )
         .await;
@@ -404,11 +411,18 @@ async fn handle_session_fork(
     let provider = pf
         .create_provider()
         .map_err(|e| Error::internal_error().data(e.to_string()))?;
-    let (skills, persona_prompt) = pf.build_skills_and_persona();
+    let (skills, available_skills, persona_prompt) = pf.build_skills_and_persona();
     drop(pf);
 
     let session_id = session_manager
-        .create_forked_session(provider, cwd, skills, persona_prompt, summary)
+        .create_forked_session(
+            provider,
+            cwd,
+            skills,
+            available_skills,
+            persona_prompt,
+            summary,
+        )
         .await;
 
     // Register connection for ACP file system operations
@@ -1457,17 +1471,28 @@ impl ProviderFactory {
     ///   added as a skill, to ensure it remains the sole system message.
     pub fn build_skills_and_persona(
         &mut self,
-    ) -> (Vec<Arc<dyn crate::agent::skill::Skill>>, Option<String>) {
+    ) -> (
+        Vec<Arc<dyn crate::agent::skill::Skill>>,
+        Vec<(String, String, Option<String>)>, // available skill index: (name, description, when_to_use)
+        Option<String>,
+    ) {
         // Hot-reload config so new sessions pick up WebUI changes
         self.reload_config();
 
         let Some(ref config) = self.config else {
-            return (Vec::new(), None);
+            return (Vec::new(), Vec::new(), None);
         };
 
         let mut skills: Vec<Arc<dyn crate::agent::skill::Skill>> = Vec::new();
 
         // Build regular skills from ACP config
+        let active_skill_names_set: std::collections::HashSet<String> = config
+            .acp_config
+            .active_skill_names
+            .iter()
+            .cloned()
+            .collect();
+
         if !config.acp_config.active_skill_names.is_empty() {
             let stored_skills: HashMap<String, StoredSkill> = config
                 .skills
@@ -1477,6 +1502,15 @@ impl ProviderFactory {
 
             skills =
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
+        }
+
+        // Build available skill index for non-active skills
+        let mut available_skills: Vec<(String, String, Option<String>)> = Vec::new();
+        for (name, skill) in &config.skills {
+            if !active_skill_names_set.contains(name) {
+                let when_to_use = skill.config["when_to_use"].as_str().map(|s| s.to_string());
+                available_skills.push((skill.name.clone(), skill.description.clone(), when_to_use));
+            }
         }
 
         // Resolve persona via persona_id from the active config profile + persona library
@@ -1509,7 +1543,7 @@ impl ProviderFactory {
             None
         };
 
-        (skills, persona_prompt)
+        (skills, available_skills, persona_prompt)
     }
 
     /// Convert a PersistedProvider to a StoredProvider.

@@ -20,6 +20,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use tokio::sync::watch;
 use tokio::sync::{Mutex, broadcast};
 
 // ─── Callback type ──────────────────────────────────────────
@@ -402,9 +403,13 @@ fn make_connect_event() -> Ob12Event {
 // ─── Server starters ────────────────────────────────────────
 
 /// Start an HTTP server for action calls and (optionally) event polling.
+///
+/// `shutdown_rx` is a watch receiver that triggers graceful shutdown when it
+/// becomes `true`, allowing the TCP listener to be released cleanly.
 pub async fn start_http_server(
     state: Arc<Ob12ServerState>,
     config: &HttpConfig,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let app = axum::Router::new()
         .route("/", post(http_action))
@@ -413,12 +418,24 @@ pub async fn start_http_server(
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "OneBot v12 HTTP server listening");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.changed().await;
+            tracing::info!(%addr, "OneBot v12 HTTP server shutting down");
+        })
+        .await?;
     Ok(())
 }
 
 /// Start a forward WebSocket server for action calls and event pushing.
-pub async fn start_ws_server(state: Arc<Ob12ServerState>, config: &WsConfig) -> anyhow::Result<()> {
+///
+/// `shutdown_rx` is a watch receiver that triggers graceful shutdown when it
+/// becomes `true`, allowing the TCP listener to be released cleanly.
+pub async fn start_ws_server(
+    state: Arc<Ob12ServerState>,
+    config: &WsConfig,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
     let app = axum::Router::new()
         .route("/", axum::routing::get(ws_upgrade))
         .with_state(state);
@@ -426,7 +443,12 @@ pub async fn start_ws_server(state: Arc<Ob12ServerState>, config: &WsConfig) -> 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "OneBot v12 WebSocket server listening");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.changed().await;
+            tracing::info!(%addr, "OneBot v12 WebSocket server shutting down");
+        })
+        .await?;
     Ok(())
 }
 

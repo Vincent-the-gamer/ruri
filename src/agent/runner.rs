@@ -104,6 +104,11 @@ pub struct Agent {
     /// Whether `initialize_skills()` has been called at least once.
     /// Prevents duplicate initialization.
     skills_initialized: bool,
+    /// Skill index for routing: all available skills' (name, description, when_to_use).
+    /// This is used to build a routing instruction in the system prompt so
+    /// the model knows which skills are available and prioritizes them over
+    /// built-in tools.
+    available_skill_index: Vec<SkillIndexEntry>,
     /// Optional cancellation token — when cancelled, the agent loop stops
     /// between rounds (not mid-API-call). Set by the caller before invoking
     /// `chat_with_message` to allow `/stop` to fully terminate the agent.
@@ -113,6 +118,14 @@ pub struct Agent {
     /// through the channel and waits for a response (true = allow, false = deny).
     tool_permission_tx:
         Option<tokio::sync::mpsc::Sender<(String, String, tokio::sync::oneshot::Sender<bool>)>>,
+}
+
+/// An entry in the skill index, used for skill routing.
+#[derive(Debug, Clone)]
+struct SkillIndexEntry {
+    name: String,
+    description: String,
+    when_to_use: Option<String>,
 }
 
 impl Agent {
@@ -128,6 +141,7 @@ impl Agent {
             system_prompt: None,
             skill_contexts: Vec::new(),
             skills_initialized: false,
+            available_skill_index: Vec::new(),
             cancel_token: None,
             tool_permission_tx: None,
         }
@@ -172,6 +186,81 @@ impl Agent {
     /// turn via the skill's `on_user_message()` hook.
     pub fn add_skill(&mut self, skill: Arc<dyn Skill>) {
         self.skills.push(skill);
+    }
+
+    /// Add an "available" skill to the index for skill routing.
+    ///
+    /// Available skills are NOT fully loaded (their `on_attach()` is not called)
+    /// and their context is NOT injected into user messages. Instead, they are
+    /// listed in a skill index that is appended to the system prompt, allowing
+    /// the model to know they exist and when to use them.
+    ///
+    /// If a user's message matches an available skill (by name/description/when_to_use),
+    /// the model is instructed to prioritize invoking that skill over other tools.
+    pub fn add_available_skill(
+        &mut self,
+        name: String,
+        description: String,
+        when_to_use: Option<String>,
+    ) {
+        self.available_skill_index.push(SkillIndexEntry {
+            name,
+            description,
+            when_to_use,
+        });
+    }
+
+    /// Build a skill routing instruction string that lists all available skills.
+    ///
+    /// This is appended to the system prompt so the model knows which skills
+    /// are available and should be prioritized.
+    fn build_skill_routing_instruction(&self) -> Option<String> {
+        if self.available_skill_index.is_empty() && self.skills.is_empty() {
+            return None;
+        }
+
+        let mut parts = Vec::new();
+
+        parts.push("## Available Skills".to_string());
+        parts.push(
+            "The following skills are available. When the user request matches \
+             a skill, you should prioritize using that skill over other tools."
+                .to_string(),
+        );
+
+        // List active skills (fully loaded with context)
+        for skill in &self.skills {
+            let name = skill.name();
+            let desc = skill.description();
+            if !name.is_empty() {
+                if desc.is_empty() {
+                    parts.push(format!("- **{}** (active)", name));
+                } else {
+                    parts.push(format!("- **{}**: {} (active)", name, desc));
+                }
+            }
+        }
+
+        // List available skills (index-only, not fully loaded)
+        for entry in &self.available_skill_index {
+            let mut line = format!("- **{}**", entry.name);
+            if !entry.description.is_empty() {
+                line.push_str(&format!(": {}", entry.description));
+            }
+            if let Some(ref when) = entry.when_to_use {
+                if !when.is_empty() {
+                    line.push_str(&format!(" - Use when: {}", when));
+                }
+            }
+            parts.push(line);
+        }
+
+        parts.push(String::new());
+        parts.push(
+            "**Priority rule**: If a skill matches the user request, use that skill instructions and tools FIRST. Only fall back to general-purpose tools (read_file, write_file, bash, etc.) if no skill is relevant.".to_string(),
+        );
+
+        Some(parts.join("\n"))
     }
 
     /// Override the `tool_choice` parameter for every request made by this agent.
@@ -772,6 +861,42 @@ impl Agent {
         Ok(response)
     }
 
+    /// Run a single turn with a pre-constructed message and return
+    /// the response along with tool-related messages from the history.
+    ///
+    /// This is the same as [`chat_with_message`], but additionally returns
+    /// all tool-call messages (assistant messages with `tool_calls`) and
+    /// tool-result messages from the history that were added during this turn.
+    /// These can be used for DB persistence of tool interactions.
+    pub async fn chat_with_message_and_tool_history(
+        &mut self,
+        message: ChatMessage,
+    ) -> Result<(ChatResponse, Vec<ChatMessage>), crate::provider::ProviderError> {
+        let history_len_before = self.history.len();
+        let response = self.chat_with_message(message).await?;
+
+        // Extract tool-related messages that were added during this turn.
+        // This includes assistant messages with tool_calls and tool result messages.
+        let tool_messages: Vec<ChatMessage> = self
+            .history
+            .iter()
+            .skip(history_len_before)
+            .filter(|m| {
+                // Skip the initial user message and the final assistant text message
+                // (those are persisted separately). Include only:
+                // - Assistant messages that have tool_calls (intermediate tool-call rounds)
+                // - Tool result messages
+                m.role == MessageRole::Tool
+                    || (m.role == MessageRole::Assistant
+                        && m.tool_calls.is_some()
+                        && !m.tool_calls.as_ref().unwrap().is_empty())
+            })
+            .cloned()
+            .collect();
+
+        Ok((response, tool_messages))
+    }
+
     /// Build a ChatRequest from the current history and configuration.
     ///
     /// The system prompt (persona) is injected as the **first** message
@@ -787,7 +912,17 @@ impl Agent {
 
         // Inject the persona as the sole system message
         if let Some(ref prompt) = self.system_prompt {
-            messages.push(ChatMessage::system(prompt));
+            // Append skill routing instruction to the system prompt
+            let full_prompt = if let Some(routing) = self.build_skill_routing_instruction() {
+                format!("{}\n\n{}", prompt, routing)
+            } else {
+                prompt.clone()
+            };
+            messages.push(ChatMessage::system(&full_prompt));
+        } else if let Some(routing) = self.build_skill_routing_instruction() {
+            // No persona but we have a skill routing instruction — still inject it
+            // as a system message so the model knows about available skills.
+            messages.push(ChatMessage::system(&routing));
         }
 
         // Add conversation history (system messages already stripped by set_history)

@@ -279,6 +279,8 @@ pub struct ChatMessageDto {
     pub tool_calls: Option<Vec<ToolCallDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -496,6 +498,7 @@ impl From<&types::ChatMessage> for ChatMessageDto {
                     .collect()
             }),
             tool_call_id: msg.tool_call_id.clone(),
+            tool_name: None,
         }
     }
 }

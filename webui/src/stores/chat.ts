@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { ChatMessage, ChatRequest, ContentPart, StreamEvent } from '../types'
+import type { ChatMessage, ChatRequest, ContentPart, StreamEvent, ToolCall } from '../types'
 import * as api from '../api'
 
 // ── localStorage cache helpers (persists across page navigations & tab refreshes) ──────
@@ -45,6 +45,8 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   /** Whether we have done at least one successful database fetch (initial sync) */
   const _syncedWithDb = ref(false)
+  /** Accumulated tool calls during the current streaming session */
+  const _accumulatedToolCalls = ref<ToolCall[]>([])
 
   // Computed: true when the agent is actively processing a message
   const isThinking = computed(() => sending.value)
@@ -167,6 +169,7 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     streamingContent.value = ''
     isStreaming.value = true
+    _accumulatedToolCalls.value = []
 
     try {
       // Use streaming API
@@ -204,9 +207,14 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       sending.value = false
       isStreaming.value = false
+      _accumulatedToolCalls.value = []
       // Refresh history from database after streaming completes to ensure
       // the DB-stored messages are in sync with what was displayed.
       // This is done asynchronously so it doesn't block the UI.
+      //
+      // NOTE: The server history now includes tool_calls and tool messages
+      // (persisted as structured JSON in the DB), so replacing local state
+      // with server data will preserve tool call/result information.
       api.getChatHistory().then((serverHistory) => {
         if (serverHistory && serverHistory.length > 0) {
           messages.value = serverHistory
@@ -214,6 +222,8 @@ export const useChatStore = defineStore('chat', () => {
         }
       }).catch(() => {
         // Ignore errors — the optimistic UI state is already shown
+        // Save current state to cache so tool data is preserved locally
+        saveMessagesToCache(messages.value)
       })
     }
   }
@@ -229,7 +239,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'tool_call_start': {
         // Tool call is starting - we may still be streaming content
-        // Just log it, the UI can show a subtle indicator
+        // No action needed; we capture data at tool_call_end
         break
       }
       case 'tool_call_delta': {
@@ -237,7 +247,19 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_call_end': {
-        // A tool call completed
+        // A tool call completed — accumulate it for attachment to the
+        // assistant message and add it to the current streaming message
+        const toolCall: ToolCall = {
+          id: event.tool_call_id,
+          type: 'function',
+          function: {
+            name: event.function_name,
+            arguments: event.arguments,
+          },
+        }
+        _accumulatedToolCalls.value.push(toolCall)
+        // Attach accumulated tool_calls to the current streaming assistant message
+        attachToolCallsToStreamingMessage()
         break
       }
       case 'tool_result': {
@@ -248,14 +270,17 @@ export const useChatStore = defineStore('chat', () => {
         }
         messages.value.push({
           role: 'tool',
-          content: `🔧 **${event.tool_name}**: ${truncateContent(event.content, 500)}`,
+          content: event.content,
           tool_call_id: event.tool_call_id,
+          tool_name: event.tool_name,
         })
         break
       }
       case 'done': {
-        // Stream completed
+        // Stream completed — finalize any remaining streaming content
+        // and attach accumulated tool_calls to the last assistant message
         finalizeStreamingMessage()
+        attachToolCallsToLastAssistantMessage()
         break
       }
       case 'error': {
@@ -289,6 +314,27 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** Attach accumulated tool_calls to the current streaming assistant message */
+  function attachToolCallsToStreamingMessage() {
+    if (_accumulatedToolCalls.value.length === 0) return
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg && lastMsg.role === 'assistant') {
+      lastMsg.tool_calls = [..._accumulatedToolCalls.value]
+    }
+  }
+
+  /** Attach accumulated tool_calls to the last assistant message (called at stream end) */
+  function attachToolCallsToLastAssistantMessage() {
+    if (_accumulatedToolCalls.value.length === 0) return
+    // Find the last assistant message
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i].role === 'assistant') {
+        messages.value[i].tool_calls = [..._accumulatedToolCalls.value]
+        break
+      }
+    }
+  }
+
   /** Finalize the current streaming message and reset state */
   function finalizeStreamingMessage() {
     if (streamingContent.value) {
@@ -303,12 +349,6 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     streamingContent.value = ''
-  }
-
-  /** Truncate content for display in tool result messages */
-  function truncateContent(content: string, maxLength: number): string {
-    if (content.length <= maxLength) return content
-    return content.slice(0, maxLength) + '\n... (truncated)'
   }
 
   // Auto-sync messages to localStorage cache on every change
@@ -329,8 +369,11 @@ export const useChatStore = defineStore('chat', () => {
     if (streamingContent.value) {
       finalizeStreamingMessage()
     }
+    // Attach any accumulated tool calls
+    attachToolCallsToLastAssistantMessage()
     sending.value = false
     isStreaming.value = false
+    _accumulatedToolCalls.value = []
   }
 
   async function clearHistory() {

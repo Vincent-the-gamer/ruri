@@ -465,6 +465,12 @@ pub struct AppState {
     /// Debug session configuration (WebUI chat debug settings).
     /// Persisted separately from config profiles.
     pub debug_session: RwLock<DebugSessionConfig>,
+    /// Shutdown trigger for the main HTTP server.
+    /// Sending `true` via the sender initiates graceful shutdown.
+    pub server_shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// Shutdown signal receiver (clone of the watch receiver).
+    /// Used by `axum::serve(...).with_graceful_shutdown()`.
+    pub server_shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl AppState {
@@ -675,6 +681,9 @@ impl AppState {
             }
         }
 
+        // Create shutdown channel for graceful server shutdown
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
         Self {
             providers: RwLock::new(providers),
             active_provider_id: RwLock::new(active_provider_id),
@@ -707,6 +716,8 @@ impl AppState {
             )),
             knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             debug_session: RwLock::new(DebugSessionConfig::default()),
+            server_shutdown_tx: shutdown_tx,
+            server_shutdown_rx: shutdown_rx,
         }
     }
 
@@ -2076,8 +2087,13 @@ impl AppState {
         // Skills come from two sources:
         //   1. Embedded skills (profile-internal copies) filtered by active_embedded_skill_names
         //   2. Global skills (stored in self.skills) referenced by active_skill_names
+        //
+        // Additionally, ALL skills (including inactive ones) are indexed in
+        // the agent's available_skill_index so the model can route to them
+        // based on name/description/when_to_use. Skills not in the active list
+        // are added as "available" (index-only, no full context injection).
         let skill_instances: Vec<Arc<dyn Skill>> = if let Some(ctx) = &context {
-            // Build embedded skills
+            // Build embedded skills (only active ones get full context)
             let embedded_filter: Option<&[String]> = if !ctx.active_embedded_skill_names.is_empty()
             {
                 Some(ctx.active_embedded_skill_names.as_slice())
@@ -2095,6 +2111,43 @@ impl AppState {
                 drop(global_skills);
                 skills.extend(global);
             }
+
+            // ── Index ALL skills as available (for skill routing) ──
+            // Skills that are already active are listed in the routing index
+            // automatically by the Agent. Here we add non-active skills as
+            // "available" (index-only, no full context injection).
+            //
+            // Embedded skills not in active_embedded_skill_names:
+            let active_embedded_names: std::collections::HashSet<String> =
+                ctx.active_embedded_skill_names.iter().cloned().collect();
+            for skill_config in &ctx.embedded_skills {
+                if !active_embedded_names.contains(&skill_config.name) {
+                    let when_to_use = skill_config.config["when_to_use"]
+                        .as_str()
+                        .map(|s| s.to_string());
+                    agent.add_available_skill(
+                        skill_config.name.clone(),
+                        skill_config.description.clone(),
+                        when_to_use,
+                    );
+                }
+            }
+
+            // Global skills not in active_skill_names:
+            let active_global_names: std::collections::HashSet<String> =
+                ctx.active_skill_names.iter().cloned().collect();
+            let global_skills = self.skills.read().await;
+            for (name, stored) in global_skills.iter() {
+                if !active_global_names.contains(name) {
+                    let when_to_use = stored.config["when_to_use"].as_str().map(|s| s.to_string());
+                    agent.add_available_skill(
+                        stored.name.clone(),
+                        stored.description.clone(),
+                        when_to_use,
+                    );
+                }
+            }
+            drop(global_skills);
 
             skills
         } else {

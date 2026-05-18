@@ -22,6 +22,12 @@ pub trait Skill: Send + Sync {
     /// The name of this skill.
     fn name(&self) -> &str;
 
+    /// A short description of this skill, used for skill indexing/routing.
+    /// Defaults to an empty string if not overridden.
+    fn description(&self) -> &str {
+        ""
+    }
+
     /// Called once when the skill is attached to an Agent.
     /// Return a list of system messages that should be injected.
     async fn on_attach(&self) -> Vec<ChatMessage> {
@@ -73,7 +79,9 @@ impl Skill for SystemPromptSkill {
     fn name(&self) -> &str {
         "system_prompt"
     }
-
+    fn description(&self) -> &str {
+        "Injects a custom system prompt"
+    }
     async fn on_attach(&self) -> Vec<ChatMessage> {
         vec![ChatMessage::system(&self.prompt)]
     }
@@ -94,6 +102,9 @@ impl MemorySkill {
 impl Skill for MemorySkill {
     fn name(&self) -> &str {
         "memory"
+    }
+    fn description(&self) -> &str {
+        "Manages conversation memory by trimming old messages"
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
@@ -130,6 +141,9 @@ impl ContextPrefixSkill {
 impl Skill for ContextPrefixSkill {
     fn name(&self) -> &str {
         "context_prefix"
+    }
+    fn description(&self) -> &str {
+        "Prepends a context prefix to user messages"
     }
 
     async fn on_user_message(&self, messages: &mut Vec<ChatMessage>) {
@@ -520,12 +534,22 @@ impl SkillPackageSkill {
     pub fn is_user_invocable(&self) -> bool {
         self.user_invocable
     }
+
+    /// When this skill should be used, for routing.
+    #[allow(dead_code)]
+    pub fn when_to_use(&self) -> Option<&str> {
+        self.when_to_use.as_deref()
+    }
 }
 
 #[async_trait]
 impl Skill for SkillPackageSkill {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
     }
 
     async fn on_attach(&self) -> Vec<ChatMessage> {

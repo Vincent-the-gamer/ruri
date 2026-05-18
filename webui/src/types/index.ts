@@ -134,6 +134,7 @@ export interface ChatMessage {
   content: string | ContentPart[]
   tool_calls?: ToolCall[]
   tool_call_id?: string
+  tool_name?: string
 }
 
 export interface AttachedFile {
