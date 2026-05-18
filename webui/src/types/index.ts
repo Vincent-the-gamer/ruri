@@ -289,6 +289,7 @@ export interface ComputerUseConfig {
   admin_ids: string[]
   allowed_paths: string[]
   command_admin_required: Record<string, boolean>
+  shell_command_blacklist: string[]
   aio_sandbox_config?: AioSandboxConfig
 }
 
@@ -298,6 +299,7 @@ export interface UpdateComputerUseConfigRequest {
   admin_ids?: string[]
   allowed_paths?: string[]
   command_admin_required?: Record<string, boolean>
+  shell_command_blacklist?: string[]
   aio_sandbox_config?: AioSandboxConfig
 }
 

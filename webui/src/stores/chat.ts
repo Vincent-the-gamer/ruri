@@ -238,8 +238,20 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_call_start': {
-        // Tool call is starting - we may still be streaming content
-        // No action needed; we capture data at tool_call_end
+        // Tool call is starting — ensure there's an assistant message to attach
+        // tool_calls to, even if no text content has been streamed yet.
+        // This guarantees tool calls appear before the response text in the UI.
+        if (!streamingContent.value) {
+          // Create a placeholder assistant message for the tool calls
+          const lastMsg = messages.value[messages.value.length - 1]
+          if (!lastMsg || lastMsg.role !== 'assistant' || !isStreaming.value) {
+            messages.value.push({
+              role: 'assistant',
+              content: '',
+              tool_calls: [],
+            })
+          }
+        }
         break
       }
       case 'tool_call_delta': {

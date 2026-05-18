@@ -194,33 +194,7 @@ function renderMarkdown(
                     <span>琉璃</span>
                     <span class="label-dot"></span>
                 </div>
-                <div class="message-content assistant-content">
-                    <template v-if="Array.isArray(message.content)">
-                        <template
-                            v-for="(part, idx) in message.content"
-                            :key="idx"
-                        >
-                            <img
-                                v-if="
-                                    part.type === 'image_url' && part.image_url
-                                "
-                                :src="part.image_url.url"
-                                class="chat-image"
-                                alt="Image"
-                            />
-                            <div
-                                v-else-if="part.type === 'text' && part.text"
-                                v-html="renderMarkdown(part.text)"
-                            ></div>
-                        </template>
-                    </template>
-                    <div v-else v-html="renderMarkdown(message.content)"></div>
-                    <span
-                        v-if="isCurrentlyStreaming"
-                        class="streaming-cursor"
-                    ></span>
-                </div>
-                <!-- Tool calls -->
+                <!-- Tool calls (process) — shown before the response text (result) -->
                 <div v-if="hasToolCalls" class="tool-calls">
                     <div
                         @click="showToolCalls = !showToolCalls"
@@ -257,6 +231,33 @@ function renderMarkdown(
                             }}</pre>
                         </div>
                     </div>
+                </div>
+                <!-- Response text (result) — shown after the tool calls (process) -->
+                <div class="message-content assistant-content">
+                    <template v-if="Array.isArray(message.content)">
+                        <template
+                            v-for="(part, idx) in message.content"
+                            :key="idx"
+                        >
+                            <img
+                                v-if="
+                                    part.type === 'image_url' && part.image_url
+                                "
+                                :src="part.image_url.url"
+                                class="chat-image"
+                                alt="Image"
+                            />
+                            <div
+                                v-else-if="part.type === 'text' && part.text"
+                                v-html="renderMarkdown(part.text)"
+                            ></div>
+                        </template>
+                    </template>
+                    <div v-else v-html="renderMarkdown(message.content)"></div>
+                    <span
+                        v-if="isCurrentlyStreaming"
+                        class="streaming-cursor"
+                    ></span>
                 </div>
             </div>
         </div>

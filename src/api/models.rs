@@ -415,6 +415,7 @@ pub struct ComputerUseConfigDto {
     /// Per-command admin requirement overrides.
     /// Key: command name, Value: true = admin required, false = open to all.
     pub command_admin_required: HashMap<String, bool>,
+    pub shell_command_blacklist: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfigDto>,
 }
@@ -437,7 +438,21 @@ pub struct UpdateComputerUseConfigRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_admin_required: Option<HashMap<String, bool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell_command_blacklist: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfigDto>,
+}
+
+// ─── Shell Command Blacklist Models (Global) ───────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShellCommandBlacklistDto {
+    pub blacklist: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateShellCommandBlacklistRequest {
+    pub blacklist: Vec<String>,
 }
 
 // ─── Conversions ─────────────────────────────────────────────────
@@ -558,6 +573,7 @@ impl From<&crate::computer_use::ComputerUseConfig> for ComputerUseConfigDto {
             admin_ids: config.admin_ids.clone(),
             allowed_paths: config.allowed_paths.clone(),
             command_admin_required: config.command_admin_required.clone(),
+            shell_command_blacklist: config.shell_command_blacklist.clone(),
             aio_sandbox_config: config
                 .aio_sandbox_config
                 .as_ref()

@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
-import { restartSystem } from "../api";
+import {
+    restartSystem,
+    getShellCommandBlacklist,
+    updateShellCommandBlacklist,
+} from "../api";
 
 const { t } = useI18n();
 
+// ─── Restart ───
 const showRestartDialog = ref(false);
 const restarting = ref(false);
 const restartError = ref<string | null>(null);
@@ -45,6 +50,79 @@ const confirmRestart = async () => {
         restarting.value = false;
     }
 };
+
+// ─── Shell Command Blacklist ───
+const shellCommandBlacklist = ref<string[]>([]);
+const newBlacklistEntry = ref("");
+const blacklistLoading = ref(false);
+const blacklistSaving = ref(false);
+const blacklistSaveSuccess = ref(false);
+const blacklistSaveError = ref<string | null>(null);
+const blacklistLoadError = ref<string | null>(null);
+
+onMounted(async () => {
+    await loadBlacklist();
+});
+
+async function loadBlacklist() {
+    blacklistLoading.value = true;
+    blacklistLoadError.value = null;
+    try {
+        const data = await getShellCommandBlacklist();
+        shellCommandBlacklist.value = data.blacklist ?? [];
+    } catch (e: any) {
+        blacklistLoadError.value =
+            e?.response?.data?.error ||
+            e?.message ||
+            t("system.loadBlacklistFailed");
+    } finally {
+        blacklistLoading.value = false;
+    }
+}
+
+function addBlacklistEntry() {
+    if (
+        newBlacklistEntry.value.trim() &&
+        !shellCommandBlacklist.value.includes(newBlacklistEntry.value.trim())
+    ) {
+        shellCommandBlacklist.value.push(newBlacklistEntry.value.trim());
+        newBlacklistEntry.value = "";
+        clearBlacklistMessages();
+    }
+}
+
+function removeBlacklistEntry(entry: string) {
+    const idx = shellCommandBlacklist.value.indexOf(entry);
+    if (idx !== -1) {
+        shellCommandBlacklist.value.splice(idx, 1);
+        clearBlacklistMessages();
+    }
+}
+
+function clearBlacklistMessages() {
+    blacklistSaveSuccess.value = false;
+    blacklistSaveError.value = null;
+}
+
+async function saveBlacklist() {
+    blacklistSaving.value = true;
+    blacklistSaveError.value = null;
+    blacklistSaveSuccess.value = false;
+    try {
+        await updateShellCommandBlacklist(shellCommandBlacklist.value);
+        blacklistSaveSuccess.value = true;
+        setTimeout(() => {
+            blacklistSaveSuccess.value = false;
+        }, 3000);
+    } catch (e: any) {
+        blacklistSaveError.value =
+            e?.response?.data?.error ||
+            e?.message ||
+            t("system.saveBlacklistFailed");
+    } finally {
+        blacklistSaving.value = false;
+    }
+}
 </script>
 
 <template>
@@ -133,6 +211,168 @@ const confirmRestart = async () => {
                     }}
                 </button>
             </div>
+        </div>
+
+        <!-- Shell Command Blacklist Card -->
+        <div
+            class="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4 mt-6"
+        >
+            <div class="flex items-start gap-4">
+                <div
+                    class="flex-shrink-0 w-12 h-12 rounded-lg bg-destructive/10 flex items-center justify-center"
+                >
+                    <Icon
+                        icon="lucide:shield-off"
+                        class="text-xl text-destructive"
+                    />
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h2 class="text-lg font-semibold text-foreground">
+                        {{ t("system.shellCommandBlacklist") }}
+                    </h2>
+                    <p class="text-sm text-muted-foreground mt-1">
+                        {{ t("system.shellCommandBlacklistDesc") }}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Loading State -->
+            <div
+                v-if="blacklistLoading"
+                class="flex items-center gap-2 text-sm text-muted-foreground"
+            >
+                <Icon icon="lucide:loader-2" class="animate-spin text-base" />
+                {{ t("common.loading") }}
+            </div>
+
+            <!-- Load Error -->
+            <div
+                v-if="blacklistLoadError"
+                class="rounded-lg bg-destructive/10 border border-destructive/20 p-4"
+            >
+                <div class="flex items-center gap-2">
+                    <Icon icon="lucide:alert-circle" class="text-destructive" />
+                    <span class="text-sm text-destructive">{{
+                        blacklistLoadError
+                    }}</span>
+                </div>
+            </div>
+
+            <!-- Blacklist Editor -->
+            <template v-if="!blacklistLoading">
+                <div class="space-y-2">
+                    <div class="flex gap-2">
+                        <input
+                            v-model="newBlacklistEntry"
+                            type="text"
+                            :placeholder="
+                                t('system.shellCommandBlacklistPlaceholder')
+                            "
+                            class="flex-1 px-3 py-2 rounded-lg border border-border/50 bg-background/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+                            @keyup.enter="addBlacklistEntry"
+                        />
+                        <button
+                            class="px-3 py-2 rounded-lg text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+                            @click="addBlacklistEntry"
+                        >
+                            {{ t("common.add") }}
+                        </button>
+                    </div>
+
+                    <!-- Blacklist Items -->
+                    <div
+                        v-if="shellCommandBlacklist.length > 0"
+                        class="rounded-lg border border-border/30 bg-background/30 divide-y divide-border/20"
+                    >
+                        <div
+                            v-for="entry in shellCommandBlacklist"
+                            :key="entry"
+                            class="flex items-center justify-between px-3 py-2"
+                        >
+                            <code
+                                class="text-sm font-mono text-destructive bg-destructive/5 px-2 py-0.5 rounded"
+                            >
+                                {{ entry }}
+                            </code>
+                            <button
+                                @click="removeBlacklistEntry(entry)"
+                                class="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                :title="t('common.delete')"
+                            >
+                                <Icon icon="lucide:x" class="text-sm" />
+                            </button>
+                        </div>
+                    </div>
+                    <div
+                        v-else
+                        class="text-sm text-muted-foreground py-4 text-center"
+                    >
+                        {{ t("system.shellCommandBlacklistPlaceholder") }}
+                    </div>
+                </div>
+
+                <!-- Save Status Messages -->
+                <div
+                    v-if="blacklistSaveSuccess"
+                    class="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4"
+                >
+                    <div class="flex items-center gap-2">
+                        <Icon
+                            icon="lucide:check-circle"
+                            class="text-emerald-500"
+                        />
+                        <span
+                            class="text-sm text-emerald-600 dark:text-emerald-400"
+                        >
+                            {{ t("system.saveBlacklistSuccess") }}
+                        </span>
+                    </div>
+                </div>
+
+                <div
+                    v-if="blacklistSaveError"
+                    class="rounded-lg bg-destructive/10 border border-destructive/20 p-4"
+                >
+                    <div class="flex items-center gap-2">
+                        <Icon
+                            icon="lucide:alert-circle"
+                            class="text-destructive"
+                        />
+                        <span class="text-sm text-destructive">{{
+                            blacklistSaveError
+                        }}</span>
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div class="flex justify-end pt-2">
+                    <button
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+                        :class="[
+                            blacklistSaving
+                                ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                                : 'bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30',
+                        ]"
+                        :disabled="blacklistSaving"
+                        @click="saveBlacklist"
+                    >
+                        <Icon
+                            :icon="
+                                blacklistSaving
+                                    ? 'lucide:loader-2'
+                                    : 'lucide:save'
+                            "
+                            :class="{ 'animate-spin': blacklistSaving }"
+                            class="text-base"
+                        />
+                        {{
+                            blacklistSaving
+                                ? t("common.saving")
+                                : t("system.saveBlacklist")
+                        }}
+                    </button>
+                </div>
+            </template>
         </div>
 
         <!-- Confirmation Dialog -->

@@ -496,6 +496,16 @@ export async function restartSystem(): Promise<{ message: string }> {
   return res.data
 }
 
+export async function getShellCommandBlacklist(): Promise<{ blacklist: string[] }> {
+  const res = await client.get('/api/system/shell-command-blacklist')
+  return res.data
+}
+
+export async function updateShellCommandBlacklist(blacklist: string[]): Promise<{ blacklist: string[] }> {
+  const res = await client.put('/api/system/shell-command-blacklist', { blacklist })
+  return res.data
+}
+
 // ─── Knowledge Base ──────────────────────────────────────────
 
 export async function getKnowledgeBases(): Promise<KnowledgeBase[]> {

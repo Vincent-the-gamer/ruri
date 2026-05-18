@@ -60,6 +60,7 @@ impl AcpSession {
         match computer_use_config.runtime {
             crate::computer_use::ComputerUseRuntime::None => {
                 // Basic tools + BashTool (same as WebUI when computer use is disabled)
+                let blacklist = computer_use_config.shell_command_blacklist.clone();
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
@@ -67,7 +68,9 @@ impl AcpSession {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool::new(
+                    blacklist,
+                )));
             }
             crate::computer_use::ComputerUseRuntime::Local => {
                 // Create permission checker and workspace manager
@@ -88,6 +91,7 @@ impl AcpSession {
                     session_id: session_id.clone(),
                     permission_checker,
                     workspace_manager,
+                    require_shell_confirmation: true, // ACP mode: user must click button to confirm shell execution
                 });
 
                 let can_use_power_tools = computer_use_config.can_use_power_tools("acp_user");

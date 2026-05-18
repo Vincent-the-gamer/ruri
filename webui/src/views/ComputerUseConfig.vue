@@ -17,8 +17,10 @@ const runtimeLabelKeys: Record<string, string> = {
 const requireAdmin = ref(true);
 const adminIds = ref<string[]>([]);
 const allowedPaths = ref<string[]>([]);
+const shellCommandBlacklist = ref<string[]>([]);
 const newAdminId = ref("");
 const newAllowedPath = ref("");
+const newBlacklistEntry = ref("");
 
 const aioSandboxConfig = ref<AioSandboxConfig>({
     endpoint: "http://localhost:8080",
@@ -38,6 +40,9 @@ function syncFromStore() {
         requireAdmin.value = computerUseStore.config.require_admin;
         adminIds.value = [...computerUseStore.config.admin_ids];
         allowedPaths.value = [...computerUseStore.config.allowed_paths];
+        shellCommandBlacklist.value = [
+            ...computerUseStore.config.shell_command_blacklist,
+        ];
         if (computerUseStore.config.aio_sandbox_config) {
             aioSandboxConfig.value = {
                 ...computerUseStore.config.aio_sandbox_config,
@@ -99,6 +104,25 @@ function removeAllowedPath(path: string) {
     }
 }
 
+function addBlacklistEntry() {
+    if (
+        newBlacklistEntry.value.trim() &&
+        !shellCommandBlacklist.value.includes(newBlacklistEntry.value.trim())
+    ) {
+        shellCommandBlacklist.value.push(newBlacklistEntry.value.trim());
+        newBlacklistEntry.value = "";
+        clearMessages();
+    }
+}
+
+function removeBlacklistEntry(entry: string) {
+    const idx = shellCommandBlacklist.value.indexOf(entry);
+    if (idx !== -1) {
+        shellCommandBlacklist.value.splice(idx, 1);
+        clearMessages();
+    }
+}
+
 async function handleSave() {
     clearMessages();
     try {
@@ -107,6 +131,7 @@ async function handleSave() {
             require_admin: requireAdmin.value,
             admin_ids: adminIds.value,
             allowed_paths: allowedPaths.value,
+            shell_command_blacklist: shellCommandBlacklist.value,
             // Include aio sandbox config only if runtime is aio_sandbox
             aio_sandbox_config:
                 selectedRuntime.value === "aio_sandbox"
@@ -135,6 +160,8 @@ const hasChanges = computed(() => {
             JSON.stringify(computerUseStore.config.admin_ids) ||
         JSON.stringify(allowedPaths.value) !==
             JSON.stringify(computerUseStore.config.allowed_paths) ||
+        JSON.stringify(shellCommandBlacklist.value) !==
+            JSON.stringify(computerUseStore.config.shell_command_blacklist) ||
         aioSandboxChanged
     );
 });
@@ -346,6 +373,61 @@ const hasChanges = computed(() => {
                             <span class="item-list-value">{{ path }}</span>
                             <button
                                 @click="removeAllowedPath(path)"
+                                class="item-list-remove"
+                                :title="t('common.remove')"
+                            >
+                                <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Shell Command Blacklist -->
+                <div class="admin-section">
+                    <label class="input-label">{{
+                        t("computerUseConfig.shellCommandBlacklist")
+                    }}</label>
+                    <div class="input-row">
+                        <input
+                            v-model="newBlacklistEntry"
+                            type="text"
+                            :placeholder="
+                                t('computerUseConfig.shellCommandBlacklistDesc')
+                            "
+                            class="text-input"
+                            @keyup.enter="addBlacklistEntry"
+                        />
+                        <button
+                            @click="addBlacklistEntry"
+                            class="btn btn-secondary"
+                        >
+                            {{ t("common.add") }}
+                        </button>
+                    </div>
+                    <div
+                        v-if="shellCommandBlacklist.length > 0"
+                        class="item-list"
+                    >
+                        <div
+                            v-for="entry in shellCommandBlacklist"
+                            :key="entry"
+                            class="item-list-row"
+                        >
+                            <span class="item-list-value">{{ entry }}</span>
+                            <button
+                                @click="removeBlacklistEntry(entry)"
                                 class="item-list-remove"
                                 :title="t('common.remove')"
                             >

@@ -78,6 +78,12 @@ impl PermissionChecker {
         Ok(())
     }
 
+    /// Check if a shell command is blacklisted.
+    /// Delegates to the underlying `ComputerUseConfig`.
+    pub fn is_command_blacklisted(&self, command: &str) -> bool {
+        self.config.is_shell_command_blacklisted(command)
+    }
+
     /// Resolve a path for a user, handling relative paths and workspace
     fn resolve_path_for_user(
         &self,

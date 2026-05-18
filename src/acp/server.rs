@@ -223,7 +223,7 @@ impl RuriAgentState {
 
         // Extract computer_use_config and active_knowledge_base_ids from persisted config
         // Knowledge base IDs now come from AcpConfig (ACP-specific configuration)
-        let (computer_use_config, active_knowledge_base_ids) = provider_factory
+        let (mut computer_use_config, active_knowledge_base_ids) = provider_factory
             .config
             .as_ref()
             .map(|c| {
@@ -240,6 +240,21 @@ impl RuriAgentState {
             match crate::db::init(db_path).await {
                 Ok(pool) => {
                     tracing::info!("ACP: Database initialized for knowledge base");
+
+                    // Sync shell command blacklist from DB
+                    match crate::db::seed_shell_blacklist(&pool).await {
+                        Ok(patterns) => {
+                            tracing::info!(
+                                "ACP: Shell command blacklist loaded from DB: {} patterns",
+                                patterns.len()
+                            );
+                            computer_use_config.shell_command_blacklist = patterns;
+                        }
+                        Err(e) => {
+                            tracing::warn!("ACP: Failed to sync blacklist from DB: {}", e);
+                        }
+                    }
+
                     match crate::knowledge::KnowledgeBaseStore::new(pool).await {
                         Ok(kb_store) => {
                             let kb_service = crate::knowledge::KnowledgeBaseService::new(

@@ -228,6 +228,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // System
         .route("/api/system/restart", post(restart_system))
+        .route(
+            "/api/system/shell-command-blacklist",
+            get(get_shell_command_blacklist).put(update_shell_command_blacklist),
+        )
         // Knowledge base
         .route(
             "/api/knowledge-bases",
@@ -2422,6 +2426,14 @@ async fn update_computer_use_config(
         computer_use_config.command_admin_required = command_admin_required;
     }
 
+    // Update shell_command_blacklist if provided
+    let blacklist_updated = if let Some(shell_command_blacklist) = req.shell_command_blacklist {
+        computer_use_config.shell_command_blacklist = shell_command_blacklist;
+        true
+    } else {
+        false
+    };
+
     // Update aio_sandbox_config if provided
     if let Some(aio_sandbox_config_dto) = req.aio_sandbox_config {
         computer_use_config.aio_sandbox_config = Some(crate::computer_use::AioSandboxConfig {
@@ -2430,7 +2442,27 @@ async fn update_computer_use_config(
     }
 
     let dto = ComputerUseConfigDto::from(&*computer_use_config);
-    drop(computer_use_config);
+
+    // If blacklist was updated, sync to global state and database
+    if blacklist_updated {
+        let new_blacklist = computer_use_config.shell_command_blacklist.clone();
+        drop(computer_use_config);
+        {
+            let mut global_blacklist = state.shell_command_blacklist.write().await;
+            *global_blacklist = new_blacklist.clone();
+        }
+        let pool_guard = state.db_pool.read().await;
+        if let Some(ref pool) = *pool_guard {
+            if let Err(e) = crate::db::replace_blacklist_patterns(pool, &new_blacklist).await {
+                tracing::warn!(
+                    "Failed to sync blacklist to DB from computer use config update: {}",
+                    e
+                );
+            }
+        }
+    } else {
+        drop(computer_use_config);
+    }
 
     state.auto_save().await;
 
@@ -4223,6 +4255,62 @@ async fn delete_platform(State(state): State<Arc<AppState>>, Path(id): Path<Stri
     drop(configs);
     state.save_platforms_config().await.ok();
     StatusCode::NO_CONTENT.into_response()
+}
+
+// ─── Shell Command Blacklist Handlers (Global) ─────────────────────
+
+async fn get_shell_command_blacklist(
+    State(state): State<Arc<AppState>>,
+) -> Json<ShellCommandBlacklistDto> {
+    let blacklist = state.shell_command_blacklist.read().await;
+    Json(ShellCommandBlacklistDto {
+        blacklist: blacklist.clone(),
+    })
+}
+
+async fn update_shell_command_blacklist(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateShellCommandBlacklistRequest>,
+) -> Result<Json<ShellCommandBlacklistDto>, StatusCode> {
+    // Persist to database first
+    let pool_guard = state.db_pool.read().await;
+    if let Some(ref pool) = *pool_guard {
+        match crate::db::replace_blacklist_patterns(pool, &req.blacklist).await {
+            Ok(patterns) => {
+                drop(pool_guard);
+                // Sync to global in-memory blacklist
+                {
+                    let mut blacklist = state.shell_command_blacklist.write().await;
+                    *blacklist = patterns.clone();
+                }
+                // Sync to ComputerUseConfig
+                {
+                    let mut cu_config = state.computer_use_config.write().await;
+                    cu_config.shell_command_blacklist = patterns.clone();
+                }
+                // Save config file for backward compatibility
+                state.auto_save().await;
+                Ok(Json(ShellCommandBlacklistDto {
+                    blacklist: patterns,
+                }))
+            }
+            Err(e) => {
+                tracing::error!("Failed to update shell command blacklist in DB: {}", e);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    } else {
+        drop(pool_guard);
+        // Fallback: update in-memory only
+        let mut blacklist = state.shell_command_blacklist.write().await;
+        *blacklist = req.blacklist;
+        let result = ShellCommandBlacklistDto {
+            blacklist: blacklist.clone(),
+        };
+        drop(blacklist);
+        state.auto_save().await;
+        Ok(Json(result))
+    }
 }
 
 // ─── System endpoints ──────────────────────────────────────────

@@ -45,6 +45,12 @@ pub struct ComputerUseConfig {
     #[serde(default)]
     pub command_admin_required: HashMap<String, bool>,
 
+    /// Shell command blacklist — any command containing one of these
+    /// substrings (case-insensitive) will be blocked regardless of
+    /// admin status.
+    #[serde(default = "default_shell_blacklist")]
+    pub shell_command_blacklist: Vec<String>,
+
     /// AIO Sandbox configuration (used when runtime is AioSandbox)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aio_sandbox_config: Option<AioSandboxConfig>,
@@ -58,6 +64,7 @@ impl Default for ComputerUseConfig {
             admin_ids: Vec::new(),
             allowed_paths: Vec::new(),
             command_admin_required: HashMap::new(),
+            shell_command_blacklist: default_shell_blacklist(),
             aio_sandbox_config: None,
         }
     }
@@ -65,6 +72,66 @@ impl Default for ComputerUseConfig {
 
 fn default_require_admin() -> bool {
     true
+}
+
+fn default_shell_blacklist() -> Vec<String> {
+    vec![
+        // ── Linux / macOS ──
+        "sudo ".to_string(),
+        "rm -rf".to_string(),
+        "dd if=".to_string(),
+        "mkfs.".to_string(),
+        ":(){ :|:& };:".to_string(),
+        "chmod 777".to_string(),
+        "chown -R".to_string(),
+        "> /dev/sda".to_string(),
+        "mv /* ".to_string(),
+        "| sh".to_string(),
+        "| bash".to_string(),
+        "fdisk".to_string(),
+        "parted".to_string(),
+        "shutdown".to_string(),
+        "reboot".to_string(),
+        "halt".to_string(),
+        "poweroff".to_string(),
+        "init 0".to_string(),
+        "init 6".to_string(),
+        "kill -9".to_string(),
+        "pkill".to_string(),
+        "killall".to_string(),
+        "iptables -F".to_string(),
+        "ufw disable".to_string(),
+        "systemctl disable".to_string(),
+        "modprobe -r".to_string(),
+        "rmmod".to_string(),
+        "diskutil eraseDisk".to_string(),
+        "diskutil unmount".to_string(),
+        "hdiutil".to_string(),
+        "launchctl unload".to_string(),
+        "csrutil disable".to_string(),
+        "fdesetup".to_string(),
+        "softwareupdate".to_string(),
+        // ── Windows ──
+        "format ".to_string(),
+        "del /f /s".to_string(),
+        "rmdir /s".to_string(),
+        "diskpart".to_string(),
+        "reg delete".to_string(),
+        "reg add".to_string(),
+        "bcdedit".to_string(),
+        "icacls ".to_string(),
+        "takeown".to_string(),
+        "cipher /w".to_string(),
+        "sc delete".to_string(),
+        "sc stop".to_string(),
+        "net stop".to_string(),
+        "Remove-Item -Force -Recurse".to_string(),
+        "Set-ExecutionPolicy".to_string(),
+        "Stop-Process -Force".to_string(),
+        "Clear-RecycleBin".to_string(),
+        "Disable-WindowsOptionalFeature".to_string(),
+        "Reset-ComputerMachinePassword".to_string(),
+    ]
 }
 
 /// AIO Sandbox configuration
@@ -138,6 +205,16 @@ impl ComputerUseConfig {
             .get(command_name)
             .copied()
             .unwrap_or(default_require_admin)
+    }
+
+    /// Check if a shell command is blacklisted.
+    /// Returns `true` if the command (case-insensitive) contains any
+    /// of the blacklisted substrings.
+    pub fn is_shell_command_blacklisted(&self, command: &str) -> bool {
+        let lower = command.to_lowercase();
+        self.shell_command_blacklist
+            .iter()
+            .any(|entry| lower.contains(&entry.to_lowercase()))
     }
 }
 

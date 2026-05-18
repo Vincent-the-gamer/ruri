@@ -10,7 +10,8 @@
 //! - `kb_documents`              — Documents within knowledge bases
 //! - `kb_chunks`                 — Document chunks with embeddings for vector search
 //! - `users`                     — User accounts for WebUI authentication
-//! - Future tables can be added here as needed
+//! - `sessions`                  — User login sessions
+//! - `shell_command_blacklist`   — Shell command blacklist patterns
 
 use anyhow::{Context, Result};
 use argon2::password_hash::SaltString;
@@ -23,6 +24,68 @@ use tracing::info;
 
 /// Name of the unified database file.
 pub const DB_FILENAME: &str = "ruri.db";
+
+/// Default shell command blacklist patterns used to seed the database
+/// when the table is empty on first initialization.
+pub fn default_shell_blacklist_patterns() -> Vec<String> {
+    vec![
+        // ── Linux / macOS ──
+        "sudo ".to_string(),
+        "rm -rf".to_string(),
+        "dd if=".to_string(),
+        "mkfs.".to_string(),
+        ":(){ :|:& };:".to_string(),
+        "chmod 777".to_string(),
+        "chown -R".to_string(),
+        "> /dev/sda".to_string(),
+        "mv /* ".to_string(),
+        "| sh".to_string(),
+        "| bash".to_string(),
+        "fdisk".to_string(),
+        "parted".to_string(),
+        "shutdown".to_string(),
+        "reboot".to_string(),
+        "halt".to_string(),
+        "poweroff".to_string(),
+        "init 0".to_string(),
+        "init 6".to_string(),
+        "kill -9".to_string(),
+        "pkill".to_string(),
+        "killall".to_string(),
+        "iptables -F".to_string(),
+        "ufw disable".to_string(),
+        "systemctl disable".to_string(),
+        "modprobe -r".to_string(),
+        "rmmod".to_string(),
+        "diskutil eraseDisk".to_string(),
+        "diskutil unmount".to_string(),
+        "hdiutil".to_string(),
+        "launchctl unload".to_string(),
+        "csrutil disable".to_string(),
+        "fdesetup".to_string(),
+        "softwareupdate".to_string(),
+        // ── Windows ──
+        "format ".to_string(),
+        "del /f /s".to_string(),
+        "rmdir /s".to_string(),
+        "diskpart".to_string(),
+        "reg delete".to_string(),
+        "reg add".to_string(),
+        "bcdedit".to_string(),
+        "icacls ".to_string(),
+        "takeown".to_string(),
+        "cipher /w".to_string(),
+        "sc delete".to_string(),
+        "sc stop".to_string(),
+        "net stop".to_string(),
+        "Remove-Item -Force -Recurse".to_string(),
+        "Set-ExecutionPolicy".to_string(),
+        "Stop-Process -Force".to_string(),
+        "Clear-RecycleBin".to_string(),
+        "Disable-WindowsOptionalFeature".to_string(),
+        "Reset-ComputerMachinePassword".to_string(),
+    ]
+}
 
 /// Returns the path to the unified database file: `<config_dir>/ruri.db`
 pub fn database_path() -> PathBuf {
@@ -301,6 +364,20 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .await
     .context("Failed to create sessions table")?;
 
+    // ─── Shell Command Blacklist ────────────────────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS shell_command_blacklist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create shell_command_blacklist table")?;
+
     Ok(())
 }
 
@@ -339,4 +416,86 @@ async fn seed_default_user(pool: &SqlitePool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Seed the default shell command blacklist if the table is empty.
+/// Returns the current list of blacklist patterns (either seeded defaults or existing ones).
+pub async fn seed_shell_blacklist(pool: &SqlitePool) -> Result<Vec<String>> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shell_command_blacklist")
+        .fetch_one(pool)
+        .await
+        .context("Failed to count shell_command_blacklist")?;
+
+    if count == 0 {
+        let now = chrono::Utc::now().to_rfc3339();
+        let defaults = default_shell_blacklist_patterns();
+
+        for pattern in &defaults {
+            sqlx::query("INSERT INTO shell_command_blacklist (pattern, created_at) VALUES (?, ?)")
+                .bind(pattern)
+                .bind(&now)
+                .execute(pool)
+                .await
+                .context("Failed to seed shell command blacklist pattern")?;
+        }
+
+        info!(
+            "Seeded shell command blacklist with {} default patterns",
+            defaults.len()
+        );
+        Ok(defaults)
+    } else {
+        // Load existing patterns from DB
+        get_all_blacklist_patterns(pool).await
+    }
+}
+
+/// Get all shell command blacklist patterns from the database.
+pub async fn get_all_blacklist_patterns(pool: &SqlitePool) -> Result<Vec<String>> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT pattern FROM shell_command_blacklist ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch shell command blacklist")?;
+
+    Ok(rows.into_iter().map(|(p,)| p).collect())
+}
+
+/// Replace the entire shell command blacklist in the database.
+/// This clears all existing entries and inserts the new ones in a transaction.
+pub async fn replace_blacklist_patterns(
+    pool: &SqlitePool,
+    patterns: &[String],
+) -> Result<Vec<String>> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let mut tx = pool
+        .begin()
+        .await
+        .context("Failed to begin transaction for blacklist update")?;
+
+    sqlx::query("DELETE FROM shell_command_blacklist")
+        .execute(&mut *tx)
+        .await
+        .context("Failed to clear shell command blacklist")?;
+
+    for pattern in patterns {
+        sqlx::query("INSERT INTO shell_command_blacklist (pattern, created_at) VALUES (?, ?)")
+            .bind(pattern)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to insert blacklist pattern")?;
+    }
+
+    tx.commit()
+        .await
+        .context("Failed to commit blacklist transaction")?;
+
+    info!(
+        "Updated shell command blacklist with {} patterns",
+        patterns.len()
+    );
+
+    Ok(patterns.to_vec())
 }

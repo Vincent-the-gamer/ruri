@@ -211,6 +211,26 @@ async fn main() -> anyhow::Result<()> {
                     tracing::warn!("Knowledge base features will be unavailable");
                 }
             }
+
+            // ── Shell Command Blacklist — sync from DB ────────────
+            match db::seed_shell_blacklist(&pool).await {
+                Ok(patterns) => {
+                    tracing::info!(
+                        "Shell command blacklist loaded from DB: {} patterns",
+                        patterns.len()
+                    );
+                    // Sync to global in-memory blacklist
+                    *state.shell_command_blacklist.write().await = patterns.clone();
+                    // Sync to ComputerUseConfig
+                    {
+                        let mut cu_config = state.computer_use_config.write().await;
+                        cu_config.shell_command_blacklist = patterns;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to sync shell command blacklist from DB: {}", e);
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("Failed to initialize unified database: {}", e);

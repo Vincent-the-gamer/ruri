@@ -15,6 +15,14 @@ pub struct ComputerUseContext {
     pub session_id: String,
     pub permission_checker: Arc<PermissionChecker>,
     pub workspace_manager: Arc<WorkspaceManager>,
+    /// When true, shell commands require explicit user confirmation via the
+    /// `confirmed` parameter. When false, shell commands execute directly
+    /// (only blocked by the global blacklist).
+    /// In chat mode, this is false — dangerous commands are handled by the
+    /// blacklist instead of requiring per-command confirmation.
+    /// In ACP mode, this is also false — ACP has its own permission system
+    /// where the user confirms shell execution via button clicks.
+    pub require_shell_confirmation: bool,
 }
 
 /// Shell tool with permission checking
@@ -50,6 +58,12 @@ impl Tool for ShellTool {
                 false,
                 Some("Optional timeout in seconds (default: 30)."),
             )
+            .parameter_with_description(
+                "confirmed",
+                ParameterType::Boolean,
+                false,
+                Some("Set to true to confirm execution of the command. Required in chat mode when the command is potentially dangerous; set to true after the user has approved."),
+            )
             .build()
     }
 
@@ -67,13 +81,31 @@ impl Tool for ShellTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'command' parameter".into()))?;
 
-        // Block dangerous commands
-        if is_dangerous_command(command) {
+        // Always block blacklisted commands (configured via global shell command blacklist)
+        if self
+            .context
+            .permission_checker
+            .is_command_blacklisted(command)
+        {
             return Err(ToolError::ExecutionError(
-                "This command has been blocked due to security restrictions. \
-                 Dangerous commands like 'rm -rf', 'sudo', 'shutdown', etc. are not allowed."
+                "⚠️ This command has been blocked by the shell command blacklist. \
+                 It matches a dangerous command pattern configured by the administrator. \
+                 Please use a different command or contact your administrator to adjust the blacklist settings."
                     .to_string(),
             ));
+        }
+
+        // In chat mode (require_shell_confirmation=true), ask for user confirmation
+        // before executing any shell command. The model will present the confirmation
+        // request to the user and re-call this tool with confirmed=true.
+        if self.context.require_shell_confirmation {
+            let confirmed = parsed["confirmed"].as_bool().unwrap_or(false);
+            if !confirmed {
+                return Ok(format!(
+                    "⚠️ About to execute shell command:\n```\n{}\n```\n\nPlease confirm this operation. Reply with 'yes' or 'proceed' to execute.",
+                    command
+                ));
+            }
         }
 
         let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
@@ -260,52 +292,4 @@ impl Tool for PythonTool {
             )))
         }
     }
-}
-
-/// Check if a command contains dangerous patterns
-fn is_dangerous_command(command: &str) -> bool {
-    let lower = command.to_lowercase();
-
-    // List of dangerous command patterns
-    let dangerous_patterns = [
-        "rm -rf",
-        "rm -r",
-        "rm -f",
-        "sudo ",
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "init 0",
-        "init 6",
-        "kill -9",
-        "killall",
-        "pkill",
-        "dd if=",
-        "mkfs",
-        "fdisk",
-        "format",
-        "del /",
-        "rd /",
-        "rmdir /s",
-        "format ",
-        "> /dev/",
-        "> /dev/sd",
-        "chmod 777",
-        "chown root",
-    ];
-
-    for pattern in &dangerous_patterns {
-        if lower.contains(pattern) {
-            return true;
-        }
-    }
-
-    // Check for additional dangerous patterns
-    // Be careful with this one, though - it may have false positives
-    if lower.contains("> /dev") && (lower.contains("sd") || lower.contains("hd")) {
-        return true;
-    }
-
-    false
 }

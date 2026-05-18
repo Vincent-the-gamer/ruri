@@ -195,6 +195,71 @@ pub struct PersistedConfig {
     pub personas: HashMap<String, PersistedPersona>,
     #[serde(default)]
     pub config_profiles: HashMap<String, PersistedConfigProfile>,
+
+    /// Global shell command blacklist — any command containing one of these
+    /// substrings (case-insensitive) will be blocked regardless of admin status.
+    #[serde(default = "default_shell_blacklist")]
+    pub shell_command_blacklist: Vec<String>,
+}
+
+fn default_shell_blacklist() -> Vec<String> {
+    vec![
+        // ── Linux / macOS ──
+        "sudo ".to_string(),
+        "rm -rf".to_string(),
+        "dd if=".to_string(),
+        "mkfs.".to_string(),
+        ":(){ :|:& };:".to_string(),
+        "chmod 777".to_string(),
+        "chown -R".to_string(),
+        "> /dev/sda".to_string(),
+        "mv /* ".to_string(),
+        "| sh".to_string(),
+        "| bash".to_string(),
+        "fdisk".to_string(),
+        "parted".to_string(),
+        "shutdown".to_string(),
+        "reboot".to_string(),
+        "halt".to_string(),
+        "poweroff".to_string(),
+        "init 0".to_string(),
+        "init 6".to_string(),
+        "kill -9".to_string(),
+        "pkill".to_string(),
+        "killall".to_string(),
+        "iptables -F".to_string(),
+        "ufw disable".to_string(),
+        "systemctl disable".to_string(),
+        "modprobe -r".to_string(),
+        "rmmod".to_string(),
+        "diskutil eraseDisk".to_string(),
+        "diskutil unmount".to_string(),
+        "hdiutil".to_string(),
+        "launchctl unload".to_string(),
+        "csrutil disable".to_string(),
+        "fdesetup".to_string(),
+        "softwareupdate".to_string(),
+        // ── Windows ──
+        "format ".to_string(),
+        "del /f /s".to_string(),
+        "rmdir /s".to_string(),
+        "diskpart".to_string(),
+        "reg delete".to_string(),
+        "reg add".to_string(),
+        "bcdedit".to_string(),
+        "icacls ".to_string(),
+        "takeown".to_string(),
+        "cipher /w".to_string(),
+        "sc delete".to_string(),
+        "sc stop".to_string(),
+        "net stop".to_string(),
+        "Remove-Item -Force -Recurse".to_string(),
+        "Set-ExecutionPolicy".to_string(),
+        "Stop-Process -Force".to_string(),
+        "Clear-RecycleBin".to_string(),
+        "Disable-WindowsOptionalFeature".to_string(),
+        "Reset-ComputerMachinePassword".to_string(),
+    ]
 }
 
 // ─── Debug Session Config (WebUI chat debug settings) ────────────────
@@ -462,6 +527,9 @@ pub struct AppState {
     /// Knowledge base service (initialized after AppState creation).
     pub knowledge_base_service:
         std::sync::Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
+    /// Global shell command blacklist — any command containing one of these
+    /// substrings (case-insensitive) will be blocked regardless of admin status.
+    pub shell_command_blacklist: RwLock<Vec<String>>,
     /// Debug session configuration (WebUI chat debug settings).
     /// Persisted separately from config profiles.
     pub debug_session: RwLock<DebugSessionConfig>,
@@ -501,6 +569,7 @@ impl AppState {
             acp_config,
             mut computer_use_config,
             web_search_config,
+            shell_command_blacklist,
         ) = match Self::load_from_file_sync(config_path) {
             Ok(config) => {
                 tracing::info!("Loaded config from {}", config_path.display());
@@ -610,6 +679,7 @@ impl AppState {
                     config.acp_config,
                     config.computer_use_config,
                     config.web_search_config,
+                    config.shell_command_blacklist,
                 )
             }
             Err(e) => {
@@ -627,6 +697,7 @@ impl AppState {
                     AcpConfig::default(),
                     crate::computer_use::ComputerUseConfig::default(),
                     crate::types::WebSearchConfig::default(),
+                    default_shell_blacklist(),
                 )
             }
         };
@@ -715,6 +786,7 @@ impl AppState {
                 std::collections::HashMap::new(),
             )),
             knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+            shell_command_blacklist: RwLock::new(shell_command_blacklist),
             debug_session: RwLock::new(DebugSessionConfig::default()),
             server_shutdown_tx: shutdown_tx,
             server_shutdown_rx: shutdown_rx,
@@ -889,6 +961,10 @@ impl AppState {
         {
             let mut guard = self.web_search_config.write().await;
             *guard = config.web_search_config;
+        }
+        {
+            let mut guard = self.shell_command_blacklist.write().await;
+            *guard = config.shell_command_blacklist;
         }
 
         Ok(())
@@ -1407,6 +1483,7 @@ impl AppState {
         let acp_config = self.acp_config.read().await;
         let computer_use_config = self.computer_use_config.read().await;
         let web_search_config = self.web_search_config.read().await;
+        let shell_command_blacklist = self.shell_command_blacklist.read().await;
 
         let persisted_providers: HashMap<String, PersistedProvider> = providers
             .iter()
@@ -1498,6 +1575,7 @@ impl AppState {
             acp_config: acp_config.clone(),
             computer_use_config: computer_use_config.clone(),
             web_search_config: web_search_config.clone(),
+            shell_command_blacklist: shell_command_blacklist.clone(),
         }
     }
 
@@ -2216,6 +2294,7 @@ impl AppState {
             crate::computer_use::ComputerUseRuntime::None => {
                 // Computer use is disabled - register only basic tools
                 tracing::info!("Computer use is disabled, registering basic tools only");
+                let global_blacklist = self.shell_command_blacklist.read().await.clone();
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ReadFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::WriteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::CreateFileTool));
@@ -2223,7 +2302,9 @@ impl AppState {
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::DeleteFileTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::ListDirectoryTool));
                 agent.register_tool(Arc::new(crate::agent::builtin_tools::SearchFilesTool));
-                agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool));
+                agent.register_tool(Arc::new(crate::agent::builtin_tools::BashTool::new(
+                    global_blacklist,
+                )));
             }
             crate::computer_use::ComputerUseRuntime::Local => {
                 // Computer use is enabled in local mode
@@ -2245,6 +2326,7 @@ impl AppState {
                     session_id: session_id.to_string(),
                     permission_checker,
                     workspace_manager,
+                    require_shell_confirmation: false, // Chat mode: blacklist handles dangerous commands, no per-command confirmation
                 });
 
                 // Check if user can use power tools

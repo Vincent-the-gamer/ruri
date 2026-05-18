@@ -726,7 +726,33 @@ fn matches_glob_inner(text: &[char], pattern: &[char]) -> bool {
 // ─── BashTool ───────────────────────────────────────────────────────
 
 /// Execute a bash/shell command and return the output.
-pub struct BashTool;
+pub struct BashTool {
+    shell_command_blacklist: Vec<String>,
+}
+
+impl BashTool {
+    pub fn new(blacklist: Vec<String>) -> Self {
+        Self {
+            shell_command_blacklist: blacklist,
+        }
+    }
+
+    /// Check if a shell command is blacklisted.
+    fn is_blacklisted(&self, command: &str) -> bool {
+        let lower = command.to_lowercase();
+        self.shell_command_blacklist
+            .iter()
+            .any(|entry| lower.contains(&entry.to_lowercase()))
+    }
+}
+
+impl Default for BashTool {
+    fn default() -> Self {
+        Self {
+            shell_command_blacklist: Vec::new(),
+        }
+    }
+}
 
 #[async_trait]
 impl Tool for BashTool {
@@ -759,6 +785,16 @@ impl Tool for BashTool {
         let command = parsed["command"]
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'command' parameter".into()))?;
+
+        // Check global shell command blacklist
+        if self.is_blacklisted(command) {
+            return Err(ToolError::ExecutionError(
+                "⚠️ This command has been blocked by the shell command blacklist. \
+                 It matches a dangerous command pattern configured by the administrator. \
+                 Please use a different command or contact your administrator to adjust the blacklist settings."
+                    .to_string(),
+            ));
+        }
 
         let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
 
