@@ -5,6 +5,10 @@ authors = ["Vincent-the-gamer"]
 version = "0.1.0"
 edition = "2024"
 
+# Unix process management for shell tool (process group kill)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -79,10 +83,6 @@ url = "2.5"
 
 # Base64 encoding for proxy auth
 base64 = "0.22"
-
-# Unix process management for shell tool (process group kill)
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 # URL encoding for Discord reaction API
 urlencoding = "2"
