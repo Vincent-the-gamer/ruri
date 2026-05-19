@@ -17,6 +17,7 @@ const formData = reactive({
     name: "",
     description: "",
     prompt: "",
+    tool_response_style: "",
 });
 
 onMounted(() => {
@@ -28,6 +29,7 @@ function openCreate() {
     formData.name = "";
     formData.description = "";
     formData.prompt = "";
+    formData.tool_response_style = "";
     showForm.value = true;
 }
 
@@ -36,22 +38,26 @@ function openEdit(persona: Persona) {
     formData.name = persona.name;
     formData.description = persona.description;
     formData.prompt = persona.prompt;
+    formData.tool_response_style = persona.tool_response_style ?? "";
     showForm.value = true;
 }
 
 async function handleSave() {
     try {
+        const styleValue = formData.tool_response_style.trim() || null;
         if (editingPersona.value) {
             await personaStore.updatePersona(editingPersona.value.id, {
                 name: formData.name,
                 description: formData.description,
                 prompt: formData.prompt,
+                tool_response_style: styleValue,
             } as UpdatePersonaRequest);
         } else {
             await personaStore.createPersona({
                 name: formData.name,
                 description: formData.description,
                 prompt: formData.prompt,
+                tool_response_style: styleValue,
             } as CreatePersonaRequest);
         }
         showForm.value = false;
@@ -355,6 +361,22 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
                                 rows="6"
                                 :placeholder="t('personas.promptPlaceholder')"
                             ></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("personas.toolResponseStyle")
+                            }}</label>
+                            <textarea
+                                v-model="formData.tool_response_style"
+                                class="form-textarea"
+                                rows="3"
+                                :placeholder="
+                                    t('personas.toolResponseStylePlaceholder')
+                                "
+                            ></textarea>
+                            <p class="form-hint">
+                                {{ t("personas.toolResponseStyleHint") }}
+                            </p>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -871,14 +893,20 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
 
 .form-input:focus,
 .form-textarea:focus {
-    border-color: hsl(var(--primary) / 0.5);
-    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
 }
 
 .form-textarea {
     resize: vertical;
-    min-height: 120px;
-    font-family: inherit;
+    min-height: 100px;
+}
+
+.form-hint {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground) / 0.7);
+    margin-top: 0.25rem;
+    line-height: 1.4;
 }
 
 .modal-footer {

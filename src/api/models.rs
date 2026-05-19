@@ -380,6 +380,9 @@ pub struct PersonaDto {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_response_style: Option<String>,
 }
 
 /// Request body for creating a new persona template.
@@ -391,6 +394,9 @@ pub struct CreatePersonaRequest {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_response_style: Option<String>,
 }
 
 /// Request body for partially updating a persona template.
@@ -402,6 +408,14 @@ pub struct UpdatePersonaRequest {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    /// Use `null` to clear it, or a string value to set/update it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
+    pub tool_response_style: Option<Option<String>>,
 }
 
 // ─── Computer Use Config Models ─────────────────────────────────────

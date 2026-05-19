@@ -646,6 +646,11 @@ export default {
     promptPlaceholder: '输入系统提示词来定义 AI 的行为、性格和回答风格...',
     namePlaceholder: '例如：代码助手',
     descriptionPlaceholder: '例如：专业的编程助手',
+    toolResponseStyle: '工具回复风格指引',
+    toolResponseStylePlaceholder:
+        '例如：用傲娇的语气汇报工具结果，不要机械罗列数据...',
+    toolResponseStyleHint:
+        '留空则使用默认指引，自动让人设在工具回复中也保持一致风格。填写后可自定义 LLM 拿到工具结果后的叙述方式。',
     defaultAssistant: '默认助手',
     defaultAssistantDesc: '通用 AI 助手',
   },

@@ -1552,12 +1552,17 @@ impl ProviderFactory {
         let persona_prompt = if let Some(pid) = active_profile_persona_id {
             if let Some(persona) = config.personas.get(&pid) {
                 if !persona.prompt.is_empty() {
+                    let full_prompt = crate::api::state::build_persona_system_prompt(
+                        &persona.prompt,
+                        persona.tool_response_style.as_deref(),
+                    );
                     tracing::info!(
                         persona_id = %pid,
                         persona_name = %persona.name,
+                        has_tool_response_style = persona.tool_response_style.is_some(),
                         "ACP resolved persona system prompt from library"
                     );
-                    Some(persona.prompt.clone())
+                    Some(full_prompt)
                 } else {
                     None
                 }

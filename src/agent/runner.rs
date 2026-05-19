@@ -267,8 +267,29 @@ impl Agent {
         }
 
         parts.push(String::new());
+
+        // ── Tool calling priority & failure handling ─────────────────
+        parts.push("## Tool Calling Priority (default order)".to_string());
         parts.push(
-            "**Priority rule**: If a skill matches the user request, use that skill instructions and tools FIRST. Only fall back to general-purpose tools (read_file, write_file, bash, etc.) if no skill is relevant.".to_string(),
+            "When processing a user request, follow this default priority order:\n\n\
+            1. **Skill** — If any listed skill matches the user request (by name, description, or \"when_to_use\" condition), use it FIRST.\n\
+            2. **web_search** — If no skill matches and the user needs external/real-time information, use web_search.\n\
+            3. **bash / shell** — Use as a last resort for system-level operations or complex file manipulations.\n\
+            4. **Other tools** (read_file, write_file, etc.) — Use as needed to support the above.\n\n\
+            **Exception**: If the user explicitly specifies which tool or method to use (e.g. \"use web search\", \"run a shell command\", \"use the X skill\"), follow their instruction and skip the default priority."
+                .to_string(),
+        );
+
+        parts.push(String::new());
+
+        // ── Tool failure handling ──────────────────────────────────
+        parts.push("## Tool Failure Handling".to_string());
+        parts.push(
+            "If a tool call returns an error or fails:\n\
+            - Do NOT automatically fall back to other tools or try alternative methods on your own.\n\
+            - Instead, clearly explain the failure to the user and ASK whether they would like you to try a different approach or tool.\n\
+            - Wait for the user's confirmation before proceeding with any alternative."
+                .to_string(),
         );
 
         Some(parts.join("\n"))
@@ -658,6 +679,24 @@ impl Agent {
                     }
                 }
 
+                // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
+                // to prevent the model from auto-fallback to other tools.
+                let tool_failed = tool_calls_for_history.iter().any(|call| {
+                    self.history.iter().any(|msg| {
+                        msg.role == MessageRole::Tool
+                            && msg.tool_call_id.as_deref() == Some(&call.id)
+                            && msg
+                                .content
+                                .as_ref()
+                                .and_then(|c| c.as_text_full())
+                                .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
+                    })
+                });
+                if tool_failed {
+                    tracing::info!("Tool execution failed, breaking loop to prevent auto-fallback");
+                    return Ok("tool_error".to_string());
+                }
+
                 round += 1;
                 if round >= max_rounds {
                     tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
@@ -924,6 +963,38 @@ impl Agent {
                                 break 'agent_loop stopped_response;
                             }
                         }
+                    }
+
+                    // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
+                    // to prevent the model from auto-fallback to other tools.
+                    let tool_failed = calls.iter().any(|call| {
+                        self.history.iter().any(|msg| {
+                            msg.role == MessageRole::Tool
+                                && msg.tool_call_id.as_deref() == Some(&call.id)
+                                && msg
+                                    .content
+                                    .as_ref()
+                                    .and_then(|c| c.as_text_full())
+                                    .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
+                        })
+                    });
+                    if tool_failed {
+                        tracing::info!(
+                            "Tool execution failed, breaking loop to prevent auto-fallback"
+                        );
+                        let error_response = ChatResponse {
+                            id: None,
+                            object: Some("chat.completion".to_string()),
+                            model: None,
+                            choices: vec![crate::types::Choice {
+                                index: 0,
+                                message: ChatMessage::assistant(""),
+                                finish_reason: Some("tool_error".to_string()),
+                            }],
+                            usage: None,
+                            extra: serde_json::Map::new(),
+                        };
+                        break 'agent_loop error_response;
                     }
 
                     round += 1;
@@ -1640,6 +1711,21 @@ impl AgentStreamer {
                                     break;
                                 }
                             }
+                        }
+
+                        // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
+                        // to prevent the model from auto-fallback to other tools.
+                        let tool_failed = tool_calls_for_history.iter().any(|call| {
+                            agent.history.iter().any(|msg| {
+                                msg.role == MessageRole::Tool
+                                    && msg.tool_call_id.as_deref() == Some(&call.id)
+                                    && msg.content.as_ref().and_then(|c| c.as_text_full())
+                                        .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
+                            })
+                        });
+                        if tool_failed {
+                            tracing::info!("Tool execution failed, breaking loop to prevent auto-fallback");
+                            break;
                         }
 
                         round += 1;

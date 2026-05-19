@@ -83,6 +83,11 @@ export default {
     promptPlaceholder: 'Enter system prompt to define AI behavior, personality, and response style...',
     namePlaceholder: 'e.g., Code Assistant',
     descriptionPlaceholder: 'e.g., Professional programming assistant',
+    toolResponseStyle: 'Tool Response Style Guide',
+    toolResponseStylePlaceholder:
+        'e.g., Present tool results with a playful tone, don\'t just list data mechanically...',
+    toolResponseStyleHint:
+        'Leave empty to use the default guide, which automatically ensures the persona stays consistent when presenting tool results. Fill in to customize how the LLM narrates tool results.',
     defaultAssistant: 'Default Assistant',
     defaultAssistantDesc: 'General AI assistant',
   },

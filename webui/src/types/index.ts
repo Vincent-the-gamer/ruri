@@ -329,18 +329,21 @@ export interface Persona {
   name: string
   description: string
   prompt: string
+  tool_response_style?: string | null
 }
 
 export interface CreatePersonaRequest {
   name: string
   description: string
   prompt: string
+  tool_response_style?: string | null
 }
 
 export interface UpdatePersonaRequest {
   name?: string
   description?: string
   prompt?: string
+  tool_response_style?: string | null
 }
 
 // ─── Config Profile Types ───────────────────────────────────────

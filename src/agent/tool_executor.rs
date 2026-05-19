@@ -96,8 +96,15 @@ impl ToolExecutor {
                     error = %e,
                     "Tool execution failed"
                 );
-                // Always show the raw error for tool execution failures
-                let content = format!("Error: {}", e);
+                // Return the error with a clear directive to NOT fall back to other tools.
+                // The agent loop will detect this failure and ask the user for guidance.
+                let content = format!(
+                    "TOOL_ERROR: {}\n\n\
+                    ⚠️ This tool call has failed. Do NOT attempt to use other tools to work around \
+                    this error on your own. Instead, explain the failure to the user and ASK whether \
+                    they would like you to try a different approach.",
+                    e
+                );
                 Ok(ToolResult {
                     tool_call_id: String::new(),
                     content,

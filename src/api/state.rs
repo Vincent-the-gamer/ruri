@@ -54,6 +54,12 @@ pub struct PersistedPersona {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    /// When set, this is appended to the system prompt to guide the model on how to
+    /// present tool execution results in character. When not set, a sensible default
+    /// is used to ensure the persona's emotional value carries through to tool responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_response_style: Option<String>,
 }
 
 /// Persona data used internally to construct the agent's system prompt.
@@ -66,6 +72,9 @@ pub struct EmbeddedPersona {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_response_style: Option<String>,
 }
 
 /// Embedded provider configuration that belongs to a specific Config Profile.
@@ -429,6 +438,8 @@ pub struct StoredPersona {
     pub description: String,
     /// The full system prompt that defines the persona's behavior.
     pub prompt: String,
+    /// Optional guidance for how to narrate tool results in a persona-consistent style.
+    pub tool_response_style: Option<String>,
 }
 
 // ─── Config File Path ────────────────────────────────────────────
@@ -630,6 +641,7 @@ impl AppState {
                                 name: p.name.clone(),
                                 description: p.description.clone(),
                                 prompt: p.prompt.clone(),
+                                tool_response_style: p.tool_response_style.clone(),
                             },
                         )
                     })
@@ -890,6 +902,7 @@ impl AppState {
                         name: p.name.clone(),
                         description: p.description.clone(),
                         prompt: p.prompt.clone(),
+                        tool_response_style: p.tool_response_style.clone(),
                     },
                 )
             })
@@ -1535,6 +1548,7 @@ impl AppState {
                         name: p.name.clone(),
                         description: p.description.clone(),
                         prompt: p.prompt.clone(),
+                        tool_response_style: p.tool_response_style.clone(),
                     },
                 )
             })
@@ -2270,6 +2284,7 @@ impl AppState {
                     name: p.name.clone(),
                     description: p.description.clone(),
                     prompt: p.prompt.clone(),
+                    tool_response_style: p.tool_response_style.clone(),
                 });
                 drop(personas);
                 if let Some(p) = resolved {
@@ -2512,11 +2527,16 @@ impl AppState {
         // system messages. This ensures the persona is never overridden.
         if let Some(ref persona) = deferred_persona {
             if !persona.prompt.is_empty() {
+                let full_prompt = build_persona_system_prompt(
+                    &persona.prompt,
+                    persona.tool_response_style.as_deref(),
+                );
                 tracing::info!(
                     persona_name = %persona.name,
+                    has_tool_response_style = persona.tool_response_style.is_some(),
                     "Setting persona as system prompt (sole system message)"
                 );
-                agent.set_system_prompt(&persona.prompt);
+                agent.set_system_prompt(&full_prompt);
             } else {
                 tracing::warn!(
                     persona_name = %persona.name,
@@ -2581,4 +2601,24 @@ impl AppState {
 
         Ok(agent)
     }
+}
+
+/// Build the full system prompt from a persona's base prompt and optional
+/// tool response style guidance.
+///
+/// When `tool_response_style` is provided, it is appended to the system prompt
+/// to guide the model on how to present tool results in character. When not
+/// provided, a sensible default is used to ensure the persona's emotional value
+/// carries through to tool responses.
+pub(crate) fn build_persona_system_prompt(
+    base_prompt: &str,
+    tool_response_style: Option<&str>,
+) -> String {
+    let default_style = "\n\n---\n\n## 回复风格指引\n\
+当你使用工具获取结果后，请务必保持你的人设风格向用户呈现信息。\n\
+不要机械地罗列数据或结果，而是要用符合你角色设定的语气、情感和表达方式\n\
+来进行叙述。保持角色的一致性和生动性，让用户感受到你的个性魅力。";
+
+    let style = tool_response_style.unwrap_or(default_style);
+    format!("{}\n\n{}", base_prompt, style)
 }

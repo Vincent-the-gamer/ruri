@@ -2546,6 +2546,7 @@ async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaDt
             name: p.name.clone(),
             description: p.description.clone(),
             prompt: p.prompt.clone(),
+            tool_response_style: p.tool_response_style.clone(),
         })
         .collect();
     Json(list)
@@ -2563,6 +2564,7 @@ async fn get_persona(
             name: p.name.clone(),
             description: p.description.clone(),
             prompt: p.prompt.clone(),
+            tool_response_style: p.tool_response_style.clone(),
         })),
         None => Err(StatusCode::NOT_FOUND),
     }
@@ -2596,6 +2598,7 @@ async fn create_persona(
         name: req.name.clone(),
         description: req.description.clone(),
         prompt: req.prompt.clone(),
+        tool_response_style: req.tool_response_style.clone(),
     };
 
     {
@@ -2616,6 +2619,7 @@ async fn create_persona(
         name: req.name,
         description: req.description,
         prompt: req.prompt,
+        tool_response_style: req.tool_response_style,
     }))
 }
 
@@ -2659,11 +2663,16 @@ async fn update_persona(
         persona.prompt = prompt.clone();
     }
 
+    if let Some(tool_response_style) = &req.tool_response_style {
+        persona.tool_response_style = tool_response_style.clone();
+    }
+
     let dto = PersonaDto {
         id: persona.id.clone(),
         name: persona.name.clone(),
         description: persona.description.clone(),
         prompt: persona.prompt.clone(),
+        tool_response_style: persona.tool_response_style.clone(),
     };
 
     tracing::info!(persona_id = %id, "Persona template updated");
