@@ -426,6 +426,15 @@ pub enum StreamEvent {
         /// The text fragment appended to the assistant's message.
         delta: String,
     },
+    /// A tool is being executed (sent immediately before the tool runs).
+    /// This gives the user immediate feedback that work is happening.
+    #[serde(rename = "tool_executing")]
+    ToolExecuting {
+        tool_call_id: String,
+        tool_name: String,
+        /// Human-readable preview of the arguments (truncated if long).
+        arguments_preview: String,
+    },
     /// A tool call is being started by the assistant.
     #[serde(rename = "tool_call_start")]
     ToolCallStart {

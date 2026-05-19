@@ -7,6 +7,50 @@ use serde_json::Value;
 use std::ffi::OsStr;
 use std::path::Path;
 
+// ─── Process Group Guard ────────────────────────────────────────────
+
+/// A wrapper that ensures a Unix process group is killed on drop.
+/// Used by shell tools to prevent orphan processes from holding ports
+/// when the server is stopped or the tool is cancelled.
+pub struct ProcessGroupGuard {
+    pgid: i32,
+}
+
+impl ProcessGroupGuard {
+    #[cfg(unix)]
+    pub fn new(pid: u32) -> Self {
+        Self { pgid: pid as i32 }
+    }
+
+    #[cfg(not(unix))]
+    pub fn new(_pid: u32) -> Self {
+        Self { pgid: 0 }
+    }
+
+    #[cfg(unix)]
+    pub fn kill(&self) {
+        let pgid = -self.pgid;
+        unsafe {
+            libc::kill(pgid, libc::SIGTERM);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        unsafe {
+            libc::kill(pgid, libc::SIGKILL);
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn kill(&self) {}
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if self.pgid > 0 {
+            self.kill();
+        }
+    }
+}
+
 // ─── Helper ────────────────────────────────────────────────────────
 
 /// Parse a JSON args string into a serde_json::Value.
@@ -801,36 +845,57 @@ impl Tool for BashTool {
         // Choose shell based on operating system for cross-platform support
         #[cfg(target_os = "windows")]
         let shell_command = async {
-            // On Windows, try PowerShell first, then fall back to cmd
+            // On Windows, try PowerShell first
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
-                .output()
-                .await
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
         };
 
         #[cfg(not(target_os = "windows"))]
         let shell_command = async {
-            // On Unix-like systems (Linux, macOS), use bash
+            // On Unix-like systems (Linux, macOS), use bash with a new process group.
+            // Setting process_group(0) means all child processes spawned by the bash
+            // command belong to a dedicated process group (PGID = bash PID).
+            // When the tool is cancelled or the server is stopped, we kill the entire
+            // process group to prevent orphan processes that hold onto ports.
             tokio::process::Command::new("bash")
                 .arg("-c")
                 .arg(command)
-                .output()
-                .await
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .process_group(0)
+                .kill_on_drop(true)
+                .spawn()
         };
 
-        // Execute the command with timeout
-        let output =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_command)
-                .await
-                .map_err(|_| {
-                    ToolError::ExecutionError(format!(
-                        "Command timed out after {} seconds",
-                        timeout_secs
-                    ))
-                })?
-                .map_err(|e| {
-                    ToolError::ExecutionError(format!("Failed to execute command: {}", e))
-                })?;
+        // Spawn the child process
+        let child = shell_command
+            .await
+            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
+
+        // Save the child's PID before it's moved into wait_with_output
+        let child_pid = child.id();
+
+        // Wrap with a process group guard: when this guard is dropped,
+        // the entire process group is killed to prevent orphan processes
+        // from holding onto ports after the server stops.
+        let _guard = ProcessGroupGuard::new(child_pid.unwrap_or(0));
+
+        // Execute with timeout support
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| {
+            // Timeout: kill the entire process group via the guard
+            _guard.kill();
+            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
+        })?
+        .map_err(|e| ToolError::ExecutionError(format!("Failed to execute command: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

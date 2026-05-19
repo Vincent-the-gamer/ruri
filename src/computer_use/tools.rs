@@ -128,32 +128,47 @@ impl Tool for ShellTool {
             self.context.user_id, self.context.session_id, command
         );
 
-        // Execute the command with timeout
+        // Execute the command with timeout. Use spawn() + process_group(0)
+        // so that all children are in their own process group and can be
+        // killed atomically when the tool is cancelled or the server shuts down.
         #[cfg(target_os = "windows")]
-        let shell_future = tokio::process::Command::new("powershell")
+        let child = tokio::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", command])
             .current_dir(&working_dir)
-            .output();
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
 
         #[cfg(not(target_os = "windows"))]
-        let shell_future = tokio::process::Command::new("bash")
+        let child = tokio::process::Command::new("bash")
             .arg("-c")
             .arg(command)
             .current_dir(&working_dir)
-            .output();
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
 
-        let output =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
-                .await
-                .map_err(|_| {
-                    ToolError::ExecutionError(format!(
-                        "Command timed out after {} seconds",
-                        timeout_secs
-                    ))
-                })?
-                .map_err(|e| {
-                    ToolError::ExecutionError(format!("Failed to execute command: {}", e))
-                })?;
+        // Wrap with a process group guard: when this guard is dropped
+        // (tool cancelled, server stopped, etc.), the entire process group
+        // is killed to prevent orphan processes holding ports.
+        let _guard = crate::agent::builtin_tools::ProcessGroupGuard::new(child.id().unwrap_or(0));
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| {
+            // Timeout: kill the entire process group via the guard
+            _guard.kill();
+            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
+        })?
+        .map_err(|e| ToolError::ExecutionError(format!("Failed to execute command: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

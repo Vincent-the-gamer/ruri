@@ -1090,6 +1090,20 @@ async fn handle_session_prompt(
                         );
                         Some(SessionUpdate::ToolCallUpdate(tool_call_update))
                     }
+                    crate::types::StreamEvent::ToolExecuting {
+                        tool_call_id,
+                        tool_name: _,
+                        arguments_preview: _,
+                    } => {
+                        // Update the tool call status to InProgress to indicate execution has started
+                        let update_fields =
+                            ToolCallUpdateFields::new().status(ToolCallStatus::InProgress);
+                        let tool_call_update = ToolCallUpdate::new(
+                            ToolCallId::new(tool_call_id.clone()),
+                            update_fields,
+                        );
+                        Some(SessionUpdate::ToolCallUpdate(tool_call_update))
+                    }
                     crate::types::StreamEvent::ToolResult {
                         tool_call_id,
                         tool_name,

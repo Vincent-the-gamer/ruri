@@ -333,297 +333,326 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
 
-                    // ── Conversation DB: ensure conversation exists ────────
-                    let chat_type = match msg.message_type {
-                        platform::types::MessageType::GroupMessage => {
-                            conversation::models::ChatType::Group
-                        }
-                        platform::types::MessageType::FriendMessage => {
-                            conversation::models::ChatType::Private
-                        }
-                    };
-                    let conversation_id = {
-                        let conv_db = state_for_platform.conversation_db.read().await;
-                        if let Some(db) = conv_db.as_ref() {
-                            match db
-                                .get_or_create_conversation(
-                                    msg.platform_id.clone(),
-                                    chat_type,
-                                    msg.session_id.clone(),
-                                )
-                                .await
-                            {
-                                Ok(conv) => Some(conv.id),
-                                Err(e) => {
-                                    tracing::warn!(
-                                        error = %e,
-                                        "Failed to get/create conversation for platform message"
-                                    );
-                                    None
-                                }
+                    // ── Agent processing (spawned) ──────────────────
+                    // Spawn agent processing in a separate task so the event
+                    // loop can immediately receive the next message (e.g. /stop
+                    // to cancel a running shell command). Command dispatch above
+                    // has already confirmed this is not a built-in command.
+                    let state_clone = state_for_platform.clone();
+                    let pm_clone = platform_manager_ref.clone();
+                    let msg_clone = msg.clone();
+                    tokio::spawn(async move {
+                        // ── Conversation DB: ensure conversation exists ────────
+                        let chat_type = match msg_clone.message_type {
+                            platform::types::MessageType::GroupMessage => {
+                                conversation::models::ChatType::Group
                             }
-                        } else {
-                            None
-                        }
-                    };
-
-                    // Save user message to conversation database
-                    if let Some(ref conv_id) = conversation_id {
-                        let conv_db = state_for_platform.conversation_db.read().await;
-                        if let Some(db) = conv_db.as_ref() {
-                            if let Err(e) = db
-                                .add_message(conversation::models::AddMessageRequest {
-                                    conversation_id: conv_id.clone(),
-                                    role: "user".to_string(),
-                                    content: msg.message_str.clone(),
-                                })
-                                .await
-                            {
-                                tracing::error!(
-                                    error = %e,
-                                    "Failed to add user message to conversation database"
-                                );
+                            platform::types::MessageType::FriendMessage => {
+                                conversation::models::ChatType::Private
                             }
-                        }
-                    }
-
-                    // ── Agent processing ─────────────────────────────
-                    // Build an agent using the config profile that owns this platform.
-                    // Each platform instance is bound to exactly one config profile,
-                    // so we resolve the profile by platform_id to ensure full context
-                    // isolation (provider, persona, skills, knowledge bases, proxy, etc.).
-                    let profile_id = state_for_platform
-                        .find_profile_by_platform_id(&msg.platform_id)
-                        .await;
-
-                    let agent_result = state_for_platform
-                        .build_agent_with_context_extended(
-                            Some(&msg.sender.user_id),
-                            Some(&msg.session_id),
-                            None,
-                            false, // use_debug_session: false — platform messages use profile config
-                            profile_id.as_deref(),
-                            conversation_id.as_deref(), // pass existing conversation ID for history
-                        )
-                        .await;
-
-                    match agent_result {
-                        Ok(mut agent) => {
-                            // Register a cancellation token for this session so /stop can cancel it
-                            let cancel_token = tokio_util::sync::CancellationToken::new();
-                            let cancel_clone = cancel_token.clone();
-                            {
-                                let mut tasks =
-                                    state_for_platform.running_agent_tasks.write().await;
-                                tasks.insert(msg.session_id.clone(), cancel_token.clone());
-                            }
-
-                            // Give the agent the cancellation token so it can check it
-                            // between tool rounds, ensuring /stop fully terminates the
-                            // agent instead of just cancelling the current tool call.
-                            agent.set_cancel_token(cancel_token);
-
-                            // Build user message from platform message (may include images/files)
-                            let user_msg = {
-                                let mut parts: Vec<types::ContentPart> = Vec::new();
-
-                                // Add images as image_url parts
-                                for comp in &msg.components {
-                                    if let platform::types::MessageComponent::Image { url } = comp {
-                                        parts.push(types::ContentPart {
-                                            part_type: types::ContentPartType::ImageUrl,
-                                            text: None,
-                                            image_url: Some(types::ImageUrl {
-                                                url: url.clone(),
-                                                detail: None,
-                                            }),
-                                            image_data: None,
-                                        });
+                        };
+                        let conversation_id = {
+                            let conv_db = state_clone.conversation_db.read().await;
+                            if let Some(db) = conv_db.as_ref() {
+                                match db
+                                    .get_or_create_conversation(
+                                        msg_clone.platform_id.clone(),
+                                        chat_type,
+                                        msg_clone.session_id.clone(),
+                                    )
+                                    .await
+                                {
+                                    Ok(conv) => Some(conv.id),
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = %e,
+                                            "Failed to get/create conversation for platform message"
+                                        );
+                                        None
                                     }
                                 }
+                            } else {
+                                None
+                            }
+                        };
 
-                                // Add file descriptions as text parts
-                                for comp in &msg.components {
-                                    if let platform::types::MessageComponent::File { name, url } =
-                                        comp
-                                    {
+                        // Save user message to conversation database
+                        if let Some(ref conv_id) = conversation_id {
+                            let conv_db = state_clone.conversation_db.read().await;
+                            if let Some(db) = conv_db.as_ref() {
+                                if let Err(e) = db
+                                    .add_message(conversation::models::AddMessageRequest {
+                                        conversation_id: conv_id.clone(),
+                                        role: "user".to_string(),
+                                        content: msg_clone.message_str.clone(),
+                                    })
+                                    .await
+                                {
+                                    tracing::error!(
+                                        error = %e,
+                                        "Failed to add user message to conversation database"
+                                    );
+                                }
+                            }
+                        }
+
+                        // ── Agent processing ─────────────────────────────
+                        let profile_id = state_clone
+                            .find_profile_by_platform_id(&msg_clone.platform_id)
+                            .await;
+
+                        let agent_result = state_clone
+                            .build_agent_with_context_extended(
+                                Some(&msg_clone.sender.user_id),
+                                Some(&msg_clone.session_id),
+                                None,
+                                false,
+                                profile_id.as_deref(),
+                                conversation_id.as_deref(),
+                            )
+                            .await;
+
+                        match agent_result {
+                            Ok(mut agent) => {
+                                let cancel_token = tokio_util::sync::CancellationToken::new();
+                                let cancel_clone = cancel_token.clone();
+                                {
+                                    let mut tasks = state_clone.running_agent_tasks.write().await;
+                                    tasks
+                                        .insert(msg_clone.session_id.clone(), cancel_token.clone());
+                                }
+
+                                agent.set_cancel_token(cancel_token);
+
+                                // ── Tool execution notification channel ──
+                                // Set up a channel so the agent can notify us when tools
+                                // are executing. We forward these as user-visible messages
+                                // so the user knows work is in progress.
+                                let (tool_notify_tx, mut tool_notify_rx) =
+                                    tokio::sync::mpsc::unbounded_channel::<(String, String)>();
+                                agent.set_tool_notify_tx(tool_notify_tx);
+                                let pm_notify = pm_clone.clone();
+                                let msg_notify = msg_clone.clone();
+                                let cancel_notify = cancel_clone.clone();
+                                let _notify_handle = tokio::spawn(async move {
+                                    loop {
+                                        tokio::select! {
+                                            Some((tool_name, _args_preview)) = tool_notify_rx.recv() => {
+                                                let status_msg = format!(
+                                                    "🔨 正在调用工具 `{}`...",
+                                                    tool_name
+                                                );
+                                                let pm = pm_notify.read().await;
+                                                let _ = pm
+                                                    .send_text_to_platform(
+                                                        &msg_notify.platform_id,
+                                                        msg_notify.message_type,
+                                                        &msg_notify.session_id,
+                                                        &status_msg,
+                                                    )
+                                                    .await;
+                                            }
+                                            _ = cancel_notify.cancelled() => break,
+                                            else => break,
+                                        }
+                                    }
+                                });
+
+                                // Build user message from platform message
+                                let user_msg = {
+                                    let mut parts: Vec<types::ContentPart> = Vec::new();
+
+                                    for comp in &msg_clone.components {
+                                        if let platform::types::MessageComponent::Image { url } =
+                                            comp
+                                        {
+                                            parts.push(types::ContentPart {
+                                                part_type: types::ContentPartType::ImageUrl,
+                                                text: None,
+                                                image_url: Some(types::ImageUrl {
+                                                    url: url.clone(),
+                                                    detail: None,
+                                                }),
+                                                image_data: None,
+                                            });
+                                        }
+                                    }
+
+                                    for comp in &msg_clone.components {
+                                        if let platform::types::MessageComponent::File {
+                                            name,
+                                            url,
+                                        } = comp
+                                        {
+                                            parts.push(types::ContentPart {
+                                                part_type: types::ContentPartType::Text,
+                                                text: Some(format!(
+                                                    "[File attached: {}]({})",
+                                                    name, url
+                                                )),
+                                                image_url: None,
+                                                image_data: None,
+                                            });
+                                        }
+                                    }
+
+                                    if parts.is_empty() {
+                                        types::ChatMessage::user(&msg_clone.message_str)
+                                    } else {
                                         parts.push(types::ContentPart {
                                             part_type: types::ContentPartType::Text,
-                                            text: Some(format!(
-                                                "[File attached: {}]({})",
-                                                name, url
-                                            )),
+                                            text: Some(msg_clone.message_str.clone()),
                                             image_url: None,
                                             image_data: None,
                                         });
+                                        types::ChatMessage {
+                                            role: types::MessageRole::User,
+                                            content: Some(types::MessageContent::Parts(parts)),
+                                            name: None,
+                                            tool_calls: None,
+                                            tool_call_id: None,
+                                        }
                                     }
-                                }
+                                };
 
-                                if parts.is_empty() {
-                                    types::ChatMessage::user(&msg.message_str)
-                                } else {
-                                    // Add the user's text message as the last part
-                                    parts.push(types::ContentPart {
-                                        part_type: types::ContentPartType::Text,
-                                        text: Some(msg.message_str.clone()),
-                                        image_url: None,
-                                        image_data: None,
-                                    });
-                                    types::ChatMessage {
-                                        role: types::MessageRole::User,
-                                        content: Some(types::MessageContent::Parts(parts)),
-                                        name: None,
-                                        tool_calls: None,
-                                        tool_call_id: None,
+                                // Run the agent with cancellation support.
+                                let result = tokio::select! {
+                                    _ = cancel_clone.cancelled() => {
+                                        tracing::info!(
+                                            session_id = %msg_clone.session_id,
+                                            "Agent task was cancelled via /stop"
+                                        );
+                                        let pm = pm_clone.read().await;
+                                        let _ = pm
+                                            .send_text_to_platform(
+                                                &msg_clone.platform_id,
+                                                msg_clone.message_type,
+                                                &msg_clone.session_id,
+                                                "⏹ 任务已停止。",
+                                            )
+                                            .await;
+                                        None
                                     }
+                                    response = agent.chat_with_message(user_msg) => Some(response),
+                                };
+
+                                // Remove the cancellation token when done
+                                {
+                                    let mut tasks = state_clone.running_agent_tasks.write().await;
+                                    tasks.remove(&msg_clone.session_id);
                                 }
-                            };
 
-                            // Run the agent chat non-streaming with cancellation support.
-                            let result = tokio::select! {
-                                _ = cancel_clone.cancelled() => {
-                                    // Task was cancelled via /stop
-                                    tracing::info!(
-                                        session_id = %msg.session_id,
-                                        "Agent task was cancelled via /stop"
-                                    );
-                                    let pm = platform_manager_ref.read().await;
-                                    let _ = pm
-                                        .send_text_to_platform(
-                                            &msg.platform_id,
-                                            msg.message_type,
-                                            &msg.session_id,
-                                            "⏹ 任务已停止。",
-                                        )
-                                        .await;
-                                    None
-                                }
-                                response = agent.chat_with_message(user_msg) => Some(response),
-                            };
+                                if let Some(response_result) = result {
+                                    match response_result {
+                                        Ok(response) => {
+                                            let text = response
+                                                .choices
+                                                .first()
+                                                .and_then(|c| c.message.content.as_ref())
+                                                .and_then(|c| c.as_text_full())
+                                                .unwrap_or_default();
 
-                            // Remove the cancellation token when done
-                            {
-                                let mut tasks =
-                                    state_for_platform.running_agent_tasks.write().await;
-                                tasks.remove(&msg.session_id);
-                            }
-
-                            // Process the response (None means cancelled)
-                            if let Some(response_result) = result {
-                                match response_result {
-                                    Ok(response) => {
-                                        // Extract text from response
-                                        let text = response
-                                            .choices
-                                            .first()
-                                            .and_then(|c| c.message.content.as_ref())
-                                            .and_then(|c| c.as_text_full())
-                                            .unwrap_or_default();
-
-                                        if !text.is_empty() {
-                                            // Save assistant message to conversation database
-                                            if let Some(ref conv_id) = conversation_id {
-                                                let conv_db =
-                                                    state_for_platform.conversation_db.read().await;
-                                                if let Some(db) = conv_db.as_ref() {
-                                                    if let Err(e) = db
-                                                        .add_message(conversation::models::AddMessageRequest {
-                                                            conversation_id: conv_id.clone(),
-                                                            role: "assistant".to_string(),
-                                                            content: text.clone(),
-                                                        })
-                                                        .await
-                                                    {
-                                                        tracing::error!(
-                                                            error = %e,
-                                                            "Failed to add assistant message to conversation database"
-                                                        );
+                                            if !text.is_empty() {
+                                                if let Some(ref conv_id) = conversation_id {
+                                                    let conv_db =
+                                                        state_clone.conversation_db.read().await;
+                                                    if let Some(db) = conv_db.as_ref() {
+                                                        if let Err(e) = db
+                                                            .add_message(conversation::models::AddMessageRequest {
+                                                                conversation_id: conv_id.clone(),
+                                                                role: "assistant".to_string(),
+                                                                content: text.clone(),
+                                                            })
+                                                            .await
+                                                        {
+                                                            tracing::error!(
+                                                                error = %e,
+                                                                "Failed to add assistant message to conversation database"
+                                                            );
+                                                        }
                                                     }
                                                 }
-                                            }
 
-                                            // Send to platform
-                                            let pm = platform_manager_ref.read().await;
-                                            if let Err(e) = pm
-                                                .send_text_to_platform(
-                                                    &msg.platform_id,
-                                                    msg.message_type,
-                                                    &msg.session_id,
-                                                    &text,
-                                                )
-                                                .await
-                                            {
-                                                tracing::error!(
-                                                    error = %e,
-                                                    "Failed to send reply to platform"
+                                                let pm = pm_clone.read().await;
+                                                if let Err(e) = pm
+                                                    .send_text_to_platform(
+                                                        &msg_clone.platform_id,
+                                                        msg_clone.message_type,
+                                                        &msg_clone.session_id,
+                                                        &text,
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        error = %e,
+                                                        "Failed to send reply to platform"
+                                                    );
+                                                }
+                                            } else {
+                                                tracing::warn!(
+                                                    session_id = %msg_clone.session_id,
+                                                    "Agent returned empty response for platform message"
                                                 );
+                                                let pm = pm_clone.read().await;
+                                                let _ = pm
+                                                    .send_text_to_platform(
+                                                        &msg_clone.platform_id,
+                                                        msg_clone.message_type,
+                                                        &msg_clone.session_id,
+                                                        "（AI 未返回有效回复，请重试）",
+                                                    )
+                                                    .await;
                                             }
-                                        } else {
-                                            // Empty response
-                                            tracing::warn!(
-                                                session_id = %msg.session_id,
-                                                "Agent returned empty response for platform message"
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                error = %e,
+                                                "Agent failed to process platform message"
                                             );
-                                            let pm = platform_manager_ref.read().await;
+                                            let error_reply = {
+                                                let profiles =
+                                                    state_clone.config_profiles.read().await;
+                                                profiles
+                                                    .values()
+                                                    .filter(|p| p.is_active && p.enable)
+                                                    .find_map(|p| p.custom_error_message.clone())
+                                                    .unwrap_or_else(|| e.to_string())
+                                            };
+                                            let pm = pm_clone.read().await;
                                             let _ = pm
                                                 .send_text_to_platform(
-                                                    &msg.platform_id,
-                                                    msg.message_type,
-                                                    &msg.session_id,
-                                                    "（AI 未返回有效回复，请重试）",
+                                                    &msg_clone.platform_id,
+                                                    msg_clone.message_type,
+                                                    &msg_clone.session_id,
+                                                    &error_reply,
                                                 )
                                                 .await;
                                         }
                                     }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            error = %e,
-                                            "Agent failed to process platform message"
-                                        );
-                                        let error_reply = {
-                                            let profiles =
-                                                state_for_platform.config_profiles.read().await;
-                                            profiles
-                                                .values()
-                                                .filter(|p| p.is_active && p.enable)
-                                                .find_map(|p| p.custom_error_message.clone())
-                                                .unwrap_or_else(|| e.to_string())
-                                        };
-                                        let pm = platform_manager_ref.read().await;
-                                        let _ = pm
-                                            .send_text_to_platform(
-                                                &msg.platform_id,
-                                                msg.message_type,
-                                                &msg.session_id,
-                                                &error_reply,
-                                            )
-                                            .await;
-                                    }
                                 }
                             }
+                            Err(e) => {
+                                tracing::error!(error = %e, "Failed to build agent for platform message");
+                                let error_reply = {
+                                    let profiles = state_clone.config_profiles.read().await;
+                                    profiles
+                                        .values()
+                                        .filter(|p| p.is_active && p.enable)
+                                        .find_map(|p| p.custom_error_message.clone())
+                                        .unwrap_or_else(|| e.to_string())
+                                };
+                                let pm = pm_clone.read().await;
+                                let _ = pm
+                                    .send_text_to_platform(
+                                        &msg_clone.platform_id,
+                                        msg_clone.message_type,
+                                        &msg_clone.session_id,
+                                        &error_reply,
+                                    )
+                                    .await;
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!(error = %e, "Failed to build agent for platform message");
-                            // Send error reply to user
-                            let error_reply = {
-                                let profiles = state_for_platform.config_profiles.read().await;
-                                profiles
-                                    .values()
-                                    .filter(|p| p.is_active && p.enable)
-                                    .find_map(|p| p.custom_error_message.clone())
-                                    .unwrap_or_else(|| e.to_string())
-                            };
-                            let pm = platform_manager_ref.read().await;
-                            let _ = pm
-                                .send_text_to_platform(
-                                    &msg.platform_id,
-                                    msg.message_type,
-                                    &msg.session_id,
-                                    &error_reply,
-                                )
-                                .await;
-                        }
-                    }
+                    });
                 }
                 platform::PlatformEvent::StatusChanged {
                     platform_id,
@@ -897,15 +926,56 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     // Use graceful shutdown so that `restart_system` can trigger a clean
-    // server teardown before re-executing the binary.  Without this the
-    // TCP listener may still be held when the new process starts, causing
-    // an "address already in use" error.
+    // server teardown before re-executing the binary. Also listen for
+    // SIGTERM/SIGINT (Ctrl+C) to ensure the TCP listener is released
+    // and child processes are cleaned up.
     let shutdown_rx = state.server_shutdown_rx.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            // Block until the shutdown signal is received
             let mut rx = shutdown_rx;
-            let _ = rx.changed().await;
+
+            // Build the shutdown signal future
+            let api_shutdown = async {
+                let _ = rx.changed().await;
+                tracing::info!("Server shutdown triggered via API");
+            };
+            let ctrl_c_signal = async {
+                let _ = tokio::signal::ctrl_c().await;
+                tracing::info!("Server shutdown triggered via Ctrl+C / SIGINT");
+            };
+
+            #[cfg(unix)]
+            let sigterm_signal = async {
+                use tokio::signal::unix::{SignalKind, signal};
+                let mut sigterm =
+                    signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+                sigterm.recv().await;
+                tracing::info!("Server shutdown triggered via SIGTERM");
+            };
+
+            #[cfg(unix)]
+            {
+                tokio::select! {
+                    _ = api_shutdown => {},
+                    _ = ctrl_c_signal => {},
+                    _ = sigterm_signal => {},
+                }
+            }
+
+            #[cfg(not(unix))]
+            {
+                tokio::select! {
+                    _ = api_shutdown => {},
+                    _ = ctrl_c_signal => {},
+                }
+            }
+
+            // ── Clean up: don't need to do anything special here ──
+            // Each shell tool invocation uses ProcessGroupGuard which ensures
+            // its process group is killed when the tool future is dropped.
+            // tokio's kill_on_drop(true) handles the direct child process.
+            // Together these prevent orphan processes from holding ports.
+
             tracing::info!("Main HTTP server shutting down gracefully");
         })
         .await?;

@@ -118,6 +118,10 @@ pub struct Agent {
     /// through the channel and waits for a response (true = allow, false = deny).
     tool_permission_tx:
         Option<tokio::sync::mpsc::Sender<(String, String, tokio::sync::oneshot::Sender<bool>)>>,
+    /// Optional channel for notifying external listeners about tool execution
+    /// status. (tool_name, arguments_preview) is sent just before a tool runs.
+    /// Used by platform handlers to show tool execution feedback to users.
+    tool_notify_tx: Option<tokio::sync::mpsc::UnboundedSender<(String, String)>>,
 }
 
 /// An entry in the skill index, used for skill routing.
@@ -144,6 +148,7 @@ impl Agent {
             available_skill_index: Vec::new(),
             cancel_token: None,
             tool_permission_tx: None,
+            tool_notify_tx: None,
         }
     }
 
@@ -166,6 +171,12 @@ impl Agent {
         tx: tokio::sync::mpsc::Sender<(String, String, tokio::sync::oneshot::Sender<bool>)>,
     ) {
         self.tool_permission_tx = Some(tx);
+    }
+
+    /// Set the tool notification channel. When set, (tool_name, arguments_preview)
+    /// is sent before each tool executes, allowing platform handlers to notify users.
+    pub fn set_tool_notify_tx(&mut self, tx: tokio::sync::mpsc::UnboundedSender<(String, String)>) {
+        self.tool_notify_tx = Some(tx);
     }
 
     /// Set the system prompt (persona) for this agent.
@@ -411,8 +422,8 @@ impl Agent {
                             StreamEvent::Done { .. } => {
                                 // End of this streaming round
                             }
-                            StreamEvent::ToolResult { .. } => {
-                                // Shouldn't happen from provider
+                            StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
+                                // Shouldn't happen from provider (synthesized by runner)
                             }
                             StreamEvent::Error { .. } => {
                                 // Forward errors
@@ -763,6 +774,18 @@ impl Agent {
                     // Execute each tool call, cancelling promptly if /stop is invoked.
                     for call in &calls {
                         tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                        // Notify external listeners (e.g. platform handlers) that a
+                        // tool is about to execute, so users get immediate feedback.
+                        if let Some(ref tx) = self.tool_notify_tx {
+                            let args_preview = if call.function.arguments.len() > 200 {
+                                let end = call.function.arguments.floor_char_boundary(200);
+                                format!("{}...", &call.function.arguments[..end])
+                            } else {
+                                call.function.arguments.clone()
+                            };
+                            let _ = tx.send((call.function.name.clone(), args_preview));
+                        }
 
                         // Use tokio::select! so that /stop can cancel a
                         // long-running tool call (e.g. web_search) mid-execution.
@@ -1304,7 +1327,7 @@ impl AgentStreamer {
                                     StreamEvent::Done { .. } => {
                                         // End of this streaming round, don't forward
                                     }
-                                    StreamEvent::ToolResult { .. } => {
+                                    StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
                                         // Shouldn't happen from provider, but forward anyway
                                     }
                                     StreamEvent::Error { .. } => {
@@ -1413,6 +1436,37 @@ impl AgentStreamer {
                         // Execute each tool call, cancelling promptly if /stop is invoked.
                         for call in &tool_calls_for_history {
                             tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                            // ── Notify external listeners via the tool_notify_tx channel ──
+                            if let Some(ref tx) = agent.tool_notify_tx {
+                                let args_preview = if call.function.arguments.len() > 200 {
+                                    let end = call.function.arguments.floor_char_boundary(200);
+                                    format!("{}...", &call.function.arguments[..end])
+                                } else {
+                                    call.function.arguments.clone()
+                                };
+                                let _ = tx.send((call.function.name.clone(), args_preview));
+                            }
+
+                            // ── Notify the client immediately that a tool is about to execute ──
+                            // This prevents the "no response" perception during long tool calls.
+                            let args_preview = if call.function.arguments.len() > 200 {
+                                let end = call.function.arguments.floor_char_boundary(200);
+                                format!("{}...", &call.function.arguments[..end])
+                            } else {
+                                call.function.arguments.clone()
+                            };
+                            if tx
+                                .send(Ok(StreamEvent::ToolExecuting {
+                                    tool_call_id: call.id.clone(),
+                                    tool_name: call.function.name.clone(),
+                                    arguments_preview: args_preview,
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
 
                             // Use tokio::select! so that /stop can cancel a
                             // long-running tool call mid-execution.
