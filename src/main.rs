@@ -253,9 +253,15 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // ── Global shutdown token ──────────────────────────────────
+    // All background tasks listen to this token so they can exit
+    // cleanly when Ctrl+C / SIGTERM / API restart is received.
+    let global_shutdown_token = tokio_util::sync::CancellationToken::new();
+
     // Spawn a task to process incoming platform messages and route them to the agent.
     let state_for_platform = state.clone();
     let platform_manager_ref = state.platform_manager.clone();
+    let platform_loop_token = global_shutdown_token.clone();
     tokio::spawn(async move {
         // Get the initial event receiver
         let mut event_receiver = {
@@ -264,7 +270,17 @@ async fn main() -> anyhow::Result<()> {
                 .expect("event receiver should be available at startup")
         };
 
-        while let Some(event) = event_receiver.recv().await {
+        loop {
+            let event = tokio::select! {
+                _ = platform_loop_token.cancelled() => {
+                    tracing::info!("Platform event loop received shutdown signal");
+                    break;
+                }
+                evt = event_receiver.recv() => evt,
+            };
+            let Some(event) = event else {
+                break;
+            };
             match event {
                 platform::PlatformEvent::Message(msg) => {
                     tracing::info!(
@@ -691,10 +707,15 @@ async fn main() -> anyhow::Result<()> {
     // to ensure no credentials are lost.
     {
         let state_for_persist = state.clone();
+        let token = global_shutdown_token.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                state_for_persist.persist_adapter_credentials().await;
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                        state_for_persist.persist_adapter_credentials().await;
+                    }
+                }
             }
         });
     }
@@ -703,6 +724,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let state_for_watcher = state.clone();
         let platforms_path = api::state::ruri_config_dir().join("platforms.yaml");
+        let token = global_shutdown_token.clone();
 
         tokio::spawn(async move {
             // Use a simple polling approach for file watching
@@ -715,7 +737,10 @@ async fn main() -> anyhow::Result<()> {
             }
 
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                }
 
                 let current_modified = std::fs::metadata(&platforms_path)
                     .ok()
@@ -749,6 +774,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let state_for_watcher = state.clone();
         let config_path = state.config_path.clone();
+        let token = global_shutdown_token.clone();
 
         tokio::spawn(async move {
             // Use a simple polling approach for file watching
@@ -761,7 +787,10 @@ async fn main() -> anyhow::Result<()> {
             }
 
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                }
 
                 let current_modified = std::fs::metadata(&config_path)
                     .ok()
@@ -927,9 +956,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Use graceful shutdown so that `restart_system` can trigger a clean
     // server teardown before re-executing the binary. Also listen for
-    // SIGTERM/SIGINT (Ctrl+C) to ensure the TCP listener is released
-    // and child processes are cleaned up.
+    // SIGTERM/SIGINT (Ctrl+C) to ensure the TCP listener is released,
+    // child processes are cleaned up, and platform adapters are stopped.
     let shutdown_rx = state.server_shutdown_rx.clone();
+    let platform_manager_for_shutdown = state.platform_manager.clone();
+    let shutdown_token = global_shutdown_token.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let mut rx = shutdown_rx;
@@ -970,11 +1001,17 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
-            // ── Clean up: don't need to do anything special here ──
-            // Each shell tool invocation uses ProcessGroupGuard which ensures
-            // its process group is killed when the tool future is dropped.
-            // tokio's kill_on_drop(true) handles the direct child process.
-            // Together these prevent orphan processes from holding ports.
+            // ── Signal all background tasks to stop ──────────────
+            shutdown_token.cancel();
+
+            // ── Shut down all platform adapters ──────────────────
+            // This releases their connections (TCP, WebSocket, etc.)
+            // and ensures clean termination.
+            platform_manager_for_shutdown
+                .write()
+                .await
+                .shutdown_all()
+                .await;
 
             tracing::info!("Main HTTP server shutting down gracefully");
         })
