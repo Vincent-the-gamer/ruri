@@ -54,8 +54,19 @@ pub trait Skill: Send + Sync {
     }
 
     /// Whether this skill should be active for the current conversation turn.
+    ///
+    /// Inactive skills (e.g. skills with `when_to_use` conditions) do NOT have
+    /// their context collected or injected into messages. They are listed in the
+    /// skill routing instruction so the model can invoke them on demand.
     fn is_active(&self) -> bool {
         true
+    }
+
+    /// When this skill should be used, for skill routing.
+    /// Returns `None` for always-on skills (loaded by default).
+    /// Returns `Some(description)` for conditional skills (loaded on demand).
+    fn when_to_use(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -655,9 +666,14 @@ impl Skill for SkillPackageSkill {
     }
 
     fn is_active(&self) -> bool {
-        // Skills are active by default.
-        // If user_invocable is false, the skill still works but can't be
-        // directly invoked by the user. It remains active for the system.
-        true
+        // Skills without when_to_use are "always-on" — their context is
+        // collected and injected into every user message by default.
+        // Skills with when_to_use are "on-demand" — they are only loaded
+        // when the model routes to them based on the when_to_use condition.
+        self.when_to_use.is_none()
+    }
+
+    fn when_to_use(&self) -> Option<&str> {
+        self.when_to_use.as_deref()
     }
 }

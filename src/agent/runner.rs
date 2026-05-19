@@ -232,50 +232,93 @@ impl Agent {
 
         let mut parts = Vec::new();
 
-        parts.push("## Available Skills".to_string());
-        parts.push(
-            "The following skills are available. When the user request matches \
-             a skill, you should prioritize using that skill over other tools."
-                .to_string(),
-        );
+        // ── Active skills (always-on, context injected) ──
+        let active_skills: Vec<&Arc<dyn Skill>> =
+            self.skills.iter().filter(|s| s.is_active()).collect();
 
-        // List active skills (fully loaded with context)
-        for skill in &self.skills {
-            let name = skill.name();
-            let desc = skill.description();
-            if !name.is_empty() {
-                if desc.is_empty() {
-                    parts.push(format!("- **{}** (active)", name));
-                } else {
-                    parts.push(format!("- **{}**: {} (active)", name, desc));
+        if !active_skills.is_empty() {
+            parts.push("## Available Skills".to_string());
+            parts.push(
+                "The following skills are always active and their context is \
+                 automatically available. When the user request matches a skill, \
+                 you should prioritize using that skill over other tools."
+                    .to_string(),
+            );
+            for skill in &active_skills {
+                let name = skill.name();
+                let desc = skill.description();
+                if !name.is_empty() {
+                    if desc.is_empty() {
+                        parts.push(format!("- **{}** (active)", name));
+                    } else {
+                        parts.push(format!("- **{}**: {} (active)", name, desc));
+                    }
                 }
             }
+            parts.push(String::new());
         }
 
-        // List available skills (index-only, not fully loaded)
-        for entry in &self.available_skill_index {
-            let mut line = format!("- **{}**", entry.name);
-            if !entry.description.is_empty() {
-                line.push_str(&format!(": {}", entry.description));
+        // ── On-demand skills (conditional, loaded only when matched) ──
+        let on_demand_skills: Vec<&Arc<dyn Skill>> =
+            self.skills.iter().filter(|s| !s.is_active()).collect();
+
+        let has_on_demand = !on_demand_skills.is_empty() || !self.available_skill_index.is_empty();
+
+        if has_on_demand {
+            if active_skills.is_empty() {
+                parts.push("## Available Skills".to_string());
             }
-            if let Some(ref when) = entry.when_to_use {
-                if !when.is_empty() {
-                    line.push_str(&format!(" - Use when: {}", when));
+            parts.push("## On-Demand Skills".to_string());
+            parts.push(
+                "The following skills are available on demand. Use them ONLY when \
+                 the user request matches their \"Use when\" condition or description. \
+                 Do NOT invoke them for unrelated requests."
+                    .to_string(),
+            );
+
+            // List on-demand skills from self.skills (inactive, have when_to_use)
+            for skill in &on_demand_skills {
+                let name = skill.name();
+                let desc = skill.description();
+                if !name.is_empty() {
+                    let mut line = format!("- **{}**", name);
+                    if !desc.is_empty() {
+                        line.push_str(&format!(": {}", desc));
+                    }
+                    if let Some(when) = skill.when_to_use() {
+                        if !when.is_empty() {
+                            line.push_str(&format!(" - Use when: {}", when));
+                        }
+                    }
+                    parts.push(line);
                 }
             }
-            parts.push(line);
-        }
 
-        parts.push(String::new());
+            // List available skills from the index
+            for entry in &self.available_skill_index {
+                let mut line = format!("- **{}**", entry.name);
+                if !entry.description.is_empty() {
+                    line.push_str(&format!(": {}", entry.description));
+                }
+                if let Some(ref when) = entry.when_to_use {
+                    if !when.is_empty() {
+                        line.push_str(&format!(" - Use when: {}", when));
+                    }
+                }
+                parts.push(line);
+            }
+
+            parts.push(String::new());
+        }
 
         // ── Tool calling priority & failure handling ─────────────────
         parts.push("## Tool Calling Priority (default order)".to_string());
         parts.push(
             "When processing a user request, follow this default priority order:\n\n\
-            1. **Skill** — If any listed skill matches the user request (by name, description, or \"when_to_use\" condition), use it FIRST.\n\
-            2. **web_search** — If no skill matches and the user needs external/real-time information, use web_search.\n\
-            3. **bash / shell** — Use as a last resort for system-level operations or complex file manipulations.\n\
-            4. **Other tools** (read_file, write_file, etc.) — Use as needed to support the above.\n\n\
+            1. **Skill** — If any listed skill matches the user request (by name, description, or \"when_to_use\" condition), use it FIRST. Skills are the primary capability mechanism.\n\
+            2. **web_search** — If no skill matches and the user needs external/real-time information or knowledge lookup, use web_search.\n\
+            3. **python / shell** — Use ONLY as a last resort for complex computations, system-level operations, or when no other tool can fulfill the request. Prefer dedicated tools over raw shell commands.\n\
+            4. **Other tools** (read_file, write_file, grep, etc.) — Use as needed to support the above.\n\n\
             **Exception**: If the user explicitly specifies which tool or method to use (e.g. \"use web search\", \"run a shell command\", \"use the X skill\"), follow their instruction and skip the default priority."
                 .to_string(),
         );
@@ -1132,6 +1175,17 @@ impl Agent {
         }
 
         for skill in &self.skills {
+            // Skip inactive skills (those with when_to_use conditions).
+            // They are listed in the routing instruction for on-demand
+            // invocation, but their context is NOT injected by default.
+            if !skill.is_active() {
+                tracing::info!(
+                    skill = %skill.name(),
+                    "Skipping inactive skill — will be available on demand via routing"
+                );
+                continue;
+            }
+
             let attach_messages = skill.on_attach().await;
             tracing::info!(
                 skill = %skill.name(),
