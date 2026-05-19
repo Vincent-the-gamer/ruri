@@ -1042,6 +1042,10 @@ export default {
     passwordChangeRequired: 'Password change required',
     changePassword: 'Change Password',
     logout: 'Logout',
+    system: 'System',
+    restartBackend: 'Restart Backend',
+    restarting: 'Restarting...',
+    restartBackendConfirm: 'Are you sure you want to restart the backend? All ongoing conversations will be interrupted.',
   },
   system: {
     title: 'System Management',

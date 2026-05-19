@@ -349,6 +349,10 @@ struct ResolvedConfigContext {
     knowledge_base_ids: Vec<String>,
     /// Proxy configuration (profile-scoped, no global proxy)
     proxy_config: crate::types::ProxyConfig,
+    /// Whether web search is enabled for this profile/session
+    web_search_enabled: bool,
+    /// Whether computer use is enabled for this profile/session
+    computer_use_enabled: bool,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
@@ -539,6 +543,9 @@ pub struct AppState {
     /// Shutdown signal receiver (clone of the watch receiver).
     /// Used by `axum::serve(...).with_graceful_shutdown()`.
     pub server_shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    /// Flag set to true when a system restart has been requested.
+    /// `main()` checks this after graceful shutdown to re-spawn the process.
+    pub restart_requested: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -790,6 +797,7 @@ impl AppState {
             debug_session: RwLock::new(DebugSessionConfig::default()),
             server_shutdown_tx: shutdown_tx,
             server_shutdown_rx: shutdown_rx,
+            restart_requested: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -1939,6 +1947,8 @@ impl AppState {
                 active_skill_names: Vec::new(), // debug session uses embedded skills only
                 knowledge_base_ids: debug.knowledge_base_ids.clone(),
                 proxy_config: debug.proxy_config.clone(),
+                web_search_enabled: debug.web_search_enabled,
+                computer_use_enabled: debug.computer_use_enabled,
             });
         }
 
@@ -1958,6 +1968,8 @@ impl AppState {
                     active_skill_names: profile.active_skill_names.clone(),
                     knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                     proxy_config: profile.proxy_config.clone(),
+                    web_search_enabled: profile.web_search_enabled,
+                    computer_use_enabled: profile.computer_use_enabled,
                 });
             }
         }
@@ -1975,6 +1987,8 @@ impl AppState {
                 active_skill_names: profile.active_skill_names.clone(),
                 knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
                 proxy_config: profile.proxy_config.clone(),
+                web_search_enabled: profile.web_search_enabled,
+                computer_use_enabled: profile.computer_use_enabled,
             });
         }
 
@@ -2280,8 +2294,25 @@ impl AppState {
             None
         };
 
-        // Check computer use configuration and register tools accordingly
-        let computer_use_config = self.computer_use_config.read().await;
+        // Check computer use configuration and register tools accordingly.
+        // The per-profile/session `computer_use_enabled` flag overrides the global runtime.
+        let global_computer_use_config = self.computer_use_config.read().await;
+        let profile_computer_use_enabled = context
+            .as_ref()
+            .map(|c| c.computer_use_enabled)
+            .unwrap_or(true);
+        let computer_use_config = if !profile_computer_use_enabled {
+            tracing::info!(
+                "Computer use is disabled in the active profile/session, forcing runtime to None"
+            );
+            // Create a config with runtime set to None, preserving other settings
+            let mut config = global_computer_use_config.clone();
+            config.runtime = crate::computer_use::ComputerUseRuntime::None;
+            config
+        } else {
+            global_computer_use_config.clone()
+        };
+        drop(global_computer_use_config);
         // Debug sessions always use admin privileges via the reserved debug_admin ID
         let user_id = if use_debug_session {
             crate::computer_use::ComputerUseConfig::DEBUG_ADMIN_ID
@@ -2417,24 +2448,38 @@ impl AppState {
             }
         }
 
-        // Register WebSearchTool only if properly configured (enabled and has API key if needed)
-        let web_search_config = self.web_search_config.read().await;
-        let web_search_available = web_search_config.enabled
-            && match web_search_config.search_engine {
-                crate::types::SearchEngine::DuckDuckGo => true,
-                _ => web_search_config.api_key.is_some(),
-            };
-        drop(web_search_config);
+        // Register WebSearchTool only if properly configured (enabled and has API key if needed).
+        // The per-profile/session `web_search_enabled` flag takes precedence over the global config.
+        let profile_web_search_enabled = context
+            .as_ref()
+            .map(|c| c.web_search_enabled)
+            .unwrap_or(true);
+        let web_search_available = if !profile_web_search_enabled {
+            tracing::info!(
+                "WebSearchTool not registered: web search is disabled in the active profile/session"
+            );
+            false
+        } else {
+            let web_search_config = self.web_search_config.read().await;
+            let available = web_search_config.enabled
+                && match web_search_config.search_engine {
+                    crate::types::SearchEngine::DuckDuckGo => true,
+                    _ => web_search_config.api_key.is_some(),
+                };
+            drop(web_search_config);
+            if !available {
+                tracing::info!(
+                    "WebSearchTool not registered: global web search is disabled or not properly configured"
+                );
+            }
+            available
+        };
 
         if web_search_available {
             agent.register_tool(Arc::new(crate::agent::builtin_tools::WebSearchTool::new(
                 self.web_search_config.clone(),
             )));
             tracing::info!("WebSearchTool registered with current configuration");
-        } else {
-            tracing::info!(
-                "WebSearchTool not registered: web search is disabled or not properly configured"
-            );
         }
 
         // Add Knowledge Base skill and search tool if configured (from embedded context or resolved config)

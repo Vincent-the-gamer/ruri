@@ -910,5 +910,49 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
+    // After graceful shutdown, check if a restart was requested.
+    // We do this here in `main()` rather than in a spawned task so that
+    // the restart logic runs independently of the tokio runtime lifecycle.
+    if state
+        .restart_requested
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        tracing::info!("Restarting Ruri server...");
+
+        let current_exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(e) => {
+                tracing::error!("Failed to get current executable path: {}", e);
+                return Ok(());
+            }
+        };
+
+        let args: Vec<String> = std::env::args().skip(1).collect();
+
+        // On Unix, use exec() to replace the current process with the new one.
+        // This keeps the same terminal session so logs continue in the same
+        // terminal window instead of running as a detached background process.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            let error = std::process::Command::new(&current_exe).args(&args).exec();
+            // exec() only returns on error
+            tracing::error!("Failed to restart server (exec): {}", error);
+        }
+
+        #[cfg(not(unix))]
+        {
+            match std::process::Command::new(&current_exe).args(&args).spawn() {
+                Ok(_) => {
+                    tracing::info!("New server instance started, shutting down current instance");
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to restart server: {}", e);
+                }
+            }
+        }
+    }
+
     Ok(())
 }

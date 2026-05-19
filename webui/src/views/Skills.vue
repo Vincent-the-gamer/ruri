@@ -1116,72 +1116,47 @@ async function handleFileUpload(event: Event) {
 /* Toggle Switch - Enhanced */
 .toggle {
     position: relative;
-    width: 2.5rem;
-    height: 1.375rem;
+    width: 2.25rem;
+    height: 1.25rem;
     border-radius: 9999px;
-    border: 1px solid rgba(192, 132, 252, 0.3);
-    background: linear-gradient(
-        135deg,
-        rgba(216, 180, 254, 0.25) 0%,
-        rgba(192, 132, 252, 0.15) 100%
-    );
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border) / 0.5);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s ease;
     flex-shrink: 0;
     padding: 0;
-    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.08);
 }
 
 .toggle:hover {
-    background: linear-gradient(
-        135deg,
-        rgba(216, 180, 254, 0.35) 0%,
-        rgba(192, 132, 252, 0.25) 100%
-    );
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.12);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
 }
 
 .toggle--on {
-    background: linear-gradient(
-        135deg,
-        var(--color-accent) 0%,
-        var(--color-primary) 100%
-    );
-    border-color: rgba(236, 72, 153, 0.4);
-    box-shadow:
-        0 4px 12px rgba(236, 72, 153, 0.25),
-        0 0 16px rgba(139, 92, 246, 0.15);
+    background: hsl(var(--primary));
+    border-color: hsl(var(--primary));
 }
 
 .toggle--on:hover {
-    background: linear-gradient(
-        135deg,
-        var(--color-accent-hover) 0%,
-        var(--color-primary-hover) 100%
-    );
-    box-shadow:
-        0 4px 16px rgba(236, 72, 153, 0.3),
-        0 0 20px rgba(139, 92, 246, 0.2);
+    background: hsl(var(--primary) / 0.85);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.3);
 }
 
 .toggle-thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: calc(1.375rem - 4px);
-    height: calc(1.375rem - 4px);
+    top: 1px;
+    left: 1px;
+    width: 0.875rem;
+    height: 0.875rem;
     border-radius: 50%;
-    background: hsl(var(--background));
-    border: 1px solid hsl(var(--border));
-    box-shadow: var(--shadow-sm);
-    transition: all var(--transition-spring);
+    background: hsl(var(--muted-foreground));
+    transition: all 0.2s ease;
     display: block;
 }
 
 .toggle--on .toggle-thumb {
-    transform: translateX(1.125rem);
+    left: calc(100% - 1px);
+    transform: translateX(-100%);
+    background: white;
 }
 
 /* Animations */

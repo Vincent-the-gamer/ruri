@@ -1043,6 +1043,10 @@ export default {
     passwordChangeRequired: '需要修改密码',
     changePassword: '修改密码',
     logout: '退出登录',
+    system: '系统',
+    restartBackend: '重启后端',
+    restarting: '正在重启...',
+    restartBackendConfirm: '确定要重启后端吗？所有正在进行的对话将被中断。',
   },
   system: {
     title: '系统管理',

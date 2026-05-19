@@ -4316,6 +4316,11 @@ async fn update_shell_command_blacklist(
 // ─── System endpoints ──────────────────────────────────────────
 
 /// Restart the entire server process by re-executing the current binary.
+///
+/// This sets a flag and triggers graceful shutdown.  The actual re-spawn
+/// happens in `main()` after the HTTP server has fully shut down, which
+/// avoids the race condition where the tokio runtime is dropped before a
+/// spawned task can execute the restart.
 async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
     tracing::info!("System restart requested via API");
 
@@ -4341,46 +4346,15 @@ async fn restart_system(State(state): State<Arc<AppState>>) -> Response {
         tracing::warn!("Failed to save platforms config before restart: {}", e);
     }
 
-    // Spawn the restart in a separate task so we can respond first
-    tokio::spawn(async move {
-        // Give the HTTP response time to be sent
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Mark that a restart was requested so that `main()` knows to
+    // re-spawn the process after graceful shutdown completes.
+    state
+        .restart_requested
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 
-        tracing::info!("Restarting Ruri server...");
-
-        // Trigger graceful shutdown of the main HTTP server so that
-        // the TCP listener is released before we start a new process.
-        let _ = state.server_shutdown_tx.send(true);
-
-        // Wait a short while for the server to finish shutting down
-        // and release the port.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        // Re-execute the current binary
-        let current_exe = match std::env::current_exe() {
-            Ok(exe) => exe,
-            Err(e) => {
-                tracing::error!("Failed to get current executable path: {}", e);
-                return;
-            }
-        };
-
-        let args: Vec<String> = std::env::args().skip(1).collect();
-
-        match tokio::process::Command::new(current_exe)
-            .args(&args)
-            .spawn()
-        {
-            Ok(_) => {
-                tracing::info!("New server instance started, shutting down current instance");
-                // Exit the current process
-                std::process::exit(0);
-            }
-            Err(e) => {
-                tracing::error!("Failed to restart server: {}", e);
-            }
-        }
-    });
+    // Trigger graceful shutdown of the main HTTP server.  The actual
+    // re-spawn is handled in `main()` after the server has stopped.
+    let _ = state.server_shutdown_tx.send(true);
 
     Json(json!({"message": "Server is restarting"})).into_response()
 }
