@@ -1108,7 +1108,12 @@ async fn send_chat_message(
         };
         let dispatcher = state.command_dispatcher.read().await;
         let user_id = req.user_id.clone().unwrap_or_default();
-        let session_id = req.session_id.clone().unwrap_or_default();
+        // Use the same default session_id as the token registration below
+        // so that /stop can find and cancel the running agent task.
+        let session_id = req
+            .session_id
+            .clone()
+            .unwrap_or_else(|| "webui".to_string());
         let cmd_ctx = crate::command::CommandContext {
             raw_message: req.message.clone(),
             command_name: String::new(),
@@ -1563,7 +1568,12 @@ async fn stream_chat_message(
         };
         let dispatcher = state.command_dispatcher.read().await;
         let user_id = req.user_id.clone().unwrap_or_default();
-        let session_id = req.session_id.clone().unwrap_or_default();
+        // Use the same default session_id as the token registration below
+        // so that /stop can find and cancel the running agent task.
+        let session_id = req
+            .session_id
+            .clone()
+            .unwrap_or_else(|| "webui".to_string());
         let cmd_ctx = crate::command::CommandContext {
             raw_message: req.message.clone(),
             command_name: String::new(),

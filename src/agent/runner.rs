@@ -523,9 +523,39 @@ impl Agent {
                 );
                 self.history.push(assistant_msg);
 
-                // Execute each tool call
+                // Execute each tool call, skipping duplicates from the same round
+                // to prevent redundant work when the LLM calls similar tools in parallel.
+                let mut executed_tool_keys: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
                 for call in &tool_calls_for_history {
                     tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                    // Build a dedup key: tool_name + sorted args.
+                    // If the LLM calls the same tool with the same arguments twice
+                    // in the same round, we skip the duplicate.
+                    let dedup_key = format!("{}|{}", call.function.name, call.function.arguments);
+                    if !executed_tool_keys.insert(dedup_key.clone()) {
+                        tracing::info!(
+                            tool = %call.function.name,
+                            round = round,
+                            "Skipping duplicate tool call in same round"
+                        );
+                        // Add a synthetic result so the LLM knows we skipped it
+                        let skip_msg = format!(
+                            "⏭ Skipped duplicate call to `{}` — already executed in this round.",
+                            call.function.name
+                        );
+                        self.history
+                            .push(ChatMessage::tool_result(&call.id, &skip_msg));
+                        let _ = tx
+                            .send(Ok(StreamEvent::ToolResult {
+                                tool_call_id: call.id.clone(),
+                                tool_name: call.function.name.clone(),
+                                content: skip_msg,
+                            }))
+                            .await;
+                        continue;
+                    }
 
                     // Check permission if a permission channel is configured
                     let allowed = if let Some(ref perm_tx) = self.tool_permission_tx {
@@ -771,9 +801,50 @@ impl Agent {
                     let assistant_msg = choice.message.clone();
                     self.history.push(assistant_msg);
 
-                    // Execute each tool call, cancelling promptly if /stop is invoked.
+                    // Execute each tool call, skipping duplicates from the same round
+                    // to prevent redundant work when the LLM calls similar tools in parallel,
+                    // and cancelling promptly if /stop is invoked.
+                    let mut executed_tool_keys: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
                     for call in &calls {
                         tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                        // Build a dedup key: tool_name + args.
+                        // If the LLM calls the same tool with the same arguments twice
+                        // in the same round, skip the duplicate.
+                        let dedup_key =
+                            format!("{}|{}", call.function.name, call.function.arguments);
+                        if !executed_tool_keys.insert(dedup_key.clone()) {
+                            tracing::info!(
+                                tool = %call.function.name,
+                                round = round,
+                                "Skipping duplicate tool call in same round"
+                            );
+                            let skip_msg = format!(
+                                "⏭ Skipped duplicate call to `{}` — already executed in this round.",
+                                call.function.name
+                            );
+                            self.history
+                                .push(ChatMessage::tool_result(&call.id, &skip_msg));
+                            // Check cancellation after skip too
+                            if let Some(ref token) = self.cancel_token {
+                                if token.is_cancelled() {
+                                    break 'agent_loop ChatResponse {
+                                        id: None,
+                                        object: Some("chat.completion".to_string()),
+                                        model: None,
+                                        choices: vec![crate::types::Choice {
+                                            index: 0,
+                                            message: ChatMessage::assistant("⏹ 任务已停止。"),
+                                            finish_reason: Some("stop".to_string()),
+                                        }],
+                                        usage: None,
+                                        extra: serde_json::Map::new(),
+                                    };
+                                }
+                            }
+                            continue;
+                        }
 
                         // Notify external listeners (e.g. platform handlers) that a
                         // tool is about to execute, so users get immediate feedback.
@@ -1433,9 +1504,46 @@ impl AgentStreamer {
                         );
                         agent.history.push(assistant_msg);
 
-                        // Execute each tool call, cancelling promptly if /stop is invoked.
+                        // Execute each tool call, skipping duplicates from the same round
+                        // to prevent redundant work when the LLM calls similar tools in parallel,
+                        // and cancelling promptly if /stop is invoked.
+                        let mut executed_tool_keys: std::collections::HashSet<String> =
+                            std::collections::HashSet::new();
                         for call in &tool_calls_for_history {
                             tracing::info!(tool = %call.function.name, "Executing tool call");
+
+                            // Build a dedup key: tool_name + args.
+                            // If the LLM calls the same tool with the same arguments twice
+                            // in the same round, skip the duplicate.
+                            let dedup_key = format!(
+                                "{}|{}",
+                                call.function.name, call.function.arguments
+                            );
+                            if !executed_tool_keys.insert(dedup_key.clone()) {
+                                tracing::info!(
+                                    tool = %call.function.name,
+                                    round = round,
+                                    "Streaming: skipping duplicate tool call in same round"
+                                );
+                                let skip_msg = format!(
+                                    "⏭ Skipped duplicate call to `{}` — already executed in this round.",
+                                    call.function.name
+                                );
+                                agent.history.push(ChatMessage::tool_result(
+                                    &call.id,
+                                    &skip_msg,
+                                ));
+                                let _ = tx
+                                    .send(Ok(StreamEvent::ToolResult {
+                                        tool_call_id: call.id.clone(),
+                                        tool_name: call.function.name.clone(),
+                                        content: skip_msg,
+                                    }))
+                                    .await;
+                                // Check cancellation after skip too
+                                check_stream_cancel!();
+                                continue;
+                            }
 
                             // ── Notify external listeners via the tool_notify_tx channel ──
                             if let Some(ref tx) = agent.tool_notify_tx {

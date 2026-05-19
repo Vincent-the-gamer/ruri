@@ -330,6 +330,29 @@ impl Command for StopCommand {
                 "Stopped running agent task"
             );
             CommandResult::text("⏹ 已停止当前运行中的 Agent 任务。")
+        } else if session_id != "webui" {
+            // Fallback: try the default WebUI session key.
+            // The WebUI frontend may send messages without a session_id,
+            // in which case the task is registered under "webui".
+            if let Some(cancel_token) = tasks.remove("webui") {
+                cancel_token.cancel();
+                tracing::info!(
+                    command = %ctx.command_name,
+                    user_id = %ctx.user_id,
+                    session_id = %session_id,
+                    fallback = "webui",
+                    "Stopped running agent task via fallback key"
+                );
+                CommandResult::text("⏹ 已停止当前运行中的 Agent 任务。")
+            } else {
+                tracing::info!(
+                    command = %ctx.command_name,
+                    user_id = %ctx.user_id,
+                    session_id = %session_id,
+                    "No running task to stop"
+                );
+                CommandResult::text("ℹ️ 当前会话没有运行中的任务。")
+            }
         } else {
             tracing::info!(
                 command = %ctx.command_name,
