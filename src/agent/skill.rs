@@ -427,21 +427,35 @@ impl SkillPackageSkill {
     }
 
     /// Run a shell command and return its output.
+    ///
+    /// Includes a configurable timeout to prevent hanging commands from
+    /// blocking the agent processing loop indefinitely.
     pub async fn run_shell_command(command: &str) -> Result<String, String> {
-        tracing::info!(command = %command, "Skill executing shell command");
+        Self::run_shell_command_with_timeout(command, 60).await
+    }
+
+    /// Run a shell command with a custom timeout (in seconds).
+    pub async fn run_shell_command_with_timeout(
+        command: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        tracing::info!(command = %command, timeout_secs = timeout_secs, "Skill executing shell command");
 
         #[cfg(target_os = "windows")]
-        let output = tokio::process::Command::new("cmd")
+        let shell_future = tokio::process::Command::new("cmd")
             .args(["/C", command])
-            .output()
-            .await;
+            .output();
 
         #[cfg(not(target_os = "windows"))]
-        let output = tokio::process::Command::new("sh")
+        let shell_future = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(command)
-            .output()
-            .await;
+            .output();
+
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
+                .await
+                .map_err(|_| format!("Shell command timed out after {} seconds", timeout_secs))?;
 
         match output {
             Ok(out) => {

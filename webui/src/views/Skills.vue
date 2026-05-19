@@ -1146,7 +1146,7 @@ async function handleFileUpload(event: Event) {
     top: 1px;
     left: 1px;
     width: 0.875rem;
-    height: 0.875rem;
+    height: 0.9rem;
     border-radius: 50%;
     background: hsl(var(--muted-foreground));
     transition: all 0.2s ease;

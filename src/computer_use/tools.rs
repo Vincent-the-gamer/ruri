@@ -128,34 +128,32 @@ impl Tool for ShellTool {
             self.context.user_id, self.context.session_id, command
         );
 
-        // Execute the command
+        // Execute the command with timeout
         #[cfg(target_os = "windows")]
-        let result = {
-            tokio::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", command])
-                .current_dir(&working_dir)
-                .output()
-                .await
-        };
+        let shell_future = tokio::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", command])
+            .current_dir(&working_dir)
+            .output();
 
         #[cfg(not(target_os = "windows"))]
-        let result = {
-            tokio::process::Command::new("bash")
-                .arg("-c")
-                .arg(command)
-                .current_dir(&working_dir)
-                .output()
-                .await
-        };
+        let shell_future = tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg(command)
+            .current_dir(&working_dir)
+            .output();
 
-        let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
-            result
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to execute command: {}", e)))
-        })
-        .await
-        .map_err(|_| {
-            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
-        })??;
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
+                .await
+                .map_err(|_| {
+                    ToolError::ExecutionError(format!(
+                        "Command timed out after {} seconds",
+                        timeout_secs
+                    ))
+                })?
+                .map_err(|e| {
+                    ToolError::ExecutionError(format!("Failed to execute command: {}", e))
+                })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -253,27 +251,27 @@ impl Tool for PythonTool {
             .await
             .map_err(|e| ToolError::ExecutionError(format!("Failed to write temp file: {}", e)))?;
 
-        // Execute Python
-        let result = tokio::process::Command::new("python3")
+        // Execute Python with timeout
+        let shell_future = tokio::process::Command::new("python3")
             .arg(&temp_file)
             .current_dir(&working_dir)
-            .output()
-            .await;
+            .output();
 
-        // Clean up temp file
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
+                .await
+                .map_err(|_| {
+                    ToolError::ExecutionError(format!(
+                        "Python execution timed out after {} seconds",
+                        timeout_secs
+                    ))
+                })?
+                .map_err(|e| {
+                    ToolError::ExecutionError(format!("Failed to execute Python: {}", e))
+                })?;
+
+        // Clean up temp file after execution
         let _ = fs::remove_file(&temp_file).await;
-
-        let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
-            result
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to execute Python: {}", e)))
-        })
-        .await
-        .map_err(|_| {
-            ToolError::ExecutionError(format!(
-                "Python execution timed out after {} seconds",
-                timeout_secs
-            ))
-        })??;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
