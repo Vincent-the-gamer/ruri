@@ -1493,8 +1493,9 @@ impl ProviderFactory {
 
     /// Build skill instances and resolve persona based on the persisted ACP config.
     ///
-    /// Returns a tuple of (skills, persona_prompt):
+    /// Returns a tuple of (skills, available_skills, persona_prompt):
     /// - `skills`: only the skills listed in `acp_config.active_skill_names`
+    /// - `available_skills`: full config for non-active skills: (name, description, when_to_use, config)
     /// - `persona_prompt`: the persona system prompt from the active config profile,
     ///   if configured. This should be set via `agent.set_system_prompt()`, NOT
     ///   added as a skill, to ensure it remains the sole system message.
@@ -1502,7 +1503,7 @@ impl ProviderFactory {
         &mut self,
     ) -> (
         Vec<Arc<dyn crate::agent::skill::Skill>>,
-        Vec<(String, String, Option<String>)>, // available skill index: (name, description, when_to_use)
+        Vec<(String, String, Option<String>, serde_json::Value)>, // available skill index: (name, description, when_to_use, config)
         Option<String>,
     ) {
         // Hot-reload config so new sessions pick up WebUI changes
@@ -1533,12 +1534,18 @@ impl ProviderFactory {
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
 
-        // Build available skill index for non-active skills
-        let mut available_skills: Vec<(String, String, Option<String>)> = Vec::new();
+        // Build available skill index for non-active skills (with full config)
+        let mut available_skills: Vec<(String, String, Option<String>, serde_json::Value)> =
+            Vec::new();
         for (name, skill) in &config.skills {
             if !active_skill_names_set.contains(name) {
                 let when_to_use = skill.config["when_to_use"].as_str().map(|s| s.to_string());
-                available_skills.push((skill.name.clone(), skill.description.clone(), when_to_use));
+                available_skills.push((
+                    skill.name.clone(),
+                    skill.description.clone(),
+                    when_to_use,
+                    serde_json::to_value(&skill.config).unwrap_or_default(),
+                ));
             }
         }
 

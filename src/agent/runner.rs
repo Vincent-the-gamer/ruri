@@ -1,10 +1,13 @@
 use crate::agent::skill::Skill;
-use crate::agent::tool_executor::ToolExecutor;
+use crate::agent::skill::SkillPackageSkill;
+use crate::agent::tool_executor::{Tool, ToolError, ToolExecutor};
 use crate::provider::{Provider, ProviderError};
 use crate::transport::HttpTransport;
 use crate::types::*;
+use async_trait::async_trait;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Maximum number of tool-call round-trips before forcing a stop.
@@ -109,6 +112,10 @@ pub struct Agent {
     /// the model knows which skills are available and prioritizes them over
     /// built-in tools.
     available_skill_index: Vec<SkillIndexEntry>,
+    /// Full configuration for on-demand skills that can be dynamically loaded.
+    /// Stores the complete skill config so invoke_skill tool can load them.
+    /// Shared via Arc<RwLock> so InvokeSkillTool can access it.
+    available_skill_configs: Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
     /// Optional cancellation token — when cancelled, the agent loop stops
     /// between rounds (not mid-API-call). Set by the caller before invoking
     /// `chat_with_message` to allow `/stop` to fully terminate the agent.
@@ -132,10 +139,140 @@ struct SkillIndexEntry {
     when_to_use: Option<String>,
 }
 
+/// Full configuration for an on-demand skill that can be dynamically loaded.
+#[derive(Debug, Clone)]
+struct AvailableSkillConfig {
+    /// Skill name
+    name: String,
+    /// Skill description
+    description: String,
+    /// When to use condition
+    when_to_use: Option<String>,
+    /// Full skill configuration JSON
+    config: serde_json::Value,
+}
+
+/// A tool that allows the model to dynamically invoke on-demand skills.
+///
+/// When the model calls this tool, the skill's full content is loaded and
+/// returned to the model, allowing it to use the skill's capabilities.
+struct InvokeSkillTool {
+    configs: std::sync::Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+}
+
+impl InvokeSkillTool {
+    fn new(
+        configs: std::sync::Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+    ) -> Self {
+        Self { configs }
+    }
+}
+
+#[async_trait]
+impl Tool for InvokeSkillTool {
+    fn definition(&self) -> ToolDefinition {
+        // Build description from available skill names
+        let skill_names: Vec<String> = self.configs.blocking_read().keys().cloned().collect();
+        let desc = format!(
+            "Dynamically load and invoke an on-demand skill. \
+             Use this tool when the user request matches one of the available on-demand skills. \
+             The skill's full content will be loaded and returned to you. \
+             Available skills: {:?}",
+            skill_names
+        );
+
+        ToolDefinition::function("invoke_skill")
+            .description(desc)
+            .parameter_with_description(
+                "skill_name",
+                ParameterType::String,
+                true,
+                Some("Name of the skill to invoke"),
+            )
+            .parameter_with_description(
+                "arguments",
+                ParameterType::String,
+                false,
+                Some("Arguments to pass to the skill (optional)"),
+            )
+            .build()
+    }
+
+    async fn execute(&self, args: &str) -> Result<String, ToolError> {
+        #[derive(serde::Deserialize)]
+        struct InvokeArgs {
+            skill_name: String,
+            #[serde(default)]
+            #[allow(dead_code)] // Reserved for future use when skills need parameters
+            arguments: Option<String>,
+        }
+
+        let invoke_args: InvokeArgs =
+            serde_json::from_str(args).map_err(|e| ToolError::InvalidArguments(e.to_string()))?;
+
+        // Note: arguments field is reserved for future use when skills need parameters
+
+        let skill_config = {
+            let configs = self.configs.read().await;
+            match configs.get(&invoke_args.skill_name) {
+                Some(config) => config.clone(),
+                None => {
+                    let available: Vec<String> = configs.keys().cloned().collect();
+                    return Err(ToolError::NotFound(format!(
+                        "Skill '{}' not found. Available skills: {:?}",
+                        invoke_args.skill_name, available
+                    )));
+                }
+            }
+        };
+
+        // Build the skill from config
+        let skill = SkillPackageSkill::from_config(
+            skill_config.name.clone(),
+            skill_config.description.clone(),
+            &skill_config.config,
+        );
+
+        // Load the skill's full content via on_attach
+        let context_messages = skill.on_attach().await;
+
+        // Extract the content
+        let mut content_parts = Vec::new();
+        content_parts.push(format!(
+            "📦 Skill '{}' loaded successfully.",
+            skill_config.name
+        ));
+
+        if let Some(when) = &skill_config.when_to_use {
+            content_parts.push(format!("When to use: {}", when));
+        }
+
+        for msg in context_messages {
+            if let Some(ref content) = msg.content {
+                if let Some(text) = content.as_text_full() {
+                    if !text.is_empty() {
+                        content_parts.push(format!("\n---\n{}\n---", text));
+                    }
+                }
+            }
+        }
+
+        // Run hooks if defined
+        let hook_outputs = skill.run_hooks().await;
+        if !hook_outputs.is_empty() {
+            content_parts.push("\n## Hook Output:".to_string());
+            content_parts.extend(hook_outputs);
+        }
+
+        Ok(content_parts.join("\n"))
+    }
+}
+
 impl Agent {
     /// Create a new Agent with custom configuration.
     pub fn with_config(provider: Box<dyn Provider>, config: AgentConfig) -> Self {
         let tool_executor = ToolExecutor::new();
+        let available_skill_configs = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         Self {
             transport: HttpTransport::with_default_config(provider),
             tool_executor,
@@ -146,6 +283,7 @@ impl Agent {
             skill_contexts: Vec::new(),
             skills_initialized: false,
             available_skill_index: Vec::new(),
+            available_skill_configs,
             cancel_token: None,
             tool_permission_tx: None,
             tool_notify_tx: None,
@@ -208,6 +346,9 @@ impl Agent {
     ///
     /// If a user's message matches an available skill (by name/description/when_to_use),
     /// the model is instructed to prioritize invoking that skill over other tools.
+    ///
+    /// Note: Prefer [`add_available_skill_with_config`] for full functionality.
+    #[allow(dead_code)]
     pub fn add_available_skill(
         &mut self,
         name: String,
@@ -215,10 +356,49 @@ impl Agent {
         when_to_use: Option<String>,
     ) {
         self.available_skill_index.push(SkillIndexEntry {
-            name,
-            description,
-            when_to_use,
+            name: name.clone(),
+            description: description.clone(),
+            when_to_use: when_to_use.clone(),
         });
+    }
+
+    /// Add an "available" skill with full configuration for dynamic loading.
+    ///
+    /// This is similar to [`add_available_skill`], but also stores the complete
+    /// skill configuration so that the `invoke_skill` tool can dynamically load
+    /// the skill's full content when the model decides to use it.
+    pub fn add_available_skill_with_config(
+        &mut self,
+        name: String,
+        description: String,
+        when_to_use: Option<String>,
+        config: serde_json::Value,
+    ) {
+        // Add to index for routing
+        self.available_skill_index.push(SkillIndexEntry {
+            name: name.clone(),
+            description: description.clone(),
+            when_to_use: when_to_use.clone(),
+        });
+        // Store full config for dynamic loading - use blocking_write since this is called during setup
+        let mut configs = self.available_skill_configs.blocking_write();
+        configs.insert(
+            name.clone(),
+            AvailableSkillConfig {
+                name,
+                description,
+                when_to_use,
+                config,
+            },
+        );
+    }
+
+    /// Register the invoke_skill tool that allows dynamic loading of on-demand skills.
+    /// Call this after adding all available skills.
+    pub fn register_invoke_skill_tool(&mut self) {
+        let configs = Arc::clone(&self.available_skill_configs);
+        let tool = InvokeSkillTool::new(configs);
+        self.register_tool(Arc::new(tool));
     }
 
     /// Build a skill routing instruction string that lists all available skills.

@@ -2231,10 +2231,11 @@ impl AppState {
                     let when_to_use = skill_config.config["when_to_use"]
                         .as_str()
                         .map(|s| s.to_string());
-                    agent.add_available_skill(
+                    agent.add_available_skill_with_config(
                         skill_config.name.clone(),
                         skill_config.description.clone(),
                         when_to_use,
+                        serde_json::to_value(&skill_config.config).unwrap_or_default(),
                     );
                 }
             }
@@ -2246,10 +2247,11 @@ impl AppState {
             for (name, stored) in global_skills.iter() {
                 if !active_global_names.contains(name) {
                     let when_to_use = stored.config["when_to_use"].as_str().map(|s| s.to_string());
-                    agent.add_available_skill(
+                    agent.add_available_skill_with_config(
                         stored.name.clone(),
                         stored.description.clone(),
                         when_to_use,
+                        stored.config.clone(),
                     );
                 }
             }
@@ -2268,6 +2270,11 @@ impl AppState {
             agent.add_skill(skill.clone());
         }
         tracing::info!("Successfully added {} skills to agent", num_skills);
+
+        // Register the invoke_skill tool to allow dynamic loading of on-demand skills.
+        // This must be done after all available skills are added so the tool knows
+        // which skills can be invoked.
+        agent.register_invoke_skill_tool();
 
         // ── Persona injection is deferred to the end of this function ──
         // to ensure it is the LAST skill added, so its system prompt

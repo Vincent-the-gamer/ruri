@@ -31,7 +31,7 @@ impl AcpSession {
         provider: Box<dyn Provider>,
         _cwd: String,
         skills: Vec<Arc<dyn Skill>>,
-        available_skills: Vec<(String, String, Option<String>)>,
+        available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         session_id: String,
         web_search_config: Arc<RwLock<WebSearchConfig>>,
         computer_use_config: crate::computer_use::ComputerUseConfig,
@@ -52,9 +52,12 @@ impl AcpSession {
 
         // Index available skills for routing (non-active skills are listed
         // in the system prompt so the model knows they exist and can route to them)
-        for (name, description, when_to_use) in available_skills {
-            agent.add_available_skill(name, description, when_to_use);
+        for (name, description, when_to_use, config) in available_skills {
+            agent.add_available_skill_with_config(name, description, when_to_use, config);
         }
+
+        // Register the invoke_skill tool to allow dynamic loading of on-demand skills
+        agent.register_invoke_skill_tool();
 
         // Register tools based on computer_use_config runtime
         match computer_use_config.runtime {
@@ -307,7 +310,7 @@ impl SessionManager {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
-        available_skills: Vec<(String, String, Option<String>)>,
+        available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         persona_prompt: Option<String>,
     ) -> String {
         self.create_session_with_skills_and_acp(
@@ -328,7 +331,7 @@ impl SessionManager {
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
         session_id: Option<String>,
-        available_skills: Vec<(String, String, Option<String>)>,
+        available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         persona_prompt: Option<String>,
     ) -> String {
         let session_id_val = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -441,7 +444,7 @@ impl SessionManager {
         session_id: String,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
-        available_skills: Vec<(String, String, Option<String>)>,
+        available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         persona_prompt: Option<String>,
     ) -> bool {
         let session = AcpSession::new_with_skills_and_acp(
@@ -502,7 +505,7 @@ impl SessionManager {
         provider: Box<dyn Provider>,
         cwd: String,
         skills: Vec<Arc<dyn Skill>>,
-        available_skills: Vec<(String, String, Option<String>)>,
+        available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         persona_prompt: Option<String>,
         summary: Option<String>,
     ) -> String {
