@@ -233,7 +233,7 @@ impl Tool for InvokeSkillTool {
             &skill_config.config,
         );
 
-        // Load the skill's full content via on_attach
+        // Load the skill's prompt/content via on_attach (no shell/hooks yet)
         let context_messages = skill.on_attach().await;
 
         // Extract the content
@@ -257,11 +257,12 @@ impl Tool for InvokeSkillTool {
             }
         }
 
-        // Run hooks if defined
-        let hook_outputs = skill.run_hooks().await;
-        if !hook_outputs.is_empty() {
-            content_parts.push("\n## Hook Output:".to_string());
-            content_parts.extend(hook_outputs);
+        // Execute shell and hooks ONLY when the skill is explicitly invoked.
+        // This runs both in a single call (no duplication).
+        let shell_and_hook_outputs = skill.execute_shell_and_hooks().await;
+        if !shell_and_hook_outputs.is_empty() {
+            content_parts.push("\n## Execution Output:".to_string());
+            content_parts.extend(shell_and_hook_outputs);
         }
 
         Ok(content_parts.join("\n"))

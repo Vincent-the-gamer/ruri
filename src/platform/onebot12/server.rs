@@ -20,6 +20,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use tokio::net::TcpSocket;
 use tokio::sync::watch;
 use tokio::sync::{Mutex, broadcast};
 
@@ -416,7 +417,14 @@ pub async fn start_http_server(
         .with_state(state);
 
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let addr: std::net::SocketAddr = addr.parse()?;
+    let socket = match addr {
+        std::net::SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        std::net::SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    let listener = socket.listen(1024)?;
     tracing::info!(%addr, "OneBot v12 HTTP server listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
@@ -441,7 +449,14 @@ pub async fn start_ws_server(
         .with_state(state);
 
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let addr: std::net::SocketAddr = addr.parse()?;
+    let socket = match addr {
+        std::net::SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        std::net::SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    let listener = socket.listen(1024)?;
     tracing::info!(%addr, "OneBot v12 WebSocket server listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {

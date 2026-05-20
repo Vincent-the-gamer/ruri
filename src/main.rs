@@ -32,6 +32,7 @@ use clap::Parser;
 use rust_embed::RustEmbed;
 use std::io::IsTerminal;
 use std::sync::Arc;
+use tokio::net::TcpSocket;
 
 /// CLI arguments parsed by clap.
 #[derive(Parser)]
@@ -952,7 +953,15 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  Run with --acp to start in ACP mode (stdio transport)");
     tracing::info!("  Compatible with Zed, JetBrains, and other ACP clients");
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Use SO_REUSEADDR to avoid "address already in use" on Windows when
+    // restarting the server (port may still be in TIME_WAIT from old process).
+    let socket = match addr {
+        std::net::SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        std::net::SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    let listener = socket.listen(1024)?;
 
     // Use graceful shutdown so that `restart_system` can trigger a clean
     // server teardown before re-executing the binary. Also listen for

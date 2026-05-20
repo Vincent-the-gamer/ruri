@@ -554,6 +554,45 @@ impl SkillPackageSkill {
         &self.shell
     }
 
+    /// Execute the skill's shell command (if defined) and hooks, returning
+    /// formatted output strings that can be appended to the skill context.
+    /// This should be called ONLY when the skill is explicitly invoked,
+    /// not during attach/initialization.
+    pub async fn execute_shell_and_hooks(&self) -> Vec<String> {
+        let mut outputs = Vec::new();
+
+        // Run hooks
+        let hook_outputs = self.run_hooks().await;
+        if !hook_outputs.is_empty() {
+            outputs.push(format!("## Hook Output\n{}", hook_outputs.join("\n\n")));
+        }
+
+        // Run the shell command if defined
+        if let Some(ref shell_cmd) = self.shell {
+            match Self::run_shell_command(shell_cmd).await {
+                Ok(output) => {
+                    tracing::info!(
+                        skill = %self.name,
+                        output_len = output.len(),
+                        "Skill shell command executed on invoke"
+                    );
+                    *self.shell_output.write().await = Some(output.clone());
+                    outputs.push(format!("## Shell Command Output\n```\n{}\n```", output));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        skill = %self.name,
+                        error = %e,
+                        "Skill shell command failed on invoke"
+                    );
+                    outputs.push(format!("## Shell Command Error\n```\n{}\n```", e));
+                }
+            }
+        }
+
+        outputs
+    }
+
     /// Whether this skill is user-invocable.
     #[allow(dead_code)]
     pub fn is_user_invocable(&self) -> bool {
@@ -578,44 +617,13 @@ impl Skill for SkillPackageSkill {
     }
 
     async fn on_attach(&self) -> Vec<ChatMessage> {
-        let mut prompt = self.build_system_prompt();
-
-        // Run hooks on attach and inject their output as context
-        let hook_outputs = self.run_hooks().await;
-        if !hook_outputs.is_empty() {
-            prompt.push_str(&format!(
-                "\n\n## Hook Output\n{}",
-                hook_outputs.join("\n\n")
-            ));
-        }
-
-        // Run the shell command if defined and inject its output
-        if let Some(ref shell_cmd) = self.shell {
-            match Self::run_shell_command(shell_cmd).await {
-                Ok(output) => {
-                    tracing::info!(
-                        skill = %self.name,
-                        output_len = output.len(),
-                        "Skill shell command executed on attach"
-                    );
-                    // Cache the output for later use
-                    *self.shell_output.write().await = Some(output.clone());
-                    prompt.push_str(&format!(
-                        "\n\n## Shell Command Output\n```\n{}\n```",
-                        output
-                    ));
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        skill = %self.name,
-                        error = %e,
-                        "Skill shell command failed on attach"
-                    );
-                    prompt.push_str(&format!("\n\n## Shell Command Error\n```\n{}\n```", e));
-                }
-            }
-        }
-
+        // Build the skill prompt WITHOUT executing shell commands or hooks.
+        // Shell and hooks are executed separately by callers (e.g.,
+        // InvokeSkillTool or try_dispatch_skill_command) only when the
+        // skill is explicitly invoked. This prevents shell commands from
+        // running eagerly before the LLM has a chance to decide whether
+        // the skill should be used.
+        let prompt = self.build_system_prompt();
         if prompt.is_empty() {
             Vec::new()
         } else {
