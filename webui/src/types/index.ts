@@ -61,6 +61,7 @@ export interface Skill {
   skill_type: string
   config: Record<string, unknown>
   is_active: boolean
+  is_folder: boolean
 }
 
 export interface CreateSkillRequest {

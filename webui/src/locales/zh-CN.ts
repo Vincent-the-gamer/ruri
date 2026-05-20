@@ -27,6 +27,7 @@ export default {
     createSuccess: '创建成功',
     saveFailed: '保存失败',
     saving: '保存中...',
+    saveChanges: '保存更改',
   },
 
   // 导航
@@ -322,10 +323,11 @@ export default {
   // 技能
   skills: {
     title: '技能',
-    subtitle: '管理和配置 AI 技能',
+    subtitle: '管理和配置 AI 技能 — 技能以文件夹形式存储在 ~/.ruri/skills/ 中',
     addSkill: '添加技能',
+    refresh: '从磁盘重新扫描技能',
     noSkills: '暂无技能',
-    noSkillsDesc: '添加技能以增强 AI 的能力',
+    noSkillsDesc: '在 ~/.ruri/skills/ 中放置技能文件夹，每个文件夹需包含 SKILL.md',
     addFirstSkill: '添加第一个技能',
     name: '名称',
     description: '描述',
@@ -333,11 +335,12 @@ export default {
     actions: '操作',
     edit: '编辑',
     delete: '删除',
-    deleteConfirm: '确定要删除此技能吗？',
+    deleteConfirm: '确定要删除此技能吗？这将从 ~/.ruri/skills/ 中移除对应文件夹。',
     uploadZipOnly: '请上传 ZIP 格式的技能包文件',
     uploadSuccess: '技能包上传成功！',
     uploadFailed: '上传失败：{error}',
     uploadPackage: '上传技能包',
+    uploadPackageHint: '上传 .zip 技能压缩包。ZIP 应包含一个文件夹，内含 SKILL.md 及所有相关文件。',
     enabled: '已启用',
     disabled: '已停用',
     prompt: '提示词：',

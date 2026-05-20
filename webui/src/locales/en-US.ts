@@ -27,6 +27,7 @@ export default {
     createSuccess: 'Created successfully',
     saveFailed: 'Save failed',
     saving: 'Saving...',
+    saveChanges: 'Save Changes',
   },
 
   // Navigation
@@ -360,10 +361,11 @@ export default {
   // Skills
   skills: {
     title: 'Skills',
-    subtitle: 'Manage and configure AI skills',
+    subtitle: 'Manage and configure AI skills — stored as folders in ~/.ruri/skills/',
     addSkill: 'Add Skill',
+    refresh: 'Rescan skills from disk',
     noSkills: 'No skills yet',
-    noSkillsDesc: 'Add skills to enhance AI capabilities',
+    noSkillsDesc: 'Place skill folders in ~/.ruri/skills/, each containing a SKILL.md',
     addFirstSkill: 'Add First Skill',
     name: 'Name',
     description: 'Description',
@@ -371,11 +373,12 @@ export default {
     actions: 'Actions',
     edit: 'Edit',
     delete: 'Delete',
-    deleteConfirm: 'Are you sure you want to delete this skill?',
+    deleteConfirm: 'Are you sure you want to delete this skill? This will remove the folder from ~/.ruri/skills/.',
     uploadZipOnly: 'Please upload a ZIP format skill package file',
     uploadSuccess: 'Skill package uploaded successfully!',
     uploadFailed: 'Upload failed: {error}',
     uploadPackage: 'Upload Skill Package',
+    uploadPackageHint: 'Upload a .zip skill package. The ZIP should contain a folder with SKILL.md and all related files.',
     enabled: 'Enabled',
     disabled: 'Disabled',
     prompt: 'Prompt: ',

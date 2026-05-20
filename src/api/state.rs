@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
 fn default_true() -> bool {
     true
@@ -422,6 +423,9 @@ pub struct StoredSkill {
     pub skill_type: String,
     pub config: serde_json::Value,
     pub is_active: bool,
+    /// Whether this skill is stored as a folder (ZIP-extracted) on disk.
+    /// Folder-based skills are not auto-saved as .md files.
+    pub is_folder: bool,
 }
 
 /// Information about a stored persona template in the library.
@@ -463,12 +467,288 @@ pub fn default_config_path() -> PathBuf {
     ruri_config_dir().join("config.json")
 }
 
+/// Returns the skills directory path: `~/.ruri/skills/`
+pub fn skills_dir() -> PathBuf {
+    ruri_config_dir().join("skills")
+}
+
+/// Returns the file path for a specific skill: `~/.ruri/skills/{name}.md`
+pub fn skill_file_path(name: &str) -> PathBuf {
+    skills_dir().join(format!("{}.md", name))
+}
+
+/// Returns the folder path for a specific skill package: `~/.ruri/skills/{name}/`
+pub fn skill_folder_path(name: &str) -> PathBuf {
+    skills_dir().join(name)
+}
+
 /// Ensures the parent directory of the given path exists.
 async fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
     Ok(())
+}
+
+/// Ensures the skills directory exists.
+async fn ensure_skills_dir() -> std::io::Result<()> {
+    tokio::fs::create_dir_all(skills_dir()).await
+}
+
+// ─── Skill File Serialization ────────────────────────────────────
+
+/// YAML frontmatter structure for a skill `.md` file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFileFrontmatter {
+    pub name: String,
+    pub description: String,
+    #[serde(default = "default_skill_type")]
+    pub skill_type: String,
+    #[serde(default)]
+    pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when_to_use: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argument_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_model_invocation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_invocable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paths: Option<serde_yaml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+}
+
+fn default_skill_type() -> String {
+    "skill".to_string()
+}
+
+/// Convert a `StoredSkill` to a `.md` file content (YAML frontmatter + markdown body).
+fn stored_skill_to_md(skill: &StoredSkill) -> String {
+    let content = skill
+        .config
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // Extract optional fields from config JSON
+    let when_to_use = skill
+        .config
+        .get("when_to_use")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let argument_hint = skill
+        .config
+        .get("argument_hint")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let arguments = skill
+        .config
+        .get("arguments")
+        .and_then(|v| serde_json::from_value::<serde_yaml::Value>(v.clone()).ok());
+    let disable_model_invocation = skill
+        .config
+        .get("disable_model_invocation")
+        .and_then(|v| v.as_bool());
+    let user_invocable = skill.config.get("user_invocable").and_then(|v| v.as_bool());
+    let allowed_tools = skill
+        .config
+        .get("allowed_tools")
+        .and_then(|v| serde_json::from_value::<serde_yaml::Value>(v.clone()).ok());
+    let model = skill
+        .config
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let effort = skill
+        .config
+        .get("effort")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let context = skill
+        .config
+        .get("context")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let agent = skill
+        .config
+        .get("agent")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let hooks = skill
+        .config
+        .get("hooks")
+        .and_then(|v| serde_json::from_value::<serde_yaml::Value>(v.clone()).ok());
+    let paths = skill
+        .config
+        .get("paths")
+        .and_then(|v| serde_json::from_value::<serde_yaml::Value>(v.clone()).ok());
+    let shell = skill
+        .config
+        .get("shell")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let fm = SkillFileFrontmatter {
+        name: skill.name.clone(),
+        description: skill.description.clone(),
+        skill_type: skill.skill_type.clone(),
+        is_active: skill.is_active,
+        when_to_use,
+        argument_hint,
+        arguments,
+        disable_model_invocation,
+        user_invocable,
+        allowed_tools,
+        model,
+        effort,
+        context,
+        agent,
+        hooks,
+        paths,
+        shell,
+    };
+
+    let yaml_str = serde_yaml::to_string(&fm).unwrap_or_default();
+    format!("---\n{}---\n{}", yaml_str, content)
+}
+
+/// Parse a `.md` skill file back into a `StoredSkill`.
+fn md_to_stored_skill(md_content: &str) -> Result<StoredSkill, String> {
+    if !md_content.starts_with("---") {
+        return Err("Missing opening frontmatter marker".to_string());
+    }
+
+    let content_without_opening = &md_content[3..];
+    let closing_pos = content_without_opening
+        .find("\n---")
+        .or_else(|| content_without_opening.find("---"))
+        .ok_or("Missing closing frontmatter marker")?;
+
+    let frontmatter_str = &content_without_opening[..closing_pos];
+    let markdown_body = content_without_opening[closing_pos..]
+        .trim_start_matches("\n---")
+        .trim_start_matches("---")
+        .trim()
+        .to_string();
+
+    let fm: SkillFileFrontmatter = serde_yaml::from_str(frontmatter_str)
+        .map_err(|e| format!("Failed to parse frontmatter: {}", e))?;
+
+    // Build the config JSON from frontmatter fields + content
+    let mut config = serde_json::Map::new();
+
+    if let Some(ref v) = fm.when_to_use {
+        config.insert(
+            "when_to_use".to_string(),
+            serde_json::Value::String(v.clone()),
+        );
+    }
+    if let Some(ref v) = fm.argument_hint {
+        config.insert(
+            "argument_hint".to_string(),
+            serde_json::Value::String(v.clone()),
+        );
+    }
+    if let Some(ref v) = fm.arguments {
+        config.insert(
+            "arguments".to_string(),
+            serde_json::to_value(v).map_err(|e| e.to_string())?,
+        );
+    }
+    if let Some(v) = fm.disable_model_invocation {
+        config.insert(
+            "disable_model_invocation".to_string(),
+            serde_json::Value::Bool(v),
+        );
+    }
+    if let Some(v) = fm.user_invocable {
+        config.insert("user_invocable".to_string(), serde_json::Value::Bool(v));
+    }
+    if let Some(ref v) = fm.allowed_tools {
+        config.insert(
+            "allowed_tools".to_string(),
+            serde_json::to_value(v).map_err(|e| e.to_string())?,
+        );
+    }
+    if let Some(ref v) = fm.model {
+        config.insert("model".to_string(), serde_json::Value::String(v.clone()));
+    }
+    if let Some(ref v) = fm.effort {
+        config.insert("effort".to_string(), serde_json::Value::String(v.clone()));
+    }
+    if let Some(ref v) = fm.context {
+        config.insert("context".to_string(), serde_json::Value::String(v.clone()));
+    }
+    if let Some(ref v) = fm.agent {
+        config.insert("agent".to_string(), serde_json::Value::String(v.clone()));
+    }
+    if let Some(ref v) = fm.hooks {
+        config.insert(
+            "hooks".to_string(),
+            serde_json::to_value(v).map_err(|e| e.to_string())?,
+        );
+    }
+    if let Some(ref v) = fm.paths {
+        config.insert(
+            "paths".to_string(),
+            serde_json::to_value(v).map_err(|e| e.to_string())?,
+        );
+    }
+    if let Some(ref v) = fm.shell {
+        config.insert("shell".to_string(), serde_json::Value::String(v.clone()));
+    }
+
+    // Add the markdown body as "content"
+    config.insert(
+        "content".to_string(),
+        serde_json::Value::String(markdown_body),
+    );
+
+    Ok(StoredSkill {
+        name: fm.name,
+        description: fm.description,
+        skill_type: fm.skill_type,
+        config: serde_json::Value::Object(config),
+        is_active: fm.is_active,
+        is_folder: false, // Default; caller may override for folder-based skills
+    })
+}
+
+/// Load all skills from `~/.ruri/skills/` into a HashMap.
+/// Supports both flat `.md` files and folder-based skills (directory with `SKILL.md`).
+/// This is the canonical way to load skills from disk — used by both
+/// AppState and the ACP ProviderFactory.
+pub fn load_skills_from_disk() -> HashMap<String, StoredSkill> {
+    let mut skills = HashMap::new();
+    let dir = skills_dir();
+    if !dir.exists() {
+        return skills;
+    }
+
+    // Delegate to the shared sync reader which handles both .md files and folders
+    AppState::read_skills_from_dir_sync(&dir, &mut skills);
+
+    if !skills.is_empty() {
+        info!("Loaded {} skills from {}", skills.len(), dir.display());
+    }
+    skills
 }
 
 // ─── Application State ───────────────────────────────────────────
@@ -612,7 +892,7 @@ impl AppState {
                     })
                     .collect();
 
-                let skills = config
+                let mut skills: HashMap<String, StoredSkill> = config
                     .skills
                     .into_iter()
                     .map(|(name, s)| {
@@ -624,10 +904,28 @@ impl AppState {
                                 skill_type: s.skill_type,
                                 config: s.config,
                                 is_active: s.is_active,
+                                is_folder: false,
                             },
                         )
                     })
                     .collect();
+
+                // Try to load skills from ~/.ruri/skills/*.md files.
+                // Filesystem takes priority over config.json.
+                // If filesystem has no skills, config.json skills are kept
+                // and will be migrated on first auto_save.
+                let disk_count = Self::index_skills_from_disk_sync(&mut skills);
+                if disk_count > 0 {
+                    info!(
+                        "Loaded {} skills from filesystem, overriding config.json",
+                        disk_count
+                    );
+                } else if !skills.is_empty() {
+                    info!(
+                        "{} skills in config.json will be migrated to filesystem on next save",
+                        skills.len()
+                    );
+                }
 
                 // Load persona library (reusable templates).
                 let old_personas: HashMap<String, PersistedPersona> = config.personas;
@@ -707,10 +1005,22 @@ impl AppState {
                     config_path.display(),
                     e
                 );
+
+                // Even if config.json is missing or corrupt, try to load
+                // skills from ~/.ruri/skills/ so they appear in the WebUI.
+                let mut skills = HashMap::new();
+                let disk_count = Self::index_skills_from_disk_sync(&mut skills);
+                if disk_count > 0 {
+                    info!(
+                        "Loaded {} skills from filesystem (config.json unavailable)",
+                        disk_count
+                    );
+                }
+
                 (
                     HashMap::new(),
                     None,
-                    HashMap::new(),
+                    skills,
                     HashMap::new(),
                     HashMap::new(),
                     AcpConfig::default(),
@@ -840,11 +1150,321 @@ impl AppState {
         Ok(())
     }
 
-    /// Auto-save to the default config path.
+    /// Auto-save to the default config path and save skills to disk.
     pub async fn auto_save(&self) {
         if let Err(e) = self.save_to_file(&self.config_path).await {
             tracing::warn!("Failed to auto-save config: {}", e);
         }
+        // Also persist all skills as individual .md files in ~/.ruri/skills/
+        if let Err(e) = self.save_all_skills_to_disk().await {
+            tracing::warn!("Failed to save skills to disk: {}", e);
+        }
+    }
+
+    /// Save all skills as individual `.md` files in `~/.ruri/skills/`.
+    /// Folder-based skills (from ZIP packages) are skipped — they already
+    /// have their files on disk in their own directory.
+    /// Also cleans up stale .md files for skills that no longer exist in memory.
+    /// Save all in-memory skills to `~/.ruri/skills/`.
+    /// Every skill is a folder containing at least a `SKILL.md`.
+    /// Folder-based skills already have their files on disk; this only
+    /// updates the `SKILL.md` inside each folder to reflect the current
+    /// in-memory state (e.g. `is_active` toggles).
+    /// It does NOT delete any files or folders from disk.
+    pub async fn save_all_skills_to_disk(&self) -> anyhow::Result<()> {
+        ensure_skills_dir().await?;
+        let skills = self.skills.read().await;
+
+        // Save all in-memory skills to disk
+        for (name, skill) in skills.iter() {
+            let md_content = stored_skill_to_md(skill);
+
+            if skill.is_folder {
+                // Folder-based skill: update SKILL.md inside its folder
+                let folder = skill_folder_path(name);
+                // Ensure the folder exists (it may have been deleted externally)
+                if !folder.exists() {
+                    tokio::fs::create_dir_all(&folder).await.map_err(|e| {
+                        anyhow::anyhow!("Failed to create skill folder {}: {}", folder.display(), e)
+                    })?;
+                }
+                let skill_md = folder.join("SKILL.md");
+                tokio::fs::write(&skill_md, &md_content)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to write skill file {}: {}", skill_md.display(), e)
+                    })?;
+                debug!("Updated folder skill '{}' at {}", name, skill_md.display());
+            } else {
+                // Legacy flat-file skill: migrate to folder-based storage
+                // Create a folder and write SKILL.md inside it
+                let folder = skill_folder_path(name);
+                if !folder.exists() {
+                    tokio::fs::create_dir_all(&folder).await.map_err(|e| {
+                        anyhow::anyhow!("Failed to create skill folder {}: {}", folder.display(), e)
+                    })?;
+                }
+                let skill_md = folder.join("SKILL.md");
+                tokio::fs::write(&skill_md, &md_content)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to write skill file {}: {}", skill_md.display(), e)
+                    })?;
+                // Also remove the old flat .md file if it exists
+                let old_path = skill_file_path(name);
+                if old_path.exists() {
+                    tokio::fs::remove_file(&old_path).await.map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to remove legacy skill file {}: {}",
+                            old_path.display(),
+                            e
+                        )
+                    })?;
+                    debug!("Migrated legacy skill '{}' from flat file to folder", name);
+                }
+                info!("Saved skill '{}' to {}", name, skill_md.display());
+            }
+        }
+
+        info!(
+            "Saved {} skills to {}",
+            skills.len(),
+            skills_dir().display()
+        );
+        Ok(())
+    }
+
+    /// Save a single skill to `~/.ruri/skills/`.
+    /// For folder-based skills, updates the `SKILL.md` inside the folder.
+    /// For flat-file skills, writes a `.md` file.
+    pub async fn save_skill_to_disk(&self, name: &str) -> anyhow::Result<()> {
+        ensure_skills_dir().await?;
+        let skills = self.skills.read().await;
+        let skill = skills
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("Skill '{}' not found", name))?;
+        let md_content = stored_skill_to_md(skill);
+
+        if skill.is_folder {
+            // Folder-based skill: create or update SKILL.md inside the folder
+            let folder = skill_folder_path(name);
+            if !folder.exists() {
+                tokio::fs::create_dir_all(&folder).await.map_err(|e| {
+                    anyhow::anyhow!("Failed to create skill folder {}: {}", folder.display(), e)
+                })?;
+            }
+            let skill_md = folder.join("SKILL.md");
+            tokio::fs::write(&skill_md, &md_content)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to write skill file {}: {}", skill_md.display(), e)
+                })?;
+            info!("Saved folder skill '{}' to {}", name, skill_md.display());
+        } else {
+            let path = skill_file_path(name);
+            tokio::fs::write(&path, &md_content).await.map_err(|e| {
+                anyhow::anyhow!("Failed to write skill file {}: {}", path.display(), e)
+            })?;
+            info!("Saved skill '{}' to {}", name, path.display());
+        }
+        Ok(())
+    }
+
+    /// Delete a skill's files from `~/.ruri/skills/`.
+    /// Handles both flat .md files and folder-based skills (ZIP-extracted).
+    pub async fn delete_skill_from_disk(&self, name: &str) -> anyhow::Result<()> {
+        // Try deleting flat .md file first (legacy format)
+        let md_path = skill_file_path(name);
+        if md_path.exists() {
+            tokio::fs::remove_file(&md_path).await.map_err(|e| {
+                anyhow::anyhow!("Failed to delete skill file {}: {}", md_path.display(), e)
+            })?;
+            info!("Deleted skill file {}", md_path.display());
+        }
+
+        // Try deleting folder-based skill directory
+        let folder_path = skill_folder_path(name);
+        if folder_path.exists() && folder_path.is_dir() {
+            tokio::fs::remove_dir_all(&folder_path).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to delete skill folder {}: {}",
+                    folder_path.display(),
+                    e
+                )
+            })?;
+            info!("Deleted skill folder {}", folder_path.display());
+        }
+        Ok(())
+    }
+
+    /// Index all skills from `~/.ruri/skills/` into the in-memory store.
+    /// Only adds skills that don't already exist in memory, preserving
+    /// any in-memory changes (e.g. `is_active` toggles, config edits).
+    /// Returns the number of newly added skills.
+    pub async fn index_skills_from_disk(&self) -> anyhow::Result<usize> {
+        let dir = skills_dir();
+        if !dir.exists() {
+            debug!("Skills directory does not exist: {}", dir.display());
+            return Ok(0);
+        }
+
+        let mut skills = self.skills.write().await;
+        // Read disk skills into a temporary map, then merge — only insert
+        // skills that don't already exist in the in-memory store.
+        let mut disk_skills: HashMap<String, StoredSkill> = HashMap::new();
+        let disk_count = Self::read_skills_from_dir(&dir, &mut disk_skills).await?;
+        let mut added = 0;
+        for (name, skill) in disk_skills {
+            if !skills.contains_key(&name) {
+                debug!("Refreshed skill '{}' from disk", name);
+                skills.insert(name, skill);
+                added += 1;
+            }
+        }
+        if added > 0 {
+            info!("Added {} new skills from disk", added);
+        }
+        Ok(disk_count)
+    }
+
+    /// Synchronous version, for use during construction.
+    fn index_skills_from_disk_sync(skills_map: &mut HashMap<String, StoredSkill>) -> usize {
+        let dir = skills_dir();
+        if !dir.exists() {
+            return 0;
+        }
+        Self::read_skills_from_dir_sync(&dir, skills_map)
+    }
+
+    /// Read all .md skill files AND skill directories from a directory into a skills map (async).
+    async fn read_skills_from_dir(
+        dir: &Path,
+        skills: &mut HashMap<String, StoredSkill>,
+    ) -> anyhow::Result<usize> {
+        let mut count = 0;
+        let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| {
+            anyhow::anyhow!("Failed to read skills directory {}: {}", dir.display(), e)
+        })?;
+
+        while let Some(entry) = read_dir
+            .next_entry()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read skills dir entry: {}", e))?
+        {
+            let path = entry.path();
+
+            // Support flat .md files (legacy)
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
+                match tokio::fs::read_to_string(&path).await {
+                    Ok(content) => match md_to_stored_skill(&content) {
+                        Ok(skill) => {
+                            let name = skill.name.clone();
+                            debug!("Indexed skill '{}' from {}", name, path.display());
+                            skills.insert(name, skill);
+                            count += 1;
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse skill file {}: {}", path.display(), e);
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Failed to read skill file {}: {}", path.display(), e);
+                    }
+                }
+            }
+            // Support folder-based skills (directory containing SKILL.md)
+            else if path.is_dir() {
+                let skill_md_path = path.join("SKILL.md");
+                if skill_md_path.exists() {
+                    match tokio::fs::read_to_string(&skill_md_path).await {
+                        Ok(content) => match md_to_stored_skill(&content) {
+                            Ok(mut skill) => {
+                                skill.is_folder = true;
+                                let name = skill.name.clone();
+                                debug!("Indexed skill '{}' from folder {}", name, path.display());
+                                skills.insert(name, skill);
+                                count += 1;
+                            }
+                            Err(e) => {
+                                warn!("Failed to parse SKILL.md in {}: {}", path.display(), e);
+                            }
+                        },
+                        Err(e) => {
+                            warn!("Failed to read SKILL.md in {}: {}", path.display(), e);
+                        }
+                    }
+                }
+            }
+        }
+
+        if count > 0 {
+            info!("Indexed {} skills from {}", count, dir.display());
+        }
+        Ok(count)
+    }
+
+    /// Read all .md skill files AND skill directories from a directory into a skills map (sync).
+    fn read_skills_from_dir_sync(dir: &Path, skills: &mut HashMap<String, StoredSkill>) -> usize {
+        let mut count = 0;
+        let read_dir = match std::fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(e) => {
+                warn!("Failed to read skills directory {}: {}", dir.display(), e);
+                return 0;
+            }
+        };
+
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+
+            // Support flat .md files (legacy)
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => match md_to_stored_skill(&content) {
+                        Ok(skill) => {
+                            let name = skill.name.clone();
+                            debug!("Indexed skill '{}' from {}", name, path.display());
+                            skills.insert(name, skill);
+                            count += 1;
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse skill file {}: {}", path.display(), e);
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Failed to read skill file {}: {}", path.display(), e);
+                    }
+                }
+            }
+            // Support folder-based skills (directory containing SKILL.md)
+            else if path.is_dir() {
+                let skill_md_path = path.join("SKILL.md");
+                if skill_md_path.exists() {
+                    match std::fs::read_to_string(&skill_md_path) {
+                        Ok(content) => match md_to_stored_skill(&content) {
+                            Ok(mut skill) => {
+                                skill.is_folder = true;
+                                let name = skill.name.clone();
+                                debug!("Indexed skill '{}' from folder {}", name, path.display());
+                                skills.insert(name, skill);
+                                count += 1;
+                            }
+                            Err(e) => {
+                                warn!("Failed to parse SKILL.md in {}: {}", path.display(), e);
+                            }
+                        },
+                        Err(e) => {
+                            warn!("Failed to read SKILL.md in {}: {}", path.display(), e);
+                        }
+                    }
+                }
+            }
+        }
+
+        if count > 0 {
+            info!("Indexed {} skills from {}", count, dir.display());
+        }
+        count
     }
 
     /// Reload the config file from disk into in-memory state.
@@ -873,23 +1493,7 @@ impl AppState {
             })
             .collect();
 
-        let skills = config
-            .skills
-            .into_iter()
-            .map(|(name, s)| {
-                (
-                    name,
-                    StoredSkill {
-                        name: s.name,
-                        description: s.description,
-                        skill_type: s.skill_type,
-                        config: s.config,
-                        is_active: s.is_active,
-                    },
-                )
-            })
-            .collect();
-
+        // Skills are now loaded from ~/.ruri/skills/*.md files (see index_skills_from_disk below)
         // Load persona library (reusable templates).
         let old_personas: HashMap<String, PersistedPersona> = config.personas.clone();
         let personas: HashMap<String, StoredPersona> = old_personas
@@ -959,10 +1563,7 @@ impl AppState {
             let mut guard = self.active_provider_id.write().await;
             *guard = config.active_provider_id;
         }
-        {
-            let mut guard = self.skills.write().await;
-            *guard = skills;
-        }
+        // Skills are loaded from filesystem, not config.json
         {
             let mut guard = self.personas.write().await;
             *guard = personas;
@@ -987,6 +1588,14 @@ impl AppState {
             let mut guard = self.shell_command_blacklist.write().await;
             *guard = config.shell_command_blacklist;
         }
+
+        // Reload skills from the filesystem (.ruri/skills/*.md)
+        // Clear existing skills first so stale entries (deleted from disk) are removed
+        {
+            let mut guard = self.skills.write().await;
+            guard.clear();
+        }
+        self.index_skills_from_disk().await?;
 
         Ok(())
     }
@@ -1495,10 +2104,11 @@ impl AppState {
     }
 
     /// Build a PersistedConfig from the current in-memory state.
+    /// Note: Skills are NOT persisted to config.json anymore.
+    /// They are stored as individual .md files in ~/.ruri/skills/.
     async fn to_persisted_config(&self) -> PersistedConfig {
         let providers = self.providers.read().await;
         let active_provider_id = self.active_provider_id.read().await;
-        let skills = self.skills.read().await;
         let personas = self.personas.read().await;
         let config_profiles = self.config_profiles.read().await;
         let acp_config = self.acp_config.read().await;
@@ -1523,21 +2133,9 @@ impl AppState {
             })
             .collect();
 
-        let persisted_skills: HashMap<String, PersistedSkill> = skills
-            .iter()
-            .map(|(name, s)| {
-                (
-                    name.clone(),
-                    PersistedSkill {
-                        name: s.name.clone(),
-                        description: s.description.clone(),
-                        skill_type: s.skill_type.clone(),
-                        config: s.config.clone(),
-                        is_active: s.is_active,
-                    },
-                )
-            })
-            .collect();
+        // Skills are now stored as files in ~/.ruri/skills/, not in config.json.
+        // Keep an empty map for backward compatibility.
+        let persisted_skills: HashMap<String, PersistedSkill> = HashMap::new();
 
         let persisted_personas: HashMap<String, PersistedPersona> = personas
             .iter()

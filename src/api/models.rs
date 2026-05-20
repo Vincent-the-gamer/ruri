@@ -176,6 +176,10 @@ pub struct SkillDto {
     pub skill_type: String,
     pub config: serde_json::Value,
     pub is_active: bool,
+    /// Whether this skill is stored as a folder on disk (all skills
+    /// are folder-based; this is always `true` for disk-loaded skills).
+    #[serde(default)]
+    pub is_folder: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,6 +3,7 @@ import { onMounted, ref, reactive, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
 import { useKnowledgeBaseStore } from "../stores/knowledgeBase";
+import ModelSelector from "../components/ModelSelector.vue";
 import type {
     KnowledgeBase,
     CreateKnowledgeBaseRequest,
@@ -974,21 +975,20 @@ const formValid = computed(() => {
                                 </div>
 
                                 <!-- Model -->
-                                <div>
-                                    <label
-                                        class="block text-xs font-medium text-muted-foreground mb-1"
-                                    >
-                                        {{ t("knowledgeBase.model", "Model") }}
-                                        <span class="text-red-400">*</span>
-                                    </label>
-                                    <input
-                                        v-model="form.embModel"
-                                        type="text"
-                                        :disabled="!!editingKb"
-                                        placeholder="BAAI/bge-m3"
-                                        class="w-full rounded-lg border border-border/50 bg-background/50 px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    />
-                                </div>
+                                <ModelSelector
+                                    v-model="form.embModel"
+                                    :label="
+                                        t(
+                                            'knowledgeBase.embeddingModel',
+                                            'Embedding Model',
+                                        )
+                                    "
+                                    :provider-type="'openai'"
+                                    :base-url="form.embBaseUrl"
+                                    :api-key="form.embApiKey"
+                                    :placeholder="'BAAI/bge-m3'"
+                                    :disabled="!!editingKb"
+                                />
 
                                 <!-- Dimension -->
                                 <div>
@@ -1095,24 +1095,19 @@ const formValid = computed(() => {
                                     </div>
 
                                     <!-- Rerank Model -->
-                                    <div class="sm:col-span-2">
-                                        <label
-                                            class="block text-xs font-medium text-muted-foreground mb-1"
-                                        >
-                                            {{
-                                                t(
-                                                    "knowledgeBase.model",
-                                                    "Model",
-                                                )
-                                            }}
-                                        </label>
-                                        <input
-                                            v-model="form.rerankModel"
-                                            type="text"
-                                            placeholder="BAAI/bge-reranker-v2-m3"
-                                            class="w-full rounded-lg border border-border/50 bg-background/50 px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all duration-200"
-                                        />
-                                    </div>
+                                    <ModelSelector
+                                        v-model="form.rerankModel"
+                                        :label="
+                                            t(
+                                                'knowledgeBase.rerankModel',
+                                                'Rerank Model',
+                                            )
+                                        "
+                                        :provider-type="'openai'"
+                                        :base-url="form.rerankBaseUrl"
+                                        :api-key="form.rerankApiKey"
+                                        :placeholder="'BAAI/bge-reranker-v2-m3'"
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -1181,7 +1176,7 @@ const formValid = computed(() => {
                             class="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-border/30 transition-all duration-200"
                             @click="handleCancelModal"
                         >
-                            Cancel
+                            {{ t("common.cancel") }}
                         </button>
                         <button
                             class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1196,10 +1191,14 @@ const formValid = computed(() => {
                                     icon="lucide:loader-2"
                                     class="text-sm animate-spin"
                                 />
-                                Saving...
+                                {{ t("common.saving") }}
                             </span>
                             <span v-else>
-                                {{ editingKb ? "Save Changes" : "Create" }}
+                                {{
+                                    editingKb
+                                        ? t("common.saveChanges")
+                                        : t("common.create")
+                                }}
                             </span>
                         </button>
                     </div>

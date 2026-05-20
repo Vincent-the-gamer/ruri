@@ -2,10 +2,12 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSkillStore } from "../stores/skill";
+import { useToast } from "../composables/useToast";
 
 const { t } = useI18n();
 const skillStore = useSkillStore();
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const toast = useToast();
 
 onMounted(() => {
     skillStore.fetchSkills();
@@ -18,6 +20,10 @@ async function handleRemove(name: string) {
     } catch {
         // error is in store
     }
+}
+
+async function handleRefresh() {
+    await skillStore.fetchSkills();
 }
 
 async function handleToggle(name: string, isActive: boolean) {
@@ -79,16 +85,16 @@ async function handleFileUpload(event: Event) {
 
     // Check if it's a ZIP file
     if (!file.name.endsWith(".zip")) {
-        alert(t("skills.uploadZipOnly"));
+        toast.warning(t("skills.uploadZipOnly"));
         return;
     }
 
     try {
         await skillStore.uploadSkillPackage(file);
-        alert(t("skills.uploadSuccess"));
+        toast.success(t("skills.uploadSuccess"));
     } catch (e) {
         console.error("Upload failed:", e);
-        alert(
+        toast.error(
             t("skills.uploadFailed", {
                 error: skillStore.error || t("errors.unknown"),
             }),
@@ -130,6 +136,28 @@ async function handleFileUpload(event: Event) {
                 </div>
             </div>
             <div class="header-actions">
+                <button
+                    class="btn btn-ghost btn-sm"
+                    @click="handleRefresh"
+                    :title="t('skills.refresh')"
+                >
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <polyline points="23 4 23 10 17 10" />
+                        <polyline points="1 20 1 14 7 14" />
+                        <path
+                            d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                        />
+                    </svg>
+                </button>
                 <button class="btn btn-outline" @click="triggerFileUpload">
                     <svg
                         width="16"
@@ -148,6 +176,7 @@ async function handleFileUpload(event: Event) {
                     {{ t("skills.uploadPackage") }}
                 </button>
             </div>
+            <p class="header-hint">{{ t("skills.uploadPackageHint") }}</p>
             <!-- Hidden file input -->
             <input
                 type="file"
@@ -595,6 +624,13 @@ async function handleFileUpload(event: Event) {
     display: flex;
     gap: 0.75rem;
     align-items: center;
+}
+
+.header-hint {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    margin: 0.5rem 0 0;
+    opacity: 0.7;
 }
 
 /* Buttons - Clear and vibrant */

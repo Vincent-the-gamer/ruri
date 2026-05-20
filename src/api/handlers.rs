@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -605,6 +605,13 @@ async fn fetch_provider_models(
 // ─── Skill Handlers ──────────────────────────────────────────────
 
 async fn list_skills(State(state): State<Arc<AppState>>) -> Json<Vec<SkillDto>> {
+    // Re-index from disk to pick up any skills added externally to
+    // ~/.ruri/skills/ (e.g. manually placed folders with SKILL.md).
+    // Only adds new skills; existing in-memory skills are not overwritten.
+    if let Err(e) = state.index_skills_from_disk().await {
+        tracing::warn!("Failed to re-index skills from disk: {}", e);
+    }
+
     let skills = state.skills.read().await;
     let list: Vec<SkillDto> = skills.values().cloned().map(skill_to_dto).collect();
     Json(list)
@@ -641,11 +648,17 @@ async fn add_skill(
         skill_type: req.skill_type,
         config: req.config,
         is_active: true,
+        is_folder: true,
     };
 
     let dto = skill_to_dto(stored.clone());
+    let name_clone = name.clone();
     state.skills.write().await.insert(name, stored);
 
+    // Save this skill as a folder with SKILL.md inside
+    if let Err(e) = state.save_skill_to_disk(&name_clone).await {
+        tracing::warn!("Failed to save skill '{}' to disk: {}", name_clone, e);
+    }
     state.auto_save().await;
 
     Ok(Json(dto))
@@ -653,6 +666,11 @@ async fn add_skill(
 
 async fn remove_skill(State(state): State<Arc<AppState>>, Path(name): Path<String>) -> StatusCode {
     state.skills.write().await.remove(&name);
+
+    // Also delete the skill file from the filesystem
+    if let Err(e) = state.delete_skill_from_disk(&name).await {
+        tracing::warn!("Failed to delete skill file for '{}': {}", name, e);
+    }
 
     state.auto_save().await;
 
@@ -668,8 +686,13 @@ async fn toggle_skill(
     let skill = skills.get_mut(&name).ok_or(StatusCode::NOT_FOUND)?;
     skill.is_active = req.is_active;
     let dto = skill_to_dto(skill.clone());
+    let name_clone = name.clone();
     drop(skills);
 
+    // Save this skill to its own .md file
+    if let Err(e) = state.save_skill_to_disk(&name_clone).await {
+        tracing::warn!("Failed to save skill '{}' to disk: {}", name_clone, e);
+    }
     state.auto_save().await;
 
     Ok(Json(dto))
@@ -682,6 +705,7 @@ fn skill_to_dto(skill: crate::api::state::StoredSkill) -> SkillDto {
         skill_type: skill.skill_type.clone(),
         config: skill.config.clone(),
         is_active: skill.is_active,
+        is_folder: skill.is_folder,
     }
 }
 
@@ -825,38 +849,131 @@ async fn upload_skill_package(
     ))?;
     debug!(skill_dir = %skill_dir_name, "Skill directory confirmed");
 
-    // Read SKILL.md file
-    debug!("Reading SKILL.md file");
-    let skill_content = {
-        let skill_md_path = format!("{}/SKILL.md", skill_dir_name.trim_end_matches('/'));
-        debug!(path = %skill_md_path, "Looking for SKILL.md");
-        let mut skill_md_file = archive.by_name(&skill_md_path)
-            .map_err(|e| {
-                error!(error = %e, path = %skill_md_path, "Failed to find SKILL.md in ZIP");
+    // Extract the entire ZIP to ~/.ruri/skills/<skill-name>/
+    let skill_dest_dir = crate::api::state::skill_folder_path(&skill_dir_name);
+    debug!(dest = %skill_dest_dir.display(), "Extracting ZIP to skill folder");
+
+    // Remove existing skill folder if present
+    if skill_dest_dir.exists() {
+        tokio::fs::remove_dir_all(&skill_dest_dir).await.map_err(|e| {
+            error!(error = %e, "Failed to remove existing skill folder");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to remove existing skill folder: {}", e) })),
+            )
+        })?;
+    }
+
+    // Collect all file entries from the ZIP before writing (ZipArchive is not Send)
+    struct ZipEntry {
+        relative_path: String,
+        is_dir: bool,
+        data: Vec<u8>,
+    }
+
+    let mut entries: Vec<ZipEntry> = Vec::new();
+    let skill_prefix = format!("{}/", skill_dir_name);
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| {
+            error!(index = i, error = %e, "Failed to access ZIP file at index");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("Failed to access ZIP file: {}", e) })),
+            )
+        })?;
+
+        let name = file.name().to_string();
+
+        // Strip the top-level directory prefix from the path
+        let relative_path = name
+            .strip_prefix(&skill_prefix)
+            .unwrap_or(&name)
+            .to_string();
+
+        if relative_path.is_empty() {
+            continue; // Skip the directory entry itself
+        }
+
+        let is_dir = file.is_dir();
+        let data = if !is_dir {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).map_err(|e| {
+                error!(error = %e, "Failed to read file from ZIP");
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": format!("Failed to find SKILL.md in ZIP: {} (path: {})", e, skill_md_path) })),
+                    Json(json!({ "error": format!("Failed to read file from ZIP: {}", e) })),
                 )
             })?;
+            buf
+        } else {
+            Vec::new()
+        };
 
-        let mut bytes = Vec::new();
-        skill_md_file.read_to_end(&mut bytes).map_err(|e| {
-            error!(error = %e, "Failed to read SKILL.md");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Failed to read SKILL.md: {}", e) })),
-            )
-        })?;
-        let content = String::from_utf8(bytes).map_err(|e| {
-            error!(error = %e, "SKILL.md is not valid UTF-8");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("SKILL.md is not valid UTF-8: {}", e) })),
-            )
-        })?;
-        debug!(size = content.len(), "SKILL.md content read successfully");
-        content
-    };
+        entries.push(ZipEntry {
+            relative_path,
+            is_dir,
+            data,
+        });
+    }
+    let entry_count = entries.len();
+    drop(archive); // Release the archive to allow Send across await points
+
+    // Write all collected entries to disk
+    for entry in &entries {
+        let dest_path = skill_dest_dir.join(&entry.relative_path);
+
+        if entry.is_dir {
+            tokio::fs::create_dir_all(&dest_path).await.map_err(|e| {
+                error!(error = %e, path = %dest_path.display(), "Failed to create directory");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("Failed to create directory: {}", e) })),
+                )
+            })?;
+        } else {
+            // Ensure parent directory exists
+            if let Some(parent) = dest_path.parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    error!(error = %e, path = %parent.display(), "Failed to create parent directory");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("Failed to create parent directory: {}", e) })),
+                    )
+                })?;
+            }
+
+            tokio::fs::write(&dest_path, &entry.data).await.map_err(|e| {
+                error!(error = %e, path = %dest_path.display(), "Failed to write extracted file");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("Failed to write file: {}", e) })),
+                )
+            })?;
+            debug!(path = %dest_path.display(), size = entry.data.len(), "Extracted file");
+        }
+    }
+
+    info!(
+        "Extracted {} files to {}",
+        entry_count,
+        skill_dest_dir.display()
+    );
+
+    // Read SKILL.md from the extracted folder
+    debug!("Reading SKILL.md from extracted folder");
+    let skill_md_path = skill_dest_dir.join("SKILL.md");
+    let skill_content = tokio::fs::read_to_string(&skill_md_path).await.map_err(|e| {
+        error!(error = %e, path = %skill_md_path.display(), "Failed to read SKILL.md from extracted folder");
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Failed to read SKILL.md from extracted folder: {}", e) })),
+        )
+    })?;
+    debug!(
+        size = skill_content.len(),
+        "SKILL.md content read successfully"
+    );
 
     // Parse SKILL.md
     debug!("Parsing SKILL.md markdown and frontmatter");
@@ -1043,6 +1160,7 @@ async fn upload_skill_package(
         skill_type: "skill".to_string(),
         config: serde_json::Value::Object(skill_config),
         is_active: true,
+        is_folder: true, // ZIP-extracted skill is stored as a folder
     };
 
     let skill_dto = skill_to_dto(stored.clone());
@@ -5242,6 +5360,62 @@ async fn delete_knowledge_base(
             Json(json!({ "error": format!("{e:#}") })),
         )
     })?;
+
+    // Clean up stale references to this knowledge base in all config sources
+    {
+        // 1. Debug session
+        let mut debug = state.debug_session.write().await;
+        let before = debug.knowledge_base_ids.len();
+        debug.knowledge_base_ids.retain(|kb_id| kb_id != &id);
+        if debug.knowledge_base_ids.len() != before {
+            tracing::info!(
+                kb_id = %id,
+                "Removed stale knowledge base reference from debug session"
+            );
+            drop(debug);
+            state.save_debug_session().await;
+        } else {
+            drop(debug);
+        }
+
+        // 2. ACP config
+        {
+            let mut acp = state.acp_config.write().await;
+            let before = acp.active_knowledge_base_ids.len();
+            acp.active_knowledge_base_ids.retain(|kb_id| kb_id != &id);
+            if acp.active_knowledge_base_ids.len() != before {
+                tracing::info!(
+                    kb_id = %id,
+                    "Removed stale knowledge base reference from ACP config"
+                );
+            }
+        }
+
+        // 3. Config profiles
+        {
+            let mut profiles = state.config_profiles.write().await;
+            let mut changed = false;
+            for (profile_id, profile) in profiles.iter_mut() {
+                let before = profile.active_knowledge_base_ids.len();
+                profile
+                    .active_knowledge_base_ids
+                    .retain(|kb_id| kb_id != &id);
+                if profile.active_knowledge_base_ids.len() != before {
+                    tracing::info!(
+                        kb_id = %id,
+                        profile_id = %profile_id,
+                        "Removed stale knowledge base reference from config profile"
+                    );
+                    changed = true;
+                }
+            }
+            if changed {
+                drop(profiles);
+                state.auto_save().await;
+            }
+        }
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 

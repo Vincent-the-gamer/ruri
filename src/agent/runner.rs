@@ -493,13 +493,15 @@ impl Agent {
         }
 
         // ── Tool calling priority & failure handling ─────────────────
-        parts.push("## Tool Calling Priority (default order)".to_string());
+        parts.push("## Tool Calling Priority (MUST FOLLOW)".to_string());
         parts.push(
-            "When processing a user request, follow this default priority order:\n\n\
-            1. **Skill** — If any listed skill matches the user request (by name, description, or \"when_to_use\" condition), use it FIRST. Skills are the primary capability mechanism.\n\
-            2. **web_search** — If no skill matches and the user needs external/real-time information or knowledge lookup, use web_search.\n\
-            3. **python / shell** — Use ONLY as a last resort for complex computations, system-level operations, or when no other tool can fulfill the request. Prefer dedicated tools over raw shell commands.\n\
-            4. **Other tools** (read_file, write_file, grep, etc.) — Use as needed to support the above.\n\n\
+            "CRITICAL: Before calling ANY tool, you MUST first check if any available skill can fulfill the user's request.\n\n\
+            When processing a user request, follow this STRICT priority order:\n\n\
+            1. **Skill (ALWAYS FIRST)** — Scan ALL listed skills (both active and on-demand). If ANY skill matches the user request by name, description, or \"when_to_use\" condition, use that skill FIRST via the invoke_skill tool. Skills are the PRIMARY capability mechanism. Do NOT skip this step.\n\
+            2. **knowledge_base_search** — Only if NO skill matches AND the user's question might benefit from information stored in the configured knowledge bases. Use this to retrieve relevant context from the knowledge base. Always cite source documents when using knowledge base information.\n\
+            3. **web_search** — Only if NO skill matches, knowledge base has no relevant information, AND the user needs external/real-time information or knowledge lookup.\n\
+            4. **Dedicated tools** (read_file, write_file, grep, list_directory, etc.) — Use these specialized tools when they directly serve the request. Always prefer these over raw shell commands.\n\
+            5. **python / shell / bash (LAST RESORT)** — ONLY use raw shell commands when absolutely no other tool or skill can fulfill the request. shell/bash should NEVER be your first choice. Always exhaust skills and dedicated tools first.\n\n\
             **Exception**: If the user explicitly specifies which tool or method to use (e.g. \"use web search\", \"run a shell command\", \"use the X skill\"), follow their instruction and skip the default priority."
                 .to_string(),
         );

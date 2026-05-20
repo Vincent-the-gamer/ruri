@@ -10,6 +10,8 @@ const props = defineProps<{
     baseUrl: string;
     apiKey: string;
     placeholder?: string;
+    label?: string;
+    disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -121,13 +123,16 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="form-group">
-        <label class="form-label">{{ t("providers.form.defaultModel") }}</label>
+        <label class="form-label">{{
+            label ?? t("providers.form.defaultModel")
+        }}</label>
         <div class="model-selector" ref="selectorRef">
             <div class="model-input-row">
                 <input
                     type="text"
                     class="form-input model-text-input"
                     :value="modelValue"
+                    :disabled="disabled"
                     @input="
                         emit(
                             'update:modelValue',
@@ -143,7 +148,7 @@ onBeforeUnmount(() => {
                     type="button"
                     class="btn-fetch"
                     @click="handleFetchClick"
-                    :disabled="loading"
+                    :disabled="loading || disabled"
                     :title="t('providers.form.fetchModels')"
                 >
                     <svg
@@ -175,7 +180,7 @@ onBeforeUnmount(() => {
                     </svg>
                 </button>
                 <button
-                    v-if="models.length > 0"
+                    v-if="models.length > 0 && !disabled"
                     type="button"
                     class="btn-toggle"
                     @click="toggleDropdown"
@@ -318,6 +323,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    margin-bottom: 0.375rem;
+    color: hsl(var(--foreground));
+}
+
 .model-selector {
     position: relative;
 }

@@ -19,8 +19,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::acp::session::{AcpSession, SessionManager};
 use crate::api::state::{
-    AppState, PersistedConfig, PersistedProvider, PersistedSkill, StoredProvider, StoredSkill,
-    default_config_path,
+    AppState, PersistedConfig, PersistedProvider, StoredProvider, StoredSkill, default_config_path,
 };
 use crate::provider::Provider;
 
@@ -1513,6 +1512,10 @@ impl ProviderFactory {
             return (Vec::new(), Vec::new(), None);
         };
 
+        // Load all skills from ~/.ruri/skills/*.md (filesystem-based storage)
+        let stored_skills: HashMap<String, StoredSkill> =
+            crate::api::state::load_skills_from_disk();
+
         let mut skills: Vec<Arc<dyn crate::agent::skill::Skill>> = Vec::new();
 
         // Build regular skills from ACP config
@@ -1524,12 +1527,6 @@ impl ProviderFactory {
             .collect();
 
         if !config.acp_config.active_skill_names.is_empty() {
-            let stored_skills: HashMap<String, StoredSkill> = config
-                .skills
-                .iter()
-                .map(|(name, s)| (name.clone(), Self::persisted_to_stored_skill(s)))
-                .collect();
-
             skills =
                 AppState::build_skills(&stored_skills, Some(&config.acp_config.active_skill_names));
         }
@@ -1537,7 +1534,7 @@ impl ProviderFactory {
         // Build available skill index for non-active skills (with full config)
         let mut available_skills: Vec<(String, String, Option<String>, serde_json::Value)> =
             Vec::new();
-        for (name, skill) in &config.skills {
+        for (name, skill) in &stored_skills {
             if !active_skill_names_set.contains(name) {
                 let when_to_use = skill.config["when_to_use"].as_str().map(|s| s.to_string());
                 available_skills.push((
@@ -1599,17 +1596,6 @@ impl ProviderFactory {
             config_json: p.config_json.clone(),
             is_active: p.is_active,
             created_at,
-        }
-    }
-
-    /// Convert a PersistedSkill to a StoredSkill.
-    fn persisted_to_stored_skill(s: &PersistedSkill) -> StoredSkill {
-        StoredSkill {
-            name: s.name.clone(),
-            description: s.description.clone(),
-            skill_type: s.skill_type.clone(),
-            config: s.config.clone(),
-            is_active: s.is_active,
         }
     }
 
