@@ -112,7 +112,7 @@
 ### 安装
 
 1. 从 [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases) 下载最新版本
-2. 解压并将二进制文件添加到系统 `PATH`
+2. 将二进制文件添加到系统环境变量(`PATH`)
 3. 启动服务：
 
 ```bash

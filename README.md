@@ -112,7 +112,7 @@ HTTP, HTTPS, SOCKS4, and SOCKS5 proxy support with Clash-style rule-based routin
 ### Installation
 
 1. Download the latest release from [GitHub Releases](https://github.com/Vincent-the-gamer/ruri/releases)
-2. Extract the archive and add the binary to your `PATH`
+2. Add the binary to your `PATH`
 3. Run the server:
 
 ```bash
