@@ -52,5 +52,5 @@ features:
       src: "/imgs/command-system.svg"
 ---
 
-> [!WARNING]
-> Ruri is currently in alpha — features and documentation are actively being developed and may change.
+> [!IMPORTANT]
+> Ruri is currently in beta. Features and documentation are actively evolving and may change as we approach a stable release.

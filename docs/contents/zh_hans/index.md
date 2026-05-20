@@ -52,5 +52,5 @@ features:
       src: "/imgs/command-system.svg"
 ---
 
-> [!WARNING] 文档完善中
-> Ruri 的文档正在持续完善中，部分内容可能尚未更新至最新版本。如果你发现任何问题，欢迎反馈！
+> [!IMPORTANT]
+> Ruri 已进入公测阶段。功能和文档正在持续完善中，在稳定版本发布前可能会有变动。
