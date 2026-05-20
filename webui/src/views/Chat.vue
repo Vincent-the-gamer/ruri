@@ -52,6 +52,7 @@ const effectiveProvider = computed(() => {
     // Only use explicit selection from debug session — no automatic fallback
     const id =
         chatConfigModal.value?.selectedProviderId ??
+        debugSessionStore.activeProvider ??
         debugSessionStore.providerId;
     if (id) {
         return providerStore.providers.find((p) => p.id === id) || null;
@@ -121,6 +122,7 @@ async function handleSend(
     // No automatic fallback to profile or global active provider — user must explicitly choose
     const effectiveProviderId =
         chatConfigModal.value?.selectedProviderId ??
+        debugSessionStore.activeProvider ??
         debugSessionStore.providerId ??
         undefined;
 

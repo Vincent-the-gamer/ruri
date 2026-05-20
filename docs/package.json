@@ -18,14 +18,14 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.0.0",
-    "@shikijs/vitepress-twoslash": "^4.0.2",
-    "@types/node": "^25.8.0",
+    "@shikijs/vitepress-twoslash": "^4.1.0",
+    "@types/node": "^25.9.1",
     "eslint": "^10.4.0",
     "eslint-plugin-format": "^2.0.1",
-    "taze": "^19.12.0",
+    "taze": "^19.13.0",
     "unocss": "66.4.1",
     "vite": "^8.0.13",
     "vitepress": "^2.0.0-alpha.17",
-    "vitepress-theme-teek": "^1.5.7"
+    "vitepress-theme-teek": "^1.6.0"
   }
 }

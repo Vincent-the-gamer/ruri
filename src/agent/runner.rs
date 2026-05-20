@@ -115,7 +115,7 @@ pub struct Agent {
     /// Full configuration for on-demand skills that can be dynamically loaded.
     /// Stores the complete skill config so invoke_skill tool can load them.
     /// Shared via Arc<RwLock> so InvokeSkillTool can access it.
-    available_skill_configs: Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+    available_skill_configs: Arc<std::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
     /// Optional cancellation token — when cancelled, the agent loop stops
     /// between rounds (not mid-API-call). Set by the caller before invoking
     /// `chat_with_message` to allow `/stop` to fully terminate the agent.
@@ -157,12 +157,12 @@ struct AvailableSkillConfig {
 /// When the model calls this tool, the skill's full content is loaded and
 /// returned to the model, allowing it to use the skill's capabilities.
 struct InvokeSkillTool {
-    configs: std::sync::Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+    configs: std::sync::Arc<std::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
 }
 
 impl InvokeSkillTool {
     fn new(
-        configs: std::sync::Arc<tokio::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+        configs: std::sync::Arc<std::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
     ) -> Self {
         Self { configs }
     }
@@ -172,7 +172,7 @@ impl InvokeSkillTool {
 impl Tool for InvokeSkillTool {
     fn definition(&self) -> ToolDefinition {
         // Build description from available skill names
-        let skill_names: Vec<String> = self.configs.blocking_read().keys().cloned().collect();
+        let skill_names: Vec<String> = self.configs.read().unwrap().keys().cloned().collect();
         let desc = format!(
             "Dynamically load and invoke an on-demand skill. \
              Use this tool when the user request matches one of the available on-demand skills. \
@@ -213,7 +213,7 @@ impl Tool for InvokeSkillTool {
         // Note: arguments field is reserved for future use when skills need parameters
 
         let skill_config = {
-            let configs = self.configs.read().await;
+            let configs = self.configs.read().unwrap();
             match configs.get(&invoke_args.skill_name) {
                 Some(config) => config.clone(),
                 None => {
@@ -272,7 +272,7 @@ impl Agent {
     /// Create a new Agent with custom configuration.
     pub fn with_config(provider: Box<dyn Provider>, config: AgentConfig) -> Self {
         let tool_executor = ToolExecutor::new();
-        let available_skill_configs = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        let available_skill_configs = Arc::new(std::sync::RwLock::new(HashMap::new()));
         Self {
             transport: HttpTransport::with_default_config(provider),
             tool_executor,
@@ -380,8 +380,8 @@ impl Agent {
             description: description.clone(),
             when_to_use: when_to_use.clone(),
         });
-        // Store full config for dynamic loading - use blocking_write since this is called during setup
-        let mut configs = self.available_skill_configs.blocking_write();
+        // Store full config for dynamic loading
+        let mut configs = self.available_skill_configs.write().unwrap();
         configs.insert(
             name.clone(),
             AvailableSkillConfig {
