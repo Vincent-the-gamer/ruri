@@ -487,9 +487,16 @@ impl SkillPackageSkill {
         // On Windows, use PowerShell for consistency with ShellTool and BashTool.
         // On Unix, use sh (avoiding bash-specific extensions for portability).
         #[cfg(target_os = "windows")]
-        let shell_future = tokio::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", command])
-            .output();
+        let shell_future = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            tokio::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", command])
+                .stdin(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .kill_on_drop(true)
+                .output()
+        };
 
         #[cfg(not(target_os = "windows"))]
         let shell_future = tokio::process::Command::new("sh")

@@ -9,11 +9,20 @@ use std::path::Path;
 
 // ─── Process Group Guard ────────────────────────────────────────────
 
-/// A wrapper that ensures a Unix process group is killed on drop.
+/// A wrapper that ensures process trees are killed on drop.
+///
+/// On Unix: uses process groups (SIGTERM/SIGKILL to the PGID).
+/// On Windows: uses Job Objects to track and terminate the entire process tree.
+///
 /// Used by shell tools to prevent orphan processes from holding ports
 /// when the server is stopped or the tool is cancelled.
 pub struct ProcessGroupGuard {
+    #[cfg(unix)]
     pgid: i32,
+    /// Job object handle on Windows, stored as isize to keep the struct
+    /// layout simple. 0 means no job was assigned (guard is a no-op).
+    #[cfg(windows)]
+    job_handle: isize,
 }
 
 impl ProcessGroupGuard {
@@ -22,9 +31,67 @@ impl ProcessGroupGuard {
         Self { pgid: pid as i32 }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    pub fn new(pid: u32) -> Self {
+        // On Windows, create a Job Object that kills all member processes
+        // when the handle is closed (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE).
+        // All children spawned by the assigned process automatically join
+        // the job, giving us full process-tree cleanup.
+        unsafe {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::System::JobObjects::{
+                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                SetInformationJobObject,
+            };
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, PROCESS_SET_QUERY, PROCESS_TERMINATE,
+            };
+
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return Self { job_handle: 0 };
+            }
+
+            // Set KILL_ON_JOB_CLOSE: all processes in this job are
+            // terminated when the last job handle is closed.
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let size = std::mem::size_of_val(&info);
+            let ret = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const std::ffi::c_void,
+                size as u32,
+            );
+            if ret == 0 {
+                CloseHandle(job);
+                return Self { job_handle: 0 };
+            }
+
+            // Open the child process to assign it to the job.
+            let handle = OpenProcess(PROCESS_SET_QUERY | PROCESS_TERMINATE, 0, pid);
+            if handle.is_null() {
+                CloseHandle(job);
+                return Self { job_handle: 0 };
+            }
+
+            let ret = AssignProcessToJobObject(job, handle);
+            CloseHandle(handle); // no longer needed
+            if ret == 0 {
+                CloseHandle(job);
+                return Self { job_handle: 0 };
+            }
+
+            Self {
+                job_handle: job as isize,
+            }
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub fn new(_pid: u32) -> Self {
-        Self { pgid: 0 }
+        Self {}
     }
 
     #[cfg(unix)]
@@ -39,16 +106,46 @@ impl ProcessGroupGuard {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    pub fn kill(&self) {
+        if self.job_handle != 0 {
+            unsafe {
+                use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+                TerminateJobObject(self.job_handle as _, 1);
+            }
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub fn kill(&self) {}
 }
 
 impl Drop for ProcessGroupGuard {
+    #[cfg(unix)]
     fn drop(&mut self) {
         if self.pgid > 0 {
             self.kill();
         }
     }
+
+    #[cfg(windows)]
+    fn drop(&mut self) {
+        if self.job_handle != 0 {
+            // TerminateJobObject kills all processes in the job.
+            // Closing the handle (with KILL_ON_JOB_CLOSE set) also
+            // terminates them, but we call TerminateJobObject explicitly
+            // for immediate effect before the handle is closed.
+            unsafe {
+                use windows_sys::Win32::Foundation::CloseHandle;
+                use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+                TerminateJobObject(self.job_handle as _, 1);
+                CloseHandle(self.job_handle as _);
+            }
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn drop(&mut self) {}
 }
 
 // ─── Helper ────────────────────────────────────────────────────────
@@ -845,11 +942,17 @@ impl Tool for BashTool {
         // Choose shell based on operating system for cross-platform support
         #[cfg(target_os = "windows")]
         let shell_command = async {
-            // On Windows, try PowerShell first
+            // On Windows, use PowerShell with CREATE_NO_WINDOW to avoid
+            // flashing a console window. stdin is explicitly set to null
+            // to prevent the child from waiting on inherited stdin.
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
+                .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
+                .creation_flags(CREATE_NO_WINDOW)
                 .kill_on_drop(true)
                 .spawn()
         };

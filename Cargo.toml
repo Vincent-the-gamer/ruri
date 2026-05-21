@@ -9,6 +9,10 @@ edition = "2024"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows process management for shell tool (job object process tree kill)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation"] }
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }

@@ -132,14 +132,20 @@ impl Tool for ShellTool {
         // so that all children are in their own process group and can be
         // killed atomically when the tool is cancelled or the server shuts down.
         #[cfg(target_os = "windows")]
-        let child = tokio::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", command])
-            .current_dir(&working_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
+        let child = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            tokio::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", command])
+                .current_dir(&working_dir)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .creation_flags(CREATE_NO_WINDOW)
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?
+        };
 
         #[cfg(not(target_os = "windows"))]
         let child = tokio::process::Command::new("bash")
