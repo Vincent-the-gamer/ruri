@@ -133,7 +133,6 @@ impl Tool for ShellTool {
         // killed atomically when the tool is cancelled or the server shuts down.
         #[cfg(target_os = "windows")]
         let child = {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])

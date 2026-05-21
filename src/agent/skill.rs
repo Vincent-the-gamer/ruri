@@ -488,7 +488,6 @@ impl SkillPackageSkill {
         // On Unix, use sh (avoiding bash-specific extensions for portability).
         #[cfg(target_os = "windows")]
         let shell_future = {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])

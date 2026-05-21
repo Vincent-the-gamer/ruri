@@ -40,13 +40,22 @@ impl ProcessGroupGuard {
         unsafe {
             use windows_sys::Win32::Foundation::CloseHandle;
             use windows_sys::Win32::System::JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                AssignProcessToJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
                 JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
                 SetInformationJobObject,
             };
             use windows_sys::Win32::System::Threading::{
-                OpenProcess, PROCESS_SET_QUERY, PROCESS_TERMINATE,
+                OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
             };
+
+            // Use raw FFI for CreateJobObjectW because windows-sys may not
+            // expose it consistently across all Windows target triples.
+            extern "system" {
+                fn CreateJobObjectW(
+                    lpjobattributes: *const std::ffi::c_void,
+                    lpname: *const std::ffi::c_void,
+                ) -> isize;
+            }
 
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() {
@@ -70,7 +79,7 @@ impl ProcessGroupGuard {
             }
 
             // Open the child process to assign it to the job.
-            let handle = OpenProcess(PROCESS_SET_QUERY | PROCESS_TERMINATE, 0, pid);
+            let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
             if handle.is_null() {
                 CloseHandle(job);
                 return Self { job_handle: 0 };
@@ -945,7 +954,6 @@ impl Tool for BashTool {
             // On Windows, use PowerShell with CREATE_NO_WINDOW to avoid
             // flashing a console window. stdin is explicitly set to null
             // to prevent the child from waiting on inherited stdin.
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
