@@ -8,6 +8,10 @@ use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use std::time::Duration;
 
+/// Default read timeout for HTTP connections — prevents indefinite hangs
+/// when a server accepts the connection but never sends response body data.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Helper struct to accumulate tool call data across streaming chunks.
 struct StreamingToolCall {
     id: String,
@@ -39,8 +43,12 @@ impl OpenAIProvider {
         api_key: Option<String>,
         default_model: impl Into<String>,
     ) -> Self {
+        let client = reqwest::Client::builder()
+            .read_timeout(READ_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
             api_key,
             default_model: default_model.into(),
@@ -207,6 +215,7 @@ impl Provider for OpenAIProvider {
                 proxy = proxy.basic_auth(u, p);
             }
             self.client = reqwest::Client::builder()
+                .read_timeout(READ_TIMEOUT)
                 .proxy(proxy)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
@@ -247,18 +256,31 @@ impl Provider for OpenAIProvider {
 
             // Timeout the initial HTTP connection to prevent indefinite hangs
             // when the upstream server becomes unresponsive (e.g. after max-rounds).
+            tracing::info!(
+                url = %url,
+                model = %body.get("model").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                "OpenAI streaming: sending HTTP POST request"
+            );
             let response = match tokio::time::timeout(
                 Duration::from_secs(120),
                 req_builder.json(&body).send(),
             )
             .await
             {
-                Ok(Ok(r)) => r,
+                Ok(Ok(r)) => {
+                    tracing::info!(
+                        status = r.status().as_u16(),
+                        "OpenAI streaming: received HTTP response"
+                    );
+                    r
+                }
                 Ok(Err(e)) => {
+                    tracing::error!(error = %e, "OpenAI streaming: HTTP request failed");
                     yield Err(ProviderError::HttpError(e));
                     return;
                 }
                 Err(_elapsed) => {
+                    tracing::error!("OpenAI streaming: HTTP request timed out after 120s");
                     yield Err(ProviderError::Timeout);
                     return;
                 }
@@ -267,6 +289,7 @@ impl Provider for OpenAIProvider {
             let status = response.status();
             if status.is_client_error() || status.is_server_error() {
                 let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".into());
+                tracing::error!(status = status.as_u16(), error = %error_text, "OpenAI streaming: API returned error status");
                 yield Err(ProviderError::ApiError {
                     status: status.as_u16(),
                     message: error_text,
@@ -274,6 +297,7 @@ impl Provider for OpenAIProvider {
                 return;
             }
 
+            tracing::info!("OpenAI streaming: starting to read SSE body stream");
             // Parse SSE stream
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();

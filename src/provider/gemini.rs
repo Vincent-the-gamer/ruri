@@ -6,6 +6,10 @@ use futures_util::stream::BoxStream;
 use serde_json::json;
 use std::time::Duration;
 
+/// Default read timeout for HTTP connections — prevents indefinite hangs
+/// when a server accepts the connection but never sends response body data.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Helper struct to accumulate tool call data across streaming chunks.
 struct StreamingFunctionCall {
     name: String,
@@ -34,8 +38,12 @@ impl GeminiProvider {
         api_key: impl Into<String>,
         default_model: impl Into<String>,
     ) -> Self {
+        let client = reqwest::Client::builder()
+            .read_timeout(READ_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
             api_key: api_key.into(),
             default_model: default_model.into(),
@@ -521,6 +529,7 @@ impl Provider for GeminiProvider {
                 proxy = proxy.basic_auth(u, p);
             }
             self.client = reqwest::Client::builder()
+                .read_timeout(READ_TIMEOUT)
                 .proxy(proxy)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
@@ -549,6 +558,11 @@ impl Provider for GeminiProvider {
         let stream = async_stream::stream! {
             // Timeout the initial HTTP connection to prevent indefinite hangs
             // when the upstream server becomes unresponsive.
+            tracing::info!(
+                url = %url,
+                model = %model,
+                "Gemini streaming: sending HTTP POST request"
+            );
             let response = match tokio::time::timeout(
                 Duration::from_secs(120),
                 client
@@ -559,12 +573,20 @@ impl Provider for GeminiProvider {
             )
             .await
             {
-                Ok(Ok(r)) => r,
+                Ok(Ok(r)) => {
+                    tracing::info!(
+                        status = r.status().as_u16(),
+                        "Gemini streaming: received HTTP response"
+                    );
+                    r
+                }
                 Ok(Err(e)) => {
+                    tracing::error!(error = %e, "Gemini streaming: HTTP request failed");
                     yield Err(ProviderError::HttpError(e));
                     return;
                 }
                 Err(_elapsed) => {
+                    tracing::error!("Gemini streaming: HTTP request timed out after 120s");
                     yield Err(ProviderError::Timeout);
                     return;
                 }
@@ -573,6 +595,7 @@ impl Provider for GeminiProvider {
             let status = response.status();
             if status.is_client_error() || status.is_server_error() {
                 let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".into());
+                tracing::error!(status = status.as_u16(), error = %error_text, "Gemini streaming: API returned error status");
                 yield Err(ProviderError::ApiError {
                     status: status.as_u16(),
                     message: error_text,
@@ -580,6 +603,7 @@ impl Provider for GeminiProvider {
                 return;
             }
 
+            tracing::info!("Gemini streaming: starting to read SSE body stream");
             // Parse SSE stream
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();

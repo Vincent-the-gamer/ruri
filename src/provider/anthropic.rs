@@ -2,6 +2,11 @@ use crate::provider::{Provider, ProviderError};
 use crate::types::*;
 use async_trait::async_trait;
 use serde_json::json;
+use std::time::Duration;
+
+/// Default read timeout for HTTP connections — prevents indefinite hangs
+/// when a server accepts the connection but never sends response body data.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Anthropic API provider (Claude models).
 ///
@@ -22,8 +27,12 @@ pub struct AnthropicProvider {
 
 impl AnthropicProvider {
     pub fn new(api_key: impl Into<String>, default_model: impl Into<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .read_timeout(READ_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: "https://api.anthropic.com".into(),
             api_key: api_key.into(),
             default_model: default_model.into(),
@@ -471,6 +480,7 @@ impl Provider for AnthropicProvider {
                 proxy = proxy.basic_auth(u, p);
             }
             self.client = reqwest::Client::builder()
+                .read_timeout(READ_TIMEOUT)
                 .proxy(proxy)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
