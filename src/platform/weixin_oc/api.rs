@@ -231,10 +231,24 @@ impl WeixinApi {
             Ok(resp) => {
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    let body = resp.text().await.unwrap_or_default();
-                    // Session timeout (-14) — return error so the caller can re-login
-                    tracing::error!("getUpdates failed: status={}, body={}", status, body);
-                    anyhow::bail!("getUpdates failed: status={}, body={}", status, body);
+                    let body_text = resp.text().await.unwrap_or_default();
+
+                    // Try to parse the error body — the server may return a non-200
+                    // status (e.g. 401) with errcode=-14 in the JSON body when the
+                    // login token expires. We surface this as Ok so the poll loop
+                    // can trigger a re-login instead of treating it as a generic error.
+                    if let Ok(error_resp) = serde_json::from_str::<GetUpdatesResp>(&body_text) {
+                        if error_resp.errcode == Some(-14) {
+                            tracing::warn!(
+                                "getUpdates returned HTTP {} with errcode=-14 (session timeout)",
+                                status
+                            );
+                            return Ok(error_resp);
+                        }
+                    }
+
+                    tracing::error!("getUpdates failed: status={}, body={}", status, body_text);
+                    anyhow::bail!("getUpdates failed: status={}, body={}", status, body_text);
                 }
                 let updates: GetUpdatesResp = resp.json().await?;
                 // Save the new sync cursor
@@ -289,7 +303,7 @@ impl WeixinApi {
                 from_user_id: String::new(),
                 to_user_id: to_user_id.to_string(),
                 client_id: uuid::Uuid::new_v4().to_string(),
-                message_type: 2, // BOT
+                message_type: 2,  // BOT
                 message_state: 2, // FINISH
                 item_list: vec![SendMessageItem::text(text)],
                 context_token: context_token.map(|s| s.to_string()),
@@ -344,14 +358,8 @@ impl WeixinApi {
         });
 
         let resp = self
-            .post_json(
-                &format!("{}/ilink/bot/getconfig", base_url),
-                &token,
-                &body,
-            )
-            .timeout(std::time::Duration::from_millis(
-                self.config.api_timeout_ms,
-            ))
+            .post_json(&format!("{}/ilink/bot/getconfig", base_url), &token, &body)
+            .timeout(std::time::Duration::from_millis(self.config.api_timeout_ms))
             .send()
             .await?;
 
@@ -398,14 +406,8 @@ impl WeixinApi {
         });
 
         let resp = self
-            .post_json(
-                &format!("{}/ilink/bot/sendtyping", base_url),
-                &token,
-                &body,
-            )
-            .timeout(std::time::Duration::from_millis(
-                self.config.api_timeout_ms,
-            ))
+            .post_json(&format!("{}/ilink/bot/sendtyping", base_url), &token, &body)
+            .timeout(std::time::Duration::from_millis(self.config.api_timeout_ms))
             .send()
             .await;
 
@@ -415,11 +417,7 @@ impl WeixinApi {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
                     // Non-fatal: typing indicator failure should not break message flow
-                    tracing::debug!(
-                        "sendTyping failed: status={}, body={}",
-                        status,
-                        body
-                    );
+                    tracing::debug!("sendTyping failed: status={}, body={}", status, body);
                 }
             }
             Err(e) => {

@@ -441,20 +441,54 @@ impl SkillPackageSkill {
     ///
     /// Includes a configurable timeout to prevent hanging commands from
     /// blocking the agent processing loop indefinitely.
-    pub async fn run_shell_command(command: &str) -> Result<String, String> {
-        Self::run_shell_command_with_timeout(command, 60).await
+    ///
+    /// The `blacklist` parameter contains shell command substrings that are
+    /// strictly forbidden. If the command matches any blacklist entry, it is
+    /// rejected before execution. This is a security measure to prevent
+    /// dangerous operations.
+    pub async fn run_shell_command(command: &str, blacklist: &[String]) -> Result<String, String> {
+        Self::run_shell_command_with_timeout(command, 60, blacklist).await
     }
 
     /// Run a shell command with a custom timeout (in seconds).
+    ///
+    /// On Linux/macOS, uses `sh`. On Windows, uses PowerShell.
+    ///
+    /// Before execution, the command is checked against the `blacklist`.
+    /// If the command matches any blacklisted pattern, it is rejected with
+    /// a descriptive error that allows the caller (e.g. the AI agent) to
+    /// try a different, safe command instead.
     pub async fn run_shell_command_with_timeout(
         command: &str,
         timeout_secs: u64,
+        blacklist: &[String],
     ) -> Result<String, String> {
+        // ── Blacklist check ──────────────────────────────────────
+        // Strictly reject any command that matches a blacklisted pattern.
+        // This prevents dangerous operations even when the AI agent
+        // tries alternative commands after a failure.
+        if !blacklist.is_empty() {
+            let lower_cmd = command.to_lowercase();
+            for entry in blacklist {
+                if lower_cmd.contains(&entry.to_lowercase()) {
+                    return Err(format!(
+                        "⛔ Command blocked by security policy: the command contains a \
+                         blacklisted pattern ('{entry}'). Please use a different, \
+                         safe approach to accomplish this task. Do NOT attempt to \
+                         bypass this restriction by encoding, escaping, or \
+                         wrapping the command.",
+                    ));
+                }
+            }
+        }
+
         tracing::info!(command = %command, timeout_secs = timeout_secs, "Skill executing shell command");
 
+        // On Windows, use PowerShell for consistency with ShellTool and BashTool.
+        // On Unix, use sh (avoiding bash-specific extensions for portability).
         #[cfg(target_os = "windows")]
-        let shell_future = tokio::process::Command::new("cmd")
-            .args(["/C", command])
+        let shell_future = tokio::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", command])
             .output();
 
         #[cfg(not(target_os = "windows"))]
@@ -466,7 +500,15 @@ impl SkillPackageSkill {
         let output =
             tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
                 .await
-                .map_err(|_| format!("Shell command timed out after {} seconds", timeout_secs))?;
+                .map_err(|_| {
+                    format!(
+                        "Shell command timed out after {} seconds. \
+                         Consider using a different approach with a shorter \
+                         execution time, or try breaking the task into \
+                         smaller steps.",
+                        timeout_secs
+                    )
+                })?;
 
         match output {
             Ok(out) => {
@@ -481,21 +523,32 @@ impl SkillPackageSkill {
                     }
                 } else {
                     Err(format!(
-                        "Shell command failed (exit {}): {}",
+                        "Shell command failed (exit {}): {}. \
+                         You may try an alternative command or a different \
+                         approach to accomplish this task.",
                         out.status.code().unwrap_or(-1),
                         stderr
                     ))
                 }
             }
-            Err(e) => Err(format!("Failed to execute shell command: {}", e)),
+            Err(e) => Err(format!(
+                "Failed to execute shell command: {}. \
+                 Please check the command syntax and try again, or use \
+                 a different approach.",
+                e
+            )),
         }
     }
 
     /// Run all hooks and collect outputs.
-    pub async fn run_hooks(&self) -> Vec<String> {
+    ///
+    /// The `blacklist` is enforced for every hook command. If any hook
+    /// command is blacklisted, its error is recorded and execution continues
+    /// with the remaining hooks.
+    pub async fn run_hooks(&self, blacklist: &[String]) -> Vec<String> {
         let mut outputs = Vec::new();
         for hook in &self.hooks {
-            match Self::run_shell_command(&hook.command).await {
+            match Self::run_shell_command(&hook.command, blacklist).await {
                 Ok(output) if hook.capture_output => {
                     tracing::info!(
                         hook_command = %hook.command,
@@ -558,18 +611,22 @@ impl SkillPackageSkill {
     /// formatted output strings that can be appended to the skill context.
     /// This should be called ONLY when the skill is explicitly invoked,
     /// not during attach/initialization.
-    pub async fn execute_shell_and_hooks(&self) -> Vec<String> {
+    ///
+    /// The `blacklist` is enforced for the shell command and all hooks.
+    /// If the shell command is blacklisted or fails, the error is included
+    /// in the output so the AI agent can try alternative approaches.
+    pub async fn execute_shell_and_hooks(&self, blacklist: &[String]) -> Vec<String> {
         let mut outputs = Vec::new();
 
         // Run hooks
-        let hook_outputs = self.run_hooks().await;
+        let hook_outputs = self.run_hooks(blacklist).await;
         if !hook_outputs.is_empty() {
             outputs.push(format!("## Hook Output\n{}", hook_outputs.join("\n\n")));
         }
 
         // Run the shell command if defined
         if let Some(ref shell_cmd) = self.shell {
-            match Self::run_shell_command(shell_cmd).await {
+            match Self::run_shell_command(shell_cmd, blacklist).await {
                 Ok(output) => {
                     tracing::info!(
                         skill = %self.name,

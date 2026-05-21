@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use serde_json::json;
+use std::time::Duration;
 
 /// Helper struct to accumulate tool call data across streaming chunks.
 struct StreamingFunctionCall {
@@ -546,16 +547,25 @@ impl Provider for GeminiProvider {
         let client = self.client.clone();
 
         let stream = async_stream::stream! {
-            let response = match client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await
+            // Timeout the initial HTTP connection to prevent indefinite hangs
+            // when the upstream server becomes unresponsive.
+            let response = match tokio::time::timeout(
+                Duration::from_secs(120),
+                client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send(),
+            )
+            .await
             {
-                Ok(r) => r,
-                Err(e) => {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
                     yield Err(ProviderError::HttpError(e));
+                    return;
+                }
+                Err(_elapsed) => {
+                    yield Err(ProviderError::Timeout);
                     return;
                 }
             };

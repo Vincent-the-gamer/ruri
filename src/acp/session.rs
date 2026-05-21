@@ -57,7 +57,10 @@ impl AcpSession {
         }
 
         // Register the invoke_skill tool to allow dynamic loading of on-demand skills
-        agent.register_invoke_skill_tool();
+        let blacklist_arc = std::sync::Arc::new(tokio::sync::RwLock::new(
+            computer_use_config.shell_command_blacklist.clone(),
+        ));
+        agent.register_invoke_skill_tool(blacklist_arc);
 
         // Register tools based on computer_use_config runtime
         match computer_use_config.runtime {

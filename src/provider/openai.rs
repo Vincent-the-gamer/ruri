@@ -6,6 +6,7 @@ use crate::types::{
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
+use std::time::Duration;
 
 /// Helper struct to accumulate tool call data across streaming chunks.
 struct StreamingToolCall {
@@ -244,10 +245,21 @@ impl Provider for OpenAIProvider {
                 req_builder = req_builder.header(key.as_str(), value.as_str());
             }
 
-            let response = match req_builder.json(&body).send().await {
-                Ok(r) => r,
-                Err(e) => {
+            // Timeout the initial HTTP connection to prevent indefinite hangs
+            // when the upstream server becomes unresponsive (e.g. after max-rounds).
+            let response = match tokio::time::timeout(
+                Duration::from_secs(120),
+                req_builder.json(&body).send(),
+            )
+            .await
+            {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => {
                     yield Err(ProviderError::HttpError(e));
+                    return;
+                }
+                Err(_elapsed) => {
+                    yield Err(ProviderError::Timeout);
                     return;
                 }
             };

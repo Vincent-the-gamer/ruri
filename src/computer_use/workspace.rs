@@ -94,10 +94,11 @@ mod tests {
         let manager = WorkspaceManager::new(temp_dir.path());
 
         let path = manager.get_workspace_path("session123");
-        assert!(path.ends_with("workspaces/session123"));
+        // Use Path::ends_with to compare path components in a cross-platform way
+        assert!(path.ends_with(Path::new("workspaces").join("session123")));
 
         let path = manager.get_workspace_path("user/session:123");
-        assert!(path.ends_with("workspaces/user_session_123"));
+        assert!(path.ends_with(Path::new("workspaces").join("user_session_123")));
     }
 
     #[tokio::test]
@@ -116,10 +117,14 @@ mod tests {
         let manager = WorkspaceManager::new(temp_dir.path());
 
         let resolved = manager.resolve_path("test_session", Path::new("notes/todo.txt"));
+        // Use Path::ends_with for cross-platform path comparison
         assert!(
-            resolved
-                .to_string_lossy()
-                .ends_with("workspaces/test_session/notes/todo.txt")
+            resolved.ends_with(
+                Path::new("workspaces")
+                    .join("test_session")
+                    .join("notes")
+                    .join("todo.txt")
+            )
         );
     }
 }

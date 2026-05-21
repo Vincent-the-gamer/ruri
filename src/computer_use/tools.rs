@@ -266,8 +266,15 @@ impl Tool for PythonTool {
             .await
             .map_err(|e| ToolError::ExecutionError(format!("Failed to write temp file: {}", e)))?;
 
-        // Execute Python with timeout
-        let shell_future = tokio::process::Command::new("python3")
+        // Execute Python with timeout.
+        // On Windows, the Python executable is typically "python" or "python.exe";
+        // on Unix it is "python3".
+        #[cfg(target_os = "windows")]
+        let python_exe = "python";
+        #[cfg(not(target_os = "windows"))]
+        let python_exe = "python3";
+
+        let shell_future = tokio::process::Command::new(python_exe)
             .arg(&temp_file)
             .current_dir(&working_dir)
             .output();

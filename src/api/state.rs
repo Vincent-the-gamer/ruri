@@ -452,7 +452,7 @@ pub struct StoredPersona {
 ///
 /// Uses the `dirs` crate for cross-platform home directory resolution:
 /// - **Linux/macOS**: `$HOME/.ruri/`
-/// - **Windows**: `C:\Users\<user>\AppData\Roaming\.ruri\` (via `dirs::data_dir` fallback)
+/// - **Windows**: `C:\Users\<user>\.ruri\`
 ///
 /// Falls back to `.ruri/` in the current directory if the home directory
 /// cannot be determined.
@@ -2872,7 +2872,10 @@ impl AppState {
         // Register the invoke_skill tool to allow dynamic loading of on-demand skills.
         // This must be done after all available skills are added so the tool knows
         // which skills can be invoked.
-        agent.register_invoke_skill_tool();
+        let blacklist_arc = std::sync::Arc::new(tokio::sync::RwLock::new(
+            self.shell_command_blacklist.read().await.clone(),
+        ));
+        agent.register_invoke_skill_tool(blacklist_arc);
 
         // ── Persona injection is deferred to the end of this function ──
         // to ensure it is the LAST skill added, so its system prompt

@@ -1058,15 +1058,30 @@ async fn main() -> anyhow::Result<()> {
 
         #[cfg(not(unix))]
         {
+            // On Windows, spawn the new process and then let the current
+            // process terminate naturally (falling through to Ok(())).
+            // The child inherits the parent's console by default, so it
+            // continues running in the same terminal window.
+            // We avoid std::process::exit(0) because it skips destructors
+            // and may prevent proper console cleanup (e.g. Ctrl+C handler
+            // restoration).
             match std::process::Command::new(&current_exe).args(&args).spawn() {
-                Ok(_) => {
-                    tracing::info!("New server instance started, shutting down current instance");
-                    std::process::exit(0);
+                Ok(child) => {
+                    let pid = child.id();
+                    tracing::info!(
+                        "New server instance started (PID: {pid}), shutting down current instance"
+                    );
+                    // Detach the child handle so it continues running independently.
+                    // On Windows, detaching allows the child to outlive the parent.
+                    drop(child);
                 }
                 Err(e) => {
                     tracing::error!("Failed to restart server: {}", e);
                 }
             }
+            // Fall through to Ok(()) — let the process terminate naturally.
+            // This ensures destructors run, console handlers are cleaned up,
+            // and the TCP socket is properly released.
         }
     }
 

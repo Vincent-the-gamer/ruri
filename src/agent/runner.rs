@@ -158,13 +158,18 @@ struct AvailableSkillConfig {
 /// returned to the model, allowing it to use the skill's capabilities.
 struct InvokeSkillTool {
     configs: std::sync::Arc<std::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+    shell_command_blacklist: std::sync::Arc<tokio::sync::RwLock<Vec<String>>>,
 }
 
 impl InvokeSkillTool {
     fn new(
         configs: std::sync::Arc<std::sync::RwLock<HashMap<String, AvailableSkillConfig>>>,
+        shell_command_blacklist: std::sync::Arc<tokio::sync::RwLock<Vec<String>>>,
     ) -> Self {
-        Self { configs }
+        Self {
+            configs,
+            shell_command_blacklist,
+        }
     }
 }
 
@@ -259,7 +264,10 @@ impl Tool for InvokeSkillTool {
 
         // Execute shell and hooks ONLY when the skill is explicitly invoked.
         // This runs both in a single call (no duplication).
-        let shell_and_hook_outputs = skill.execute_shell_and_hooks().await;
+        // The blacklist is enforced for all commands (shell + hooks) to prevent
+        // dangerous operations even when the AI agent tries alternative approaches.
+        let blacklist = self.shell_command_blacklist.read().await.clone();
+        let shell_and_hook_outputs = skill.execute_shell_and_hooks(&blacklist).await;
         if !shell_and_hook_outputs.is_empty() {
             content_parts.push("\n## Execution Output:".to_string());
             content_parts.extend(shell_and_hook_outputs);
@@ -396,9 +404,12 @@ impl Agent {
 
     /// Register the invoke_skill tool that allows dynamic loading of on-demand skills.
     /// Call this after adding all available skills.
-    pub fn register_invoke_skill_tool(&mut self) {
+    pub fn register_invoke_skill_tool(
+        &mut self,
+        shell_command_blacklist: std::sync::Arc<tokio::sync::RwLock<Vec<String>>>,
+    ) {
         let configs = Arc::clone(&self.available_skill_configs);
-        let tool = InvokeSkillTool::new(configs);
+        let tool = InvokeSkillTool::new(configs, shell_command_blacklist);
         self.register_tool(Arc::new(tool));
     }
 

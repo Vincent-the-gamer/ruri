@@ -443,11 +443,14 @@ impl CommandDispatcher {
             let skill =
                 SkillPackageSkill::from_config(skill_name.clone(), description.clone(), config);
 
+            // Get the shell command blacklist for security enforcement
+            let blacklist = ctx.state.shell_command_blacklist.read().await.clone();
+
             // Execute the skill's shell command if defined
             let mut result_parts = Vec::new();
 
             // Run hooks
-            let hook_outputs = skill.run_hooks().await;
+            let hook_outputs = skill.run_hooks(&blacklist).await;
             if !hook_outputs.is_empty() {
                 result_parts.push(format!(
                     "📦 Skill '{}':\n{}",
@@ -465,7 +468,7 @@ impl CommandDispatcher {
                     format!("{} {}", shell_cmd, args)
                 };
 
-                match SkillPackageSkill::run_shell_command(&full_cmd).await {
+                match SkillPackageSkill::run_shell_command(&full_cmd, &blacklist).await {
                     Ok(output) => {
                         tracing::info!(
                             skill = %skill_name,

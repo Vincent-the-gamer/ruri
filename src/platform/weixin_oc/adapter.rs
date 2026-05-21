@@ -377,6 +377,22 @@ impl WeixinOcAdapter {
                     );
 
                     if consecutive_failures >= Self::MAX_CONSECUTIVE_FAILURES {
+                        // Check if the error looks like an authentication failure
+                        // (e.g. 401/403 when the token has expired). In that case,
+                        // trigger a re-login instead of just backing off.
+                        let error_msg = e.to_string().to_lowercase();
+                        let is_auth_error = error_msg.contains("401")
+                            || error_msg.contains("403")
+                            || error_msg.contains("unauthorized")
+                            || error_msg.contains("forbidden");
+                        if is_auth_error {
+                            tracing::warn!(
+                                platform_id = %instance_id,
+                                "Persistent auth errors detected, triggering session timeout for re-login"
+                            );
+                            return PollLoopExitReason::SessionTimeout;
+                        }
+
                         tracing::error!(
                             platform_id = %instance_id,
                             "{} consecutive failures, backing off for {}s",
