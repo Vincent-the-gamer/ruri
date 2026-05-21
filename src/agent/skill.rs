@@ -493,6 +493,9 @@ impl SkillPackageSkill {
         // matches the proven BashTool implementation.
         #[cfg(target_os = "windows")]
         let spawn_result = {
+            // NOTE: We intentionally do NOT use kill_on_drop(true) here.
+            // Process termination is handled exclusively by the
+            // ProcessGroupGuard. See BashTool for detailed rationale.
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
@@ -500,7 +503,6 @@ impl SkillPackageSkill {
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .creation_flags(CREATE_NO_WINDOW)
-                .kill_on_drop(true)
                 .spawn()
         };
 

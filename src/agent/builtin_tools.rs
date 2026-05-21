@@ -966,6 +966,15 @@ impl Tool for BashTool {
             // On Windows, use PowerShell with CREATE_NO_WINDOW to avoid
             // flashing a console window. stdin is explicitly set to null
             // to prevent the child from waiting on inherited stdin.
+            //
+            // NOTE: We intentionally do NOT use kill_on_drop(true) here.
+            // Process termination is handled exclusively by the
+            // ProcessGroupGuard (Windows Job Object with
+            // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). Using both kill_on_drop
+            // and a Job Object causes a double-kill race on timeout that
+            // can corrupt tokio's internal pipe state on Windows, causing
+            // subsequent spawn()/wait_with_output() calls to hang
+            // indefinitely (the "second consecutive call timeout" bug).
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
@@ -973,7 +982,6 @@ impl Tool for BashTool {
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .creation_flags(CREATE_NO_WINDOW)
-                .kill_on_drop(true)
                 .spawn()
         };
 
