@@ -486,63 +486,88 @@ impl SkillPackageSkill {
 
         // On Windows, use PowerShell for consistency with ShellTool and BashTool.
         // On Unix, use sh (avoiding bash-specific extensions for portability).
+        //
+        // We use spawn() + wait_with_output() instead of output() because
+        // output() can cause the second consecutive process to deadlock on
+        // Windows. The explicit two-step pattern (with ProcessGroupGuard)
+        // matches the proven BashTool implementation.
         #[cfg(target_os = "windows")]
-        let shell_future = {
+        let spawn_result = {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             tokio::process::Command::new("powershell")
                 .args(["-NoProfile", "-Command", command])
                 .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
                 .creation_flags(CREATE_NO_WINDOW)
                 .kill_on_drop(true)
-                .output()
+                .spawn()
         };
 
         #[cfg(not(target_os = "windows"))]
-        let shell_future = tokio::process::Command::new("sh")
+        let spawn_result = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(command)
-            .output();
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn();
 
-        let output =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
-                .await
-                .map_err(|_| {
-                    format!(
-                        "Shell command timed out after {} seconds. \
-                         Consider using a different approach with a shorter \
-                         execution time, or try breaking the task into \
-                         smaller steps.",
-                        timeout_secs
-                    )
-                })?;
-
-        match output {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-
-                if out.status.success() {
-                    if stderr.is_empty() {
-                        Ok(stdout)
-                    } else {
-                        Ok(format!("{}\n[stderr]: {}", stdout, stderr))
-                    }
-                } else {
-                    Err(format!(
-                        "Shell command failed (exit {}): {}. \
-                         You may try an alternative command or a different \
-                         approach to accomplish this task.",
-                        out.status.code().unwrap_or(-1),
-                        stderr
-                    ))
-                }
-            }
-            Err(e) => Err(format!(
-                "Failed to execute shell command: {}. \
+        let child = spawn_result.map_err(|e| {
+            format!(
+                "Failed to spawn shell command: {}. \
                  Please check the command syntax and try again, or use \
                  a different approach.",
                 e
-            )),
+            )
+        })?;
+
+        let child_pid = child.id();
+        let _guard = crate::agent::builtin_tools::ProcessGroupGuard::new(child_pid.unwrap_or(0));
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| {
+            // Timeout: kill the entire process tree via the guard
+            _guard.kill();
+            format!(
+                "Shell command timed out after {} seconds. \
+                         Consider using a different approach with a shorter \
+                         execution time, or try breaking the task into \
+                         smaller steps.",
+                timeout_secs
+            )
+        })?
+        .map_err(|e| {
+            format!(
+                "Failed to execute shell command: {}. \
+                         Please check the command syntax and try again, or use \
+                         a different approach.",
+                e
+            )
+        })?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if output.status.success() {
+            if stderr.is_empty() {
+                Ok(stdout)
+            } else {
+                Ok(format!("{}\n[stderr]: {}", stdout, stderr))
+            }
+        } else {
+            Err(format!(
+                "Shell command failed (exit {}): {}. \
+                 You may try an alternative command or a different \
+                 approach to accomplish this task.",
+                output.status.code().unwrap_or(-1),
+                stderr
+            ))
         }
     }
 
