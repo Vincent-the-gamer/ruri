@@ -25,6 +25,12 @@ pub struct ProcessGroupGuard {
     job_handle: *mut std::ffi::c_void,
 }
 
+// SAFETY: The `job_handle` field on Windows is a kernel HANDLE (job object),
+// which is safe to send and share across threads. On Unix, `pgid` is `i32`
+// which already implements Send + Sync.
+unsafe impl Send for ProcessGroupGuard {}
+unsafe impl Sync for ProcessGroupGuard {}
+
 impl ProcessGroupGuard {
     #[cfg(unix)]
     pub fn new(pid: u32) -> Self {
