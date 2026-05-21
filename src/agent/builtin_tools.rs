@@ -19,10 +19,10 @@ use std::path::Path;
 pub struct ProcessGroupGuard {
     #[cfg(unix)]
     pgid: i32,
-    /// Job object handle on Windows, stored as isize to keep the struct
-    /// layout simple. 0 means no job was assigned (guard is a no-op).
+    /// Job object handle on Windows. null means no job was assigned
+    /// (guard is a no-op).
     #[cfg(windows)]
-    job_handle: isize,
+    job_handle: *mut std::ffi::c_void,
 }
 
 impl ProcessGroupGuard {
@@ -50,16 +50,18 @@ impl ProcessGroupGuard {
 
             // Use raw FFI for CreateJobObjectW because windows-sys may not
             // expose it consistently across all Windows target triples.
-            extern "system" {
+            unsafe extern "system" {
                 fn CreateJobObjectW(
                     lpjobattributes: *const std::ffi::c_void,
                     lpname: *const std::ffi::c_void,
-                ) -> isize;
+                ) -> *mut std::ffi::c_void;
             }
 
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() {
-                return Self { job_handle: 0 };
+                return Self {
+                    job_handle: std::ptr::null_mut(),
+                };
             }
 
             // Set KILL_ON_JOB_CLOSE: all processes in this job are
@@ -75,26 +77,30 @@ impl ProcessGroupGuard {
             );
             if ret == 0 {
                 CloseHandle(job);
-                return Self { job_handle: 0 };
+                return Self {
+                    job_handle: std::ptr::null_mut(),
+                };
             }
 
             // Open the child process to assign it to the job.
             let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
             if handle.is_null() {
                 CloseHandle(job);
-                return Self { job_handle: 0 };
+                return Self {
+                    job_handle: std::ptr::null_mut(),
+                };
             }
 
             let ret = AssignProcessToJobObject(job, handle);
             CloseHandle(handle); // no longer needed
             if ret == 0 {
                 CloseHandle(job);
-                return Self { job_handle: 0 };
+                return Self {
+                    job_handle: std::ptr::null_mut(),
+                };
             }
 
-            Self {
-                job_handle: job as isize,
-            }
+            Self { job_handle: job }
         }
     }
 
@@ -117,10 +123,10 @@ impl ProcessGroupGuard {
 
     #[cfg(windows)]
     pub fn kill(&self) {
-        if self.job_handle != 0 {
+        if !self.job_handle.is_null() {
             unsafe {
                 use windows_sys::Win32::System::JobObjects::TerminateJobObject;
-                TerminateJobObject(self.job_handle as _, 1);
+                TerminateJobObject(self.job_handle, 1);
             }
         }
     }
@@ -139,7 +145,7 @@ impl Drop for ProcessGroupGuard {
 
     #[cfg(windows)]
     fn drop(&mut self) {
-        if self.job_handle != 0 {
+        if !self.job_handle.is_null() {
             // TerminateJobObject kills all processes in the job.
             // Closing the handle (with KILL_ON_JOB_CLOSE set) also
             // terminates them, but we call TerminateJobObject explicitly
@@ -147,8 +153,8 @@ impl Drop for ProcessGroupGuard {
             unsafe {
                 use windows_sys::Win32::Foundation::CloseHandle;
                 use windows_sys::Win32::System::JobObjects::TerminateJobObject;
-                TerminateJobObject(self.job_handle as _, 1);
-                CloseHandle(self.job_handle as _);
+                TerminateJobObject(self.job_handle, 1);
+                CloseHandle(self.job_handle);
             }
         }
     }
