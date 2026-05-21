@@ -593,6 +593,7 @@ impl Agent {
         // Tool loop
         let mut round = 0u32;
         let max_rounds = self.config.max_tool_rounds;
+        let mut tool_error_occurred = false;
 
         loop {
             // Check cancellation before each round
@@ -611,7 +612,16 @@ impl Agent {
                 }
             }
 
-            let request = self.build_request();
+            let mut request = self.build_request();
+
+            // When a tool has failed, disable tools for this round so the LLM
+            // can only respond with text — it will see the TOOL_ERROR message
+            // in history and explain the failure to the user.
+            if tool_error_occurred {
+                request = request.with_tool_choice(crate::types::ToolChoice::String(
+                    crate::types::ToolChoiceString::None,
+                ));
+            }
 
             tracing::info!(
                 round = round,
@@ -916,8 +926,9 @@ impl Agent {
                     }
                 }
 
-                // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
-                // to prevent the model from auto-fallback to other tools.
+                // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
+                // see the error message so it can explain the failure to the user.
+                // We disable tools for the next round to prevent auto-fallback.
                 let tool_failed = tool_calls_for_history.iter().any(|call| {
                     self.history.iter().any(|msg| {
                         msg.role == MessageRole::Tool
@@ -930,12 +941,14 @@ impl Agent {
                     })
                 });
                 if tool_failed {
-                    tracing::info!("Tool execution failed, breaking loop to prevent auto-fallback");
-                    return Ok("tool_error".to_string());
+                    tracing::info!(
+                        "Tool execution failed, disabling tools for next round to let LLM explain error"
+                    );
+                    tool_error_occurred = true;
                 }
 
                 round += 1;
-                if round >= max_rounds {
+                if round >= max_rounds && !tool_error_occurred {
                     tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                     let warning = self.config.max_rounds_reached_message();
                     self.history.push(ChatMessage::assistant(&warning));
@@ -1004,6 +1017,7 @@ impl Agent {
 
         // Build request and run the tool loop
         let mut round = 0u32;
+        let mut tool_error_occurred = false;
         let response = 'agent_loop: loop {
             // Check cancellation before each round — if /stop was invoked,
             // abort immediately instead of continuing to the next tool round.
@@ -1028,7 +1042,15 @@ impl Agent {
                 }
             }
 
-            let request = self.build_request();
+            let mut request = self.build_request();
+
+            // When a tool has failed, disable tools for this round so the LLM
+            // can only respond with text to explain the failure to the user.
+            if tool_error_occurred {
+                request = request.with_tool_choice(crate::types::ToolChoice::String(
+                    crate::types::ToolChoiceString::None,
+                ));
+            }
 
             tracing::info!(
                 round = round,
@@ -1202,8 +1224,9 @@ impl Agent {
                         }
                     }
 
-                    // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
-                    // to prevent the model from auto-fallback to other tools.
+                    // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
+                    // see the error message so it can explain the failure to the user.
+                    // We disable tools for the next round to prevent auto-fallback.
                     let tool_failed = calls.iter().any(|call| {
                         self.history.iter().any(|msg| {
                             msg.role == MessageRole::Tool
@@ -1217,25 +1240,13 @@ impl Agent {
                     });
                     if tool_failed {
                         tracing::info!(
-                            "Tool execution failed, breaking loop to prevent auto-fallback"
+                            "Tool execution failed, disabling tools for next round to let LLM explain error"
                         );
-                        let error_response = ChatResponse {
-                            id: None,
-                            object: Some("chat.completion".to_string()),
-                            model: None,
-                            choices: vec![crate::types::Choice {
-                                index: 0,
-                                message: ChatMessage::assistant(""),
-                                finish_reason: Some("tool_error".to_string()),
-                            }],
-                            usage: None,
-                            extra: serde_json::Map::new(),
-                        };
-                        break 'agent_loop error_response;
+                        tool_error_occurred = true;
                     }
 
                     round += 1;
-                    if round >= self.config.max_tool_rounds {
+                    if round >= self.config.max_tool_rounds && !tool_error_occurred {
                         tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                         // Instead of returning a blank response (the last API response
                         // only contained tool calls), inject a meaningful message so the
@@ -1629,6 +1640,7 @@ impl AgentStreamer {
                 // Tool loop
                 let mut round = 0u32;
                 let max_rounds = agent.config.max_tool_rounds;
+                let mut tool_error_occurred = false;
 
                 loop {
                     // Check cancellation before each round — if /stop was invoked,
@@ -1643,7 +1655,15 @@ impl AgentStreamer {
                         }
                     }
 
-                    let request = agent.build_request();
+                    let mut request = agent.build_request();
+
+                    // When a tool has failed, disable tools for this round so the LLM
+                    // can only respond with text to explain the failure to the user.
+                    if tool_error_occurred {
+                        request = request.with_tool_choice(crate::types::ToolChoice::String(
+                            crate::types::ToolChoiceString::None,
+                        ));
+                    }
 
                     tracing::info!(
                         round = round,
@@ -1961,8 +1981,9 @@ impl AgentStreamer {
                             }
                         }
 
-                        // Detect tool failures: if any tool returned TOOL_ERROR, break the loop
-                        // to prevent the model from auto-fallback to other tools.
+                        // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
+                        // see the error message so it can explain the failure to the user.
+                        // We disable tools for the next round to prevent auto-fallback.
                         let tool_failed = tool_calls_for_history.iter().any(|call| {
                             agent.history.iter().any(|msg| {
                                 msg.role == MessageRole::Tool
@@ -1972,12 +1993,14 @@ impl AgentStreamer {
                             })
                         });
                         if tool_failed {
-                            tracing::info!("Tool execution failed, breaking loop to prevent auto-fallback");
-                            break;
+                            tracing::info!(
+                                "Tool execution failed, disabling tools for next round to let LLM explain error"
+                            );
+                            tool_error_occurred = true;
                         }
 
                         round += 1;
-                        if round >= max_rounds {
+                        if round >= max_rounds && !tool_error_occurred {
                             tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                             let warning = agent.config.max_rounds_reached_message();
                             agent.history.push(ChatMessage::assistant(&warning));
