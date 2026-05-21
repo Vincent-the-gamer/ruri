@@ -4,6 +4,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[cfg(target_os = "windows")]
+use base64;
+
 /// A Skill is a modular capability that can be attached to an Agent.
 ///
 /// Skills can:
@@ -491,14 +494,28 @@ impl SkillPackageSkill {
         // output() can cause the second consecutive process to deadlock on
         // Windows. The explicit two-step pattern (with ProcessGroupGuard)
         // matches the proven BashTool implementation.
+        //
+        // NOTE: On Windows, we intentionally do NOT use kill_on_drop(true).
+        // Process termination is handled exclusively by the ProcessGroupGuard
+        // (Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). Using
+        // both kill_on_drop and a Job Object causes a double-kill race on
+        // timeout that can corrupt tokio's internal pipe state on Windows,
+        // causing subsequent spawn()/wait_with_output() calls to hang
+        // indefinitely (the "second consecutive call timeout" bug).
         #[cfg(target_os = "windows")]
         let spawn_result = {
-            // NOTE: We intentionally do NOT use kill_on_drop(true) here.
-            // Process termination is handled exclusively by the
-            // ProcessGroupGuard. See BashTool for detailed rationale.
             const CREATE_NO_WINDOW: u32 = 0x08000000;
+            // Encode command as UTF-16LE and base64-encode it, so PowerShell
+            // passes it through without interpreting special characters.
+            let encoded = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                command
+                    .encode_utf16()
+                    .flat_map(|c| c.to_le_bytes())
+                    .collect::<Vec<u8>>(),
+            );
             tokio::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", command])
+                .args(["-NoProfile", "-EncodedCommand", &encoded])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -526,32 +543,63 @@ impl SkillPackageSkill {
         })?;
 
         let child_pid = child.id();
-        let _guard = crate::agent::builtin_tools::ProcessGroupGuard::new(child_pid.unwrap_or(0));
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        .map_err(|_| {
-            // Timeout: kill the entire process tree via the guard
-            _guard.kill();
-            format!(
-                "Shell command timed out after {} seconds. \
+        // Wrap child in Option so each select! branch can take ownership
+        // independently. This ensures wait_with_output() always completes,
+        // which is critical on Windows: dropping a pending wait_with_output()
+        // corrupts tokio's internal pipe state, causing subsequent spawn()
+        // calls to hang indefinitely.
+        let mut child = Some(child);
+
+        // Use a scoped block so the ProcessGroupGuard drops immediately
+        // after output is collected. This prevents the guard's Drop
+        // (which calls TerminateJobObject on Windows) from interfering
+        // with tokio's pipe cleanup.
+        //
+        // ProcessGroupGuard::new() performs blocking Windows FFI calls
+        // (CreateJobObjectW, AssignProcessToJobObject, etc.). Running it on
+        // the async runtime thread would starve the event loop and prevent
+        // tokio::select! from polling the timeout timer — so we offload it
+        // to a blocking thread.
+        let output: std::process::Output = {
+            let _guard = tokio::task::spawn_blocking(move || {
+                crate::agent::builtin_tools::ProcessGroupGuard::new(child_pid.unwrap_or(0))
+            })
+            .await
+            .unwrap_or_else(|_| {
+                // If the blocking task was cancelled (shouldn't happen),
+                // create a no-op guard. kill_on_drop(true) on the command
+                // above still provides a fallback.
+                crate::agent::builtin_tools::ProcessGroupGuard::new(0)
+            });
+
+            tokio::select! {
+                result = child.take().unwrap().wait_with_output() => {
+                    result.map_err(|e| {
+                        format!(
+                            "Failed to execute shell command: {}. \
+                             Please check the command syntax and try again, or use \
+                             a different approach.",
+                            e
+                        )
+                    })
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)) => {
+                    // Timeout: kill the entire process tree, then wait for
+                    // the child to actually exit so tokio can clean up its
+                    // internal pipe state.
+                    _guard.kill();
+                    let _ = child.take().unwrap().wait_with_output().await;
+                    return Err(format!(
+                        "Shell command timed out after {} seconds. \
                          Consider using a different approach with a shorter \
                          execution time, or try breaking the task into \
                          smaller steps.",
-                timeout_secs
-            )
-        })?
-        .map_err(|e| {
-            format!(
-                "Failed to execute shell command: {}. \
-                         Please check the command syntax and try again, or use \
-                         a different approach.",
-                e
-            )
-        })?;
+                        timeout_secs
+                    ));
+                }
+            }
+        }?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

@@ -7,6 +7,9 @@ use serde_json::Value;
 use std::ffi::OsStr;
 use std::path::Path;
 
+#[cfg(target_os = "windows")]
+use base64;
+
 // ─── Process Group Guard ────────────────────────────────────────────
 
 /// A wrapper that ensures process trees are killed on drop.
@@ -960,74 +963,13 @@ impl Tool for BashTool {
 
         let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
 
-        // Choose shell based on operating system for cross-platform support
-        #[cfg(target_os = "windows")]
-        let shell_command = async {
-            // On Windows, use PowerShell with CREATE_NO_WINDOW to avoid
-            // flashing a console window. stdin is explicitly set to null
-            // to prevent the child from waiting on inherited stdin.
-            //
-            // NOTE: We intentionally do NOT use kill_on_drop(true) here.
-            // Process termination is handled exclusively by the
-            // ProcessGroupGuard (Windows Job Object with
-            // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). Using both kill_on_drop
-            // and a Job Object causes a double-kill race on timeout that
-            // can corrupt tokio's internal pipe state on Windows, causing
-            // subsequent spawn()/wait_with_output() calls to hang
-            // indefinitely (the "second consecutive call timeout" bug).
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            tokio::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", command])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-        };
-
-        #[cfg(not(target_os = "windows"))]
-        let shell_command = async {
-            // On Unix-like systems (Linux, macOS), use bash with a new process group.
-            // Setting process_group(0) means all child processes spawned by the bash
-            // command belong to a dedicated process group (PGID = bash PID).
-            // When the tool is cancelled or the server is stopped, we kill the entire
-            // process group to prevent orphan processes that hold onto ports.
-            tokio::process::Command::new("bash")
-                .arg("-c")
-                .arg(command)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .process_group(0)
-                .kill_on_drop(true)
-                .spawn()
-        };
-
-        // Spawn the child process
-        let child = shell_command
-            .await
-            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
-
-        // Save the child's PID before it's moved into wait_with_output
-        let child_pid = child.id();
-
-        // Wrap with a process group guard: when this guard is dropped,
-        // the entire process group is killed to prevent orphan processes
-        // from holding onto ports after the server stops.
-        let _guard = ProcessGroupGuard::new(child_pid.unwrap_or(0));
-
-        // Execute with timeout support
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        .map_err(|_| {
-            // Timeout: kill the entire process group via the guard
-            _guard.kill();
-            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
-        })?
-        .map_err(|e| ToolError::ExecutionError(format!("Failed to execute command: {}", e)))?;
-
+        // Execute the shell command in a blocking thread with timeout.
+        // Uses std::process::Command to avoid the Windows overlapped I/O hang
+        // where tokio::process::Command::wait_with_output() waits for all
+        // pipe handles to close even after the process has exited.
+        let output =
+            execute_shell_with_timeout(command, &self.shell_command_blacklist, timeout_secs)
+                .await?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -1045,6 +987,110 @@ impl Tool for BashTool {
             )))
         }
     }
+}
+
+/// Synchronous shell command execution (runs inside spawn_blocking).
+///
+/// Uses `std::process::Command` instead of `tokio::process::Command` to avoid
+/// the Windows overlapped I/O hang where `wait_with_output()` waits for all
+/// pipe handles to close even after the process has exited. On Windows,
+/// PowerShell spawns child processes that inherit the pipe handles, causing
+/// `wait_with_output()` to hang indefinitely.
+///
+/// The fix: use blocking `wait()` to wait for process exit, then read pipes
+/// separately. This is the same pattern used by AstrBot
+/// (`asyncio.to_thread(subprocess.run)`).
+#[cfg(target_os = "windows")]
+fn run_shell_command_sync(
+    command: &str,
+    _blacklist: &[String],
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // Encode command as UTF-16LE and base64-encode it to avoid PowerShell
+    // argument parsing quirks with special characters.
+    let encoded = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        command
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    );
+
+    let mut child = Command::new("powershell")
+        .args(["-NoProfile", "-EncodedCommand", &encoded])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+
+    // Wait for the process to exit first. This is the key difference from
+    // wait_with_output(): we only wait for the process handle, not the pipes.
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for command: {}", e))?;
+
+    // Now read the pipes. The process has already exited, so the pipes are
+    // finite and will be read completely without blocking.
+    let mut stdout = Vec::new();
+    if let Some(ref mut out) = child.stdout {
+        out.read_to_end(&mut stdout)
+            .map_err(|e| format!("Failed to read stdout: {}", e))?;
+    }
+    let mut stderr = Vec::new();
+    if let Some(ref mut err) = child.stderr {
+        err.read_to_end(&mut stderr)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+    }
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_shell_command_sync(
+    command: &str,
+    _blacklist: &[String],
+) -> Result<std::process::Output, String> {
+    use std::process::Command;
+
+    Command::new("bash")
+        .arg("-c")
+        .arg(command)
+        .output()
+        .map_err(|e| format!("Failed to execute command: {}", e))
+}
+
+/// Timeout wrapper for shell command execution.
+///
+/// Wraps the spawn_blocking call with a timeout to prevent indefinite hangs.
+async fn execute_shell_with_timeout(
+    command: &str,
+    blacklist: &[String],
+    timeout_secs: u64,
+) -> Result<std::process::Output, ToolError> {
+    let blacklist = blacklist.to_vec();
+    let command = command.to_string();
+
+    let blocking_task =
+        tokio::task::spawn_blocking(move || run_shell_command_sync(&command, &blacklist));
+
+    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
+        .await
+        .map_err(|_| {
+            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
+        })?
+        .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
+        .map_err(|e| ToolError::ExecutionError(e))
 }
 
 // ─── WebSearchTool ─────────────────────────────────

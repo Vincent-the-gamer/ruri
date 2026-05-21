@@ -593,7 +593,10 @@ impl Agent {
         // Tool loop
         let mut round = 0u32;
         let max_rounds = self.config.max_tool_rounds;
-        let mut tool_error_occurred = false;
+        // Track all executed tool+args combinations across rounds to prevent
+        // infinite loops when the LLM keeps retrying the same failing tool.
+        let mut executed_tool_keys: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         loop {
             // Check cancellation before each round
@@ -612,16 +615,7 @@ impl Agent {
                 }
             }
 
-            let mut request = self.build_request();
-
-            // When a tool has failed, disable tools for this round so the LLM
-            // can only respond with text — it will see the TOOL_ERROR message
-            // in history and explain the failure to the user.
-            if tool_error_occurred {
-                request = request.with_tool_choice(crate::types::ToolChoice::String(
-                    crate::types::ToolChoiceString::None,
-                ));
-            }
+            let request = self.build_request();
 
             tracing::info!(
                 round = round,
@@ -791,10 +785,9 @@ impl Agent {
                 );
                 self.history.push(assistant_msg);
 
-                // Execute each tool call, skipping duplicates from the same round
-                // to prevent redundant work when the LLM calls similar tools in parallel.
-                let mut executed_tool_keys: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                // Execute each tool call, skipping duplicates across all rounds
+                // to prevent infinite loops when the LLM keeps retrying the same
+                // failing tool with the same arguments.
                 for call in &tool_calls_for_history {
                     tracing::info!(tool = %call.function.name, "Executing tool call");
 
@@ -926,29 +919,8 @@ impl Agent {
                     }
                 }
 
-                // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
-                // see the error message so it can explain the failure to the user.
-                // We disable tools for the next round to prevent auto-fallback.
-                let tool_failed = tool_calls_for_history.iter().any(|call| {
-                    self.history.iter().any(|msg| {
-                        msg.role == MessageRole::Tool
-                            && msg.tool_call_id.as_deref() == Some(&call.id)
-                            && msg
-                                .content
-                                .as_ref()
-                                .and_then(|c| c.as_text_full())
-                                .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
-                    })
-                });
-                if tool_failed {
-                    tracing::info!(
-                        "Tool execution failed, disabling tools for next round to let LLM explain error"
-                    );
-                    tool_error_occurred = true;
-                }
-
                 round += 1;
-                if round >= max_rounds && !tool_error_occurred {
+                if round >= max_rounds {
                     tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                     let warning = self.config.max_rounds_reached_message();
                     self.history.push(ChatMessage::assistant(&warning));
@@ -1017,7 +989,10 @@ impl Agent {
 
         // Build request and run the tool loop
         let mut round = 0u32;
-        let mut tool_error_occurred = false;
+        // Track all executed tool+args combinations across rounds to prevent
+        // infinite loops when the LLM keeps retrying the same failing tool.
+        let mut executed_tool_keys: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let response = 'agent_loop: loop {
             // Check cancellation before each round — if /stop was invoked,
             // abort immediately instead of continuing to the next tool round.
@@ -1042,15 +1017,7 @@ impl Agent {
                 }
             }
 
-            let mut request = self.build_request();
-
-            // When a tool has failed, disable tools for this round so the LLM
-            // can only respond with text to explain the failure to the user.
-            if tool_error_occurred {
-                request = request.with_tool_choice(crate::types::ToolChoice::String(
-                    crate::types::ToolChoiceString::None,
-                ));
-            }
+            let request = self.build_request();
 
             tracing::info!(
                 round = round,
@@ -1099,11 +1066,9 @@ impl Agent {
                     let assistant_msg = choice.message.clone();
                     self.history.push(assistant_msg);
 
-                    // Execute each tool call, skipping duplicates from the same round
-                    // to prevent redundant work when the LLM calls similar tools in parallel,
-                    // and cancelling promptly if /stop is invoked.
-                    let mut executed_tool_keys: std::collections::HashSet<String> =
-                        std::collections::HashSet::new();
+                    // Execute each tool call, skipping duplicates across all rounds
+                    // to prevent infinite loops when the LLM keeps retrying the same
+                    // failing tool with the same arguments.
                     for call in &calls {
                         tracing::info!(tool = %call.function.name, "Executing tool call");
 
@@ -1224,29 +1189,8 @@ impl Agent {
                         }
                     }
 
-                    // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
-                    // see the error message so it can explain the failure to the user.
-                    // We disable tools for the next round to prevent auto-fallback.
-                    let tool_failed = calls.iter().any(|call| {
-                        self.history.iter().any(|msg| {
-                            msg.role == MessageRole::Tool
-                                && msg.tool_call_id.as_deref() == Some(&call.id)
-                                && msg
-                                    .content
-                                    .as_ref()
-                                    .and_then(|c| c.as_text_full())
-                                    .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
-                        })
-                    });
-                    if tool_failed {
-                        tracing::info!(
-                            "Tool execution failed, disabling tools for next round to let LLM explain error"
-                        );
-                        tool_error_occurred = true;
-                    }
-
                     round += 1;
-                    if round >= self.config.max_tool_rounds && !tool_error_occurred {
+                    if round >= self.config.max_tool_rounds {
                         tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                         // Instead of returning a blank response (the last API response
                         // only contained tool calls), inject a meaningful message so the
@@ -1323,19 +1267,35 @@ impl Agent {
         // Build the messages array with the system prompt as the first message
         let mut messages = Vec::new();
 
+        // Detect current operating system for shell command hints
+        let os_info = if cfg!(target_os = "windows") {
+            "Operating System: Windows (Shell: PowerShell)"
+        } else if cfg!(target_os = "macos") {
+            "Operating System: macOS (Shell: bash)"
+        } else if cfg!(target_os = "linux") {
+            "Operating System: Linux (Shell: bash)"
+        } else {
+            "Operating System: Unknown (Shell: bash)"
+        };
+
         // Inject the persona as the sole system message
         if let Some(ref prompt) = self.system_prompt {
-            // Append skill routing instruction to the system prompt
-            let full_prompt = if let Some(routing) = self.build_skill_routing_instruction() {
-                format!("{}\n\n{}", prompt, routing)
-            } else {
-                prompt.clone()
-            };
+            // Append skill routing instruction and OS info to the system prompt
+            let mut full_prompt = prompt.clone();
+            if let Some(routing) = self.build_skill_routing_instruction() {
+                full_prompt.push_str(&format!("\n\n{}", routing));
+            }
+            full_prompt.push_str(&format!("\n\n{}", os_info));
             messages.push(ChatMessage::system(&full_prompt));
         } else if let Some(routing) = self.build_skill_routing_instruction() {
             // No persona but we have a skill routing instruction — still inject it
             // as a system message so the model knows about available skills.
-            messages.push(ChatMessage::system(&routing));
+            let mut full_prompt = routing;
+            full_prompt.push_str(&format!("\n{}", os_info));
+            messages.push(ChatMessage::system(&full_prompt));
+        } else {
+            // No persona and no routing instruction — inject OS info as system message
+            messages.push(ChatMessage::system(os_info));
         }
 
         // Add conversation history (system messages already stripped by set_history)
@@ -1640,7 +1600,10 @@ impl AgentStreamer {
                 // Tool loop
                 let mut round = 0u32;
                 let max_rounds = agent.config.max_tool_rounds;
-                let mut tool_error_occurred = false;
+                // Track all executed tool+args combinations across rounds to prevent
+                // infinite loops when the LLM keeps retrying the same failing tool.
+                let mut executed_tool_keys: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
 
                 loop {
                     // Check cancellation before each round — if /stop was invoked,
@@ -1655,15 +1618,7 @@ impl AgentStreamer {
                         }
                     }
 
-                    let mut request = agent.build_request();
-
-                    // When a tool has failed, disable tools for this round so the LLM
-                    // can only respond with text to explain the failure to the user.
-                    if tool_error_occurred {
-                        request = request.with_tool_choice(crate::types::ToolChoice::String(
-                            crate::types::ToolChoiceString::None,
-                        ));
-                    }
+                    let request = agent.build_request();
 
                     tracing::info!(
                         round = round,
@@ -1843,11 +1798,9 @@ impl AgentStreamer {
                         );
                         agent.history.push(assistant_msg);
 
-                        // Execute each tool call, skipping duplicates from the same round
-                        // to prevent redundant work when the LLM calls similar tools in parallel,
-                        // and cancelling promptly if /stop is invoked.
-                        let mut executed_tool_keys: std::collections::HashSet<String> =
-                            std::collections::HashSet::new();
+                        // Execute each tool call, skipping duplicates across all rounds
+                        // to prevent infinite loops when the LLM keeps retrying the same
+                        // failing tool with the same arguments.
                         for call in &tool_calls_for_history {
                             tracing::info!(tool = %call.function.name, "Executing tool call");
 
@@ -1981,26 +1934,8 @@ impl AgentStreamer {
                             }
                         }
 
-                        // Detect tool failures: if any tool returned TOOL_ERROR, let the LLM
-                        // see the error message so it can explain the failure to the user.
-                        // We disable tools for the next round to prevent auto-fallback.
-                        let tool_failed = tool_calls_for_history.iter().any(|call| {
-                            agent.history.iter().any(|msg| {
-                                msg.role == MessageRole::Tool
-                                    && msg.tool_call_id.as_deref() == Some(&call.id)
-                                    && msg.content.as_ref().and_then(|c| c.as_text_full())
-                                        .is_some_and(|t| t.starts_with("TOOL_ERROR:"))
-                            })
-                        });
-                        if tool_failed {
-                            tracing::info!(
-                                "Tool execution failed, disabling tools for next round to let LLM explain error"
-                            );
-                            tool_error_occurred = true;
-                        }
-
                         round += 1;
-                        if round >= max_rounds && !tool_error_occurred {
+                        if round >= max_rounds {
                             tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
                             let warning = agent.config.max_rounds_reached_message();
                             agent.history.push(ChatMessage::assistant(&warning));

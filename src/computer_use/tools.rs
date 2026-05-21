@@ -8,6 +8,9 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
 
+#[cfg(target_os = "windows")]
+use base64;
+
 /// Context for tool execution with permission and workspace information
 #[derive(Clone)]
 pub struct ComputerUseContext {
@@ -128,54 +131,11 @@ impl Tool for ShellTool {
             self.context.user_id, self.context.session_id, command
         );
 
-        // Execute the command with timeout. Use spawn() + process_group(0)
-        // so that all children are in their own process group and can be
-        // killed atomically when the tool is cancelled or the server shuts down.
-        #[cfg(target_os = "windows")]
-        let child = {
-            // NOTE: We intentionally do NOT use kill_on_drop(true) here.
-            // Process termination is handled exclusively by the
-            // ProcessGroupGuard. See BashTool for detailed rationale.
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            tokio::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", command])
-                .current_dir(&working_dir)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?
-        };
-
-        #[cfg(not(target_os = "windows"))]
-        let child = tokio::process::Command::new("bash")
-            .arg("-c")
-            .arg(command)
-            .current_dir(&working_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .process_group(0)
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
-
-        // Wrap with a process group guard: when this guard is dropped
-        // (tool cancelled, server stopped, etc.), the entire process group
-        // is killed to prevent orphan processes holding ports.
-        let _guard = crate::agent::builtin_tools::ProcessGroupGuard::new(child.id().unwrap_or(0));
-
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        .map_err(|_| {
-            // Timeout: kill the entire process group via the guard
-            _guard.kill();
-            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
-        })?
-        .map_err(|e| ToolError::ExecutionError(format!("Failed to execute command: {}", e)))?;
+        // Execute the shell command in a blocking thread with timeout.
+        // Uses std::process::Command to avoid the Windows overlapped I/O hang
+        // where tokio::process::Command::wait_with_output() waits for all
+        // pipe handles to close even after the process has exited.
+        let output = execute_shell_sync_with_timeout(command, &working_dir, timeout_secs).await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -273,31 +233,16 @@ impl Tool for PythonTool {
             .await
             .map_err(|e| ToolError::ExecutionError(format!("Failed to write temp file: {}", e)))?;
 
-        // Execute Python with timeout.
-        // On Windows, the Python executable is typically "python" or "python.exe";
-        // on Unix it is "python3".
+        // Execute Python with timeout in a blocking thread.
+        // Uses std::process::Command to avoid the Windows overlapped I/O hang.
         #[cfg(target_os = "windows")]
         let python_exe = "python";
         #[cfg(not(target_os = "windows"))]
         let python_exe = "python3";
 
-        let shell_future = tokio::process::Command::new(python_exe)
-            .arg(&temp_file)
-            .current_dir(&working_dir)
-            .output();
-
         let output =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), shell_future)
-                .await
-                .map_err(|_| {
-                    ToolError::ExecutionError(format!(
-                        "Python execution timed out after {} seconds",
-                        timeout_secs
-                    ))
-                })?
-                .map_err(|e| {
-                    ToolError::ExecutionError(format!("Failed to execute Python: {}", e))
-                })?;
+            execute_python_sync_with_timeout(python_exe, &temp_file, &working_dir, timeout_secs)
+                .await?;
 
         // Clean up temp file after execution
         let _ = fs::remove_file(&temp_file).await;
@@ -319,4 +264,188 @@ impl Tool for PythonTool {
             )))
         }
     }
+}
+
+// ─── Synchronous execution helpers (run inside spawn_blocking) ───
+
+/// Execute a shell command synchronously with `std::process::Command` and
+/// return the output.
+///
+/// The key difference from `tokio::process::Command::wait_with_output()` is
+/// that we call `wait()` first (process exit), then read the pipes separately.
+/// This avoids the Windows issue where `wait_with_output()` hangs waiting for
+/// all inherited pipe handles to close even after the process has exited.
+#[cfg(target_os = "windows")]
+fn run_shell_sync(
+    command: &str,
+    working_dir: &std::path::Path,
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let encoded = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        command
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    );
+
+    let mut child = Command::new("powershell")
+        .args(["-NoProfile", "-EncodedCommand", &encoded])
+        .current_dir(working_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+
+    // Wait for process exit first, then read pipes separately.
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for command: {}", e))?;
+
+    let mut stdout = Vec::new();
+    if let Some(ref mut out) = child.stdout {
+        out.read_to_end(&mut stdout)
+            .map_err(|e| format!("Failed to read stdout: {}", e))?;
+    }
+    let mut stderr = Vec::new();
+    if let Some(ref mut err) = child.stderr {
+        err.read_to_end(&mut stderr)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+    }
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_shell_sync(
+    command: &str,
+    working_dir: &std::path::Path,
+) -> Result<std::process::Output, String> {
+    use std::process::Command;
+
+    Command::new("bash")
+        .arg("-c")
+        .arg(command)
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| format!("Failed to execute command: {}", e))
+}
+
+/// Async wrapper that runs `run_shell_sync` in a blocking thread with timeout.
+async fn execute_shell_sync_with_timeout(
+    command: &str,
+    working_dir: &std::path::Path,
+    timeout_secs: u64,
+) -> Result<std::process::Output, ToolError> {
+    let command = command.to_string();
+    let working_dir = working_dir.to_path_buf();
+
+    let blocking_task = tokio::task::spawn_blocking(move || run_shell_sync(&command, &working_dir));
+
+    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
+        .await
+        .map_err(|_| {
+            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
+        })?
+        .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
+        .map_err(|e| ToolError::ExecutionError(e))
+}
+
+/// Execute a Python script synchronously with `std::process::Command`.
+#[cfg(target_os = "windows")]
+fn run_python_sync(
+    python_exe: &str,
+    script_path: &std::path::Path,
+    working_dir: &std::path::Path,
+) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let mut child = Command::new(python_exe)
+        .arg(script_path)
+        .current_dir(working_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("Failed to spawn python: {}", e))?;
+
+    // Wait for process exit first, then read pipes separately.
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for python: {}", e))?;
+
+    let mut stdout = Vec::new();
+    if let Some(ref mut out) = child.stdout {
+        out.read_to_end(&mut stdout)
+            .map_err(|e| format!("Failed to read stdout: {}", e))?;
+    }
+    let mut stderr = Vec::new();
+    if let Some(ref mut err) = child.stderr {
+        err.read_to_end(&mut stderr)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+    }
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_python_sync(
+    python_exe: &str,
+    script_path: &std::path::Path,
+    working_dir: &std::path::Path,
+) -> Result<std::process::Output, String> {
+    use std::process::Command;
+
+    Command::new(python_exe)
+        .arg(script_path)
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| format!("Failed to execute python: {}", e))
+}
+
+/// Async wrapper that runs `run_python_sync` in a blocking thread with timeout.
+async fn execute_python_sync_with_timeout(
+    python_exe: &str,
+    script_path: &std::path::Path,
+    working_dir: &std::path::Path,
+    timeout_secs: u64,
+) -> Result<std::process::Output, ToolError> {
+    let python_exe = python_exe.to_string();
+    let script_path = script_path.to_path_buf();
+    let working_dir = working_dir.to_path_buf();
+
+    let blocking_task = tokio::task::spawn_blocking(move || {
+        run_python_sync(&python_exe, &script_path, &working_dir)
+    });
+
+    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
+        .await
+        .map_err(|_| {
+            ToolError::ExecutionError(format!(
+                "Python execution timed out after {} seconds",
+                timeout_secs
+            ))
+        })?
+        .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
+        .map_err(|e| ToolError::ExecutionError(e))
 }

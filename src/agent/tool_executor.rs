@@ -96,20 +96,8 @@ impl ToolExecutor {
                     error = %e,
                     "Tool execution failed"
                 );
-                // Return the error with a clear directive to report it to the user.
-                // The agent loop will let the LLM read this message and explain the
-                // failure to the user naturally, so the user can direct the Agent to
-                // resolve it through conversation.
-                let content = format!(
-                    "TOOL_ERROR: {}\n\n\
-                    ⚠️ The tool `{}` has failed with the error above. \
-                    Do NOT attempt to use other tools to work around this on your own. \
-                    Instead, explain the failure clearly to the user, including what went \
-                    wrong and why, and ASK the user how they would like to proceed — \
-                    whether to retry with different parameters, try an alternative \
-                    approach, or debug the issue further.",
-                    e, function_call.name
-                );
+                // Return the error so the LLM can decide how to proceed.
+                let content = format!("TOOL_ERROR: {}", e);
                 Ok(ToolResult {
                     tool_call_id: String::new(),
                     content,

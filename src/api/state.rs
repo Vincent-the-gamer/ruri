@@ -631,11 +631,19 @@ fn stored_skill_to_md(skill: &StoredSkill) -> String {
 
 /// Parse a `.md` skill file back into a `StoredSkill`.
 fn md_to_stored_skill(md_content: &str) -> Result<StoredSkill, String> {
-    if !md_content.starts_with("---") {
+    // Normalize line endings (CRLF -> LF) and strip UTF-8 BOM.
+    // Windows editors (e.g. Notepad) add a BOM and use CRLF, which breaks
+    // the frontmatter parser that expects "---" at the very start.
+    let content = md_content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(md_content)
+        .replace("\r\n", "\n");
+
+    if !content.starts_with("---") {
         return Err("Missing opening frontmatter marker".to_string());
     }
 
-    let content_without_opening = &md_content[3..];
+    let content_without_opening = &content[3..];
     let closing_pos = content_without_opening
         .find("\n---")
         .or_else(|| content_without_opening.find("---"))
