@@ -51,7 +51,7 @@ chrono = "0.4"
 mime_guess = "2.0.5"
 
 # ACP
-agent-client-protocol = { version = "0.11.1", features = ["unstable"] }
+agent-client-protocol = { version = "0.12.1", features = ["unstable"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 
 # Home directory resolution
@@ -115,3 +115,6 @@ calamine = "0.26"
 
 # DOCX text extraction for knowledge base
 docx-rs = "0.4"
+
+[patch.crates-io]
+agent-client-protocol-schema = { path = "vendor/agent-client-protocol-schema" }
