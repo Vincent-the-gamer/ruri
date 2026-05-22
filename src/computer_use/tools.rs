@@ -293,10 +293,12 @@ fn run_shell_sync(
             .collect::<Vec<u8>>(),
     );
 
-    let (stdout_reader, stdout_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
-        .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-    let (stderr_reader, stderr_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
-        .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+    let (mut stdout_reader, stdout_writer) =
+        crate::agent::builtin_tools::create_noninheritable_pipe()
+            .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+    let (mut stderr_reader, stderr_writer) =
+        crate::agent::builtin_tools::create_noninheritable_pipe()
+            .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
 
     let mut child = Command::new("powershell")
         .args(["-NoProfile", "-EncodedCommand", &encoded])
@@ -376,10 +378,12 @@ fn run_python_sync(
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let (stdout_reader, stdout_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
-        .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-    let (stderr_reader, stderr_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
-        .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+    let (mut stdout_reader, stdout_writer) =
+        crate::agent::builtin_tools::create_noninheritable_pipe()
+            .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+    let (mut stderr_reader, stderr_writer) =
+        crate::agent::builtin_tools::create_noninheritable_pipe()
+            .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
 
     let mut child = Command::new(python_exe)
         .arg(script_path)

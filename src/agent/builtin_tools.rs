@@ -1025,9 +1025,9 @@ fn run_shell_command_sync(
     // This ensures that when PowerShell spawns child processes (curl, git,
     // npm, etc.), they do NOT inherit the pipe write handles, so
     // `read_to_end()` returns as soon as PowerShell itself exits.
-    let (stdout_reader, stdout_writer) =
+    let (mut stdout_reader, stdout_writer) =
         create_noninheritable_pipe().map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-    let (stderr_reader, stderr_writer) =
+    let (mut stderr_reader, stderr_writer) =
         create_noninheritable_pipe().map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
 
     let mut child = Command::new("powershell")
@@ -1076,8 +1076,16 @@ pub(crate) fn create_noninheritable_pipe() -> Result<(std::fs::File, std::fs::Fi
 {
     use std::os::windows::io::FromRawHandle;
     use windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT;
-    use windows_sys::Win32::Storage::FileSystem::SetHandleInformation;
-    use windows_sys::Win32::System::Pipes::CreatePipe;
+
+    extern "system" {
+        fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
+        fn CreatePipe(
+            hReadPipe: *mut *mut std::ffi::c_void,
+            hWritePipe: *mut *mut std::ffi::c_void,
+            lpPipeAttributes: *const std::ffi::c_void,
+            nSize: u32,
+        ) -> i32;
+    }
 
     unsafe {
         let mut read_handle: *mut std::ffi::c_void = std::ptr::null_mut();
