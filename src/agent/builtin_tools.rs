@@ -1077,7 +1077,7 @@ pub(crate) fn create_noninheritable_pipe() -> Result<(std::fs::File, std::fs::Fi
     use std::os::windows::io::FromRawHandle;
     use windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT;
 
-    extern "system" {
+    unsafe extern "system" {
         fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
         fn CreatePipe(
             hReadPipe: *mut *mut std::ffi::c_void,
