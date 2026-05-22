@@ -993,13 +993,13 @@ impl Tool for BashTool {
 ///
 /// Uses `std::process::Command` instead of `tokio::process::Command` to avoid
 /// the Windows overlapped I/O hang where `wait_with_output()` waits for all
-/// pipe handles to close even after the process has exited. On Windows,
-/// PowerShell spawns child processes that inherit the pipe handles, causing
-/// `wait_with_output()` to hang indefinitely.
+/// pipe handles to close even after the process has exited.
 ///
-/// The fix: use blocking `wait()` to wait for process exit, then read pipes
-/// separately. This is the same pattern used by AstrBot
-/// (`asyncio.to_thread(subprocess.run)`).
+/// On Windows, we create stdout/stderr pipes with non-inheritable handles.
+/// This prevents child processes spawned by PowerShell from inheriting the
+/// pipe write ends, which would cause `read_to_end()` to block indefinitely.
+/// With non-inheritable pipes, when PowerShell exits, the write end is
+/// closed and `read_to_end()` returns immediately.
 #[cfg(target_os = "windows")]
 fn run_shell_command_sync(
     command: &str,
@@ -1021,39 +1021,83 @@ fn run_shell_command_sync(
             .collect::<Vec<u8>>(),
     );
 
+    // Create non-inheritable pipes for stdout and stderr.
+    // This ensures that when PowerShell spawns child processes (curl, git,
+    // npm, etc.), they do NOT inherit the pipe write handles, so
+    // `read_to_end()` returns as soon as PowerShell itself exits.
+    let (stdout_reader, stdout_writer) =
+        create_noninheritable_pipe().map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+    let (stderr_reader, stderr_writer) =
+        create_noninheritable_pipe().map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+
     let mut child = Command::new("powershell")
         .args(["-NoProfile", "-EncodedCommand", &encoded])
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout_writer))
+        .stderr(std::process::Stdio::from(stderr_writer))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
-    // Wait for the process to exit first. This is the key difference from
-    // wait_with_output(): we only wait for the process handle, not the pipes.
+    // Wait for the process to exit first.
     let status = child
         .wait()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
 
-    // Now read the pipes. The process has already exited, so the pipes are
-    // finite and will be read completely without blocking.
+    // Now read the pipes. Since the pipe handles are non-inheritable,
+    // child processes of PowerShell cannot hold the write end open.
+    // `read_to_end()` will return as soon as PowerShell exits.
     let mut stdout = Vec::new();
-    if let Some(ref mut out) = child.stdout {
-        out.read_to_end(&mut stdout)
-            .map_err(|e| format!("Failed to read stdout: {}", e))?;
-    }
+    stdout_reader
+        .read_to_end(&mut stdout)
+        .map_err(|e| format!("Failed to read stdout: {}", e))?;
     let mut stderr = Vec::new();
-    if let Some(ref mut err) = child.stderr {
-        err.read_to_end(&mut stderr)
-            .map_err(|e| format!("Failed to read stderr: {}", e))?;
-    }
+    stderr_reader
+        .read_to_end(&mut stderr)
+        .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
     Ok(std::process::Output {
         status,
         stdout,
         stderr,
     })
+}
+
+/// Create a pipe (reader, writer) where both ends have the inheritable
+/// flag cleared. This prevents grandchild processes from inheriting the
+/// pipe handles, which would block `read_to_end()` on Windows.
+///
+/// The writer handle is still usable by the direct child process because
+/// we pass it explicitly via `Stdio::from(writer)` — Windows' `CreateProcess`
+/// duplicates the handle into `STARTUPINFO.hStdOutput`, and the duplicated
+/// handle inside the child is also non-inheritable.
+#[cfg(target_os = "windows")]
+pub(crate) fn create_noninheritable_pipe() -> Result<(std::fs::File, std::fs::File), std::io::Error>
+{
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT;
+    use windows_sys::Win32::Storage::FileSystem::SetHandleInformation;
+    use windows_sys::Win32::System::Pipes::CreatePipe;
+
+    unsafe {
+        let mut read_handle: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut write_handle: *mut std::ffi::c_void = std::ptr::null_mut();
+
+        if CreatePipe(&mut read_handle, &mut write_handle, std::ptr::null(), 0) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // Clear the inheritable flag on both ends. The write end is passed
+        // to the child explicitly via STARTUPINFO, so it does not need to
+        // be inheritable.
+        SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(write_handle, HANDLE_FLAG_INHERIT, 0);
+
+        let read_file = std::fs::File::from_raw_handle(read_handle as _);
+        let write_file = std::fs::File::from_raw_handle(write_handle as _);
+
+        Ok((read_file, write_file))
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -760,6 +760,29 @@ impl Agent {
                 }
             }
 
+            // If the provider stream was completely empty (no events at all),
+            // treat it as an error rather than silently returning Done.
+            if !has_tool_calls && content_text.is_empty() && tool_calls_accum.is_empty() {
+                tracing::error!(
+                    round = round,
+                    provider = %self.transport.provider_name(),
+                    "chat_streaming: provider returned an empty stream with no events"
+                );
+                let error_msg = "The model returned an empty response. Please try again.";
+                if tx
+                    .send(Ok(StreamEvent::Error {
+                        error: error_msg.to_string(),
+                    }))
+                    .await
+                    .is_err()
+                {
+                    return Ok("stop".to_string());
+                }
+                self.history
+                    .push(ChatMessage::assistant(format!("⚠️ {}", error_msg)));
+                break;
+            }
+
             // Handle what happened in this round
             if has_tool_calls && self.config.auto_execute_tools {
                 // Build assistant message with tool calls for history
@@ -1771,6 +1794,31 @@ impl AgentStreamer {
                                 return;
                             }
                         }
+                    }
+
+                    // If the provider stream was completely empty (no events at all),
+                    // treat it as an error rather than silently returning Done.
+                    if !has_tool_calls && content_text.is_empty() && tool_calls_accum.is_empty() {
+                        tracing::error!(
+                            round = round,
+                            provider = %agent.transport.provider_name(),
+                            "Provider returned an empty stream with no events"
+                        );
+                        let error_msg = "The model returned an empty response. Please try again.";
+                        if tx
+                            .send(Ok(StreamEvent::Error {
+                                error: error_msg.to_string(),
+                            }))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        agent.history.push(ChatMessage::assistant(format!(
+                            "⚠️ {}",
+                            error_msg
+                        )));
+                        break;
                     }
 
                     // Now handle what happened in this round

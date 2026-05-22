@@ -271,10 +271,9 @@ impl Tool for PythonTool {
 /// Execute a shell command synchronously with `std::process::Command` and
 /// return the output.
 ///
-/// The key difference from `tokio::process::Command::wait_with_output()` is
-/// that we call `wait()` first (process exit), then read the pipes separately.
-/// This avoids the Windows issue where `wait_with_output()` hangs waiting for
-/// all inherited pipe handles to close even after the process has exited.
+/// On Windows, we create stdout/stderr pipes with non-inheritable handles to
+/// prevent child processes from holding the pipe write ends open after
+/// PowerShell exits. See `builtin_tools::create_noninheritable_pipe`.
 #[cfg(target_os = "windows")]
 fn run_shell_sync(
     command: &str,
@@ -294,31 +293,33 @@ fn run_shell_sync(
             .collect::<Vec<u8>>(),
     );
 
+    let (stdout_reader, stdout_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
+        .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+    let (stderr_reader, stderr_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
+        .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+
     let mut child = Command::new("powershell")
         .args(["-NoProfile", "-EncodedCommand", &encoded])
         .current_dir(working_dir)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout_writer))
+        .stderr(std::process::Stdio::from(stderr_writer))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
-    // Wait for process exit first, then read pipes separately.
     let status = child
         .wait()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
 
     let mut stdout = Vec::new();
-    if let Some(ref mut out) = child.stdout {
-        out.read_to_end(&mut stdout)
-            .map_err(|e| format!("Failed to read stdout: {}", e))?;
-    }
+    stdout_reader
+        .read_to_end(&mut stdout)
+        .map_err(|e| format!("Failed to read stdout: {}", e))?;
     let mut stderr = Vec::new();
-    if let Some(ref mut err) = child.stderr {
-        err.read_to_end(&mut stderr)
-            .map_err(|e| format!("Failed to read stderr: {}", e))?;
-    }
+    stderr_reader
+        .read_to_end(&mut stderr)
+        .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
     Ok(std::process::Output {
         status,
@@ -375,31 +376,33 @@ fn run_python_sync(
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    let (stdout_reader, stdout_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
+        .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+    let (stderr_reader, stderr_writer) = crate::agent::builtin_tools::create_noninheritable_pipe()
+        .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+
     let mut child = Command::new(python_exe)
         .arg(script_path)
         .current_dir(working_dir)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout_writer))
+        .stderr(std::process::Stdio::from(stderr_writer))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to spawn python: {}", e))?;
 
-    // Wait for process exit first, then read pipes separately.
     let status = child
         .wait()
         .map_err(|e| format!("Failed to wait for python: {}", e))?;
 
     let mut stdout = Vec::new();
-    if let Some(ref mut out) = child.stdout {
-        out.read_to_end(&mut stdout)
-            .map_err(|e| format!("Failed to read stdout: {}", e))?;
-    }
+    stdout_reader
+        .read_to_end(&mut stdout)
+        .map_err(|e| format!("Failed to read stdout: {}", e))?;
     let mut stderr = Vec::new();
-    if let Some(ref mut err) = child.stderr {
-        err.read_to_end(&mut stderr)
-            .map_err(|e| format!("Failed to read stderr: {}", e))?;
-    }
+    stderr_reader
+        .read_to_end(&mut stderr)
+        .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
     Ok(std::process::Output {
         status,

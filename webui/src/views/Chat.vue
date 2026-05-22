@@ -132,12 +132,14 @@ async function handleSend(
 
     // Commands don't require a provider — they are handled by the backend dispatcher
     if (!effectiveProviderId && !isCommand) {
-        // No provider selected — show error message in chat
-        messages.value.push({
+        // No provider selected — show error message in chat.
+        // IMPORTANT: Push directly to chatStore.messages, NOT to the
+        // `messages` computed (which returns a filtered transient array).
+        chatStore.messages.push({
             role: "user",
             content: message,
         });
-        messages.value.push({
+        chatStore.messages.push({
             role: "assistant",
             content: t(
                 "chat.noProviderSelected",

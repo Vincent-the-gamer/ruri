@@ -71,7 +71,20 @@ impl OpenAIProvider {
 
     /// Convert our unified request into the OpenAI-specific JSON body.
     fn build_request_body(&self, request: ChatRequest) -> serde_json::Value {
+        let msg_count = request.messages.len();
+        let model = request
+            .model
+            .clone()
+            .unwrap_or_else(|| self.default_model.clone());
         let mut body = serde_json::to_value(&request).unwrap_or(serde_json::Value::Null);
+        let is_null = body.is_null();
+        if is_null {
+            tracing::error!(
+                model = %model,
+                messages = msg_count,
+                "build_request_body: serde_json::to_value returned Null! Serialization failed!"
+            );
+        }
 
         // Ensure model is set
         if body.get("model").is_none() || body["model"].is_null() {
@@ -228,6 +241,26 @@ impl Provider for OpenAIProvider {
     ) -> BoxStream<'a, Result<StreamEvent, ProviderError>> {
         let url = self.chat_url();
         let mut body = self.build_request_body(request);
+
+        // Debug: log the request body (without messages for brevity)
+        let model_val = body
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let msg_count = body
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let is_body_object = body.is_object();
+        tracing::info!(
+            url = %url,
+            model = %model_val,
+            messages = msg_count,
+            is_object = is_body_object,
+            "OpenAI chat_stream called, body prepared"
+        );
+
         // Enable streaming
         body["stream"] = serde_json::Value::Bool(true);
         // streaming_options for usage
@@ -243,6 +276,9 @@ impl Provider for OpenAIProvider {
         let extra_headers = self.extra_headers.clone();
 
         let stream = async_stream::stream! {
+            tracing::info!(
+                "OpenAI chat_stream: entering async_stream block"
+            );
             let mut req_builder = client
                 .post(&url)
                 .header("Content-Type", "application/json");
@@ -270,6 +306,7 @@ impl Provider for OpenAIProvider {
                 Ok(Ok(r)) => {
                     tracing::info!(
                         status = r.status().as_u16(),
+                        content_length = r.content_length(),
                         "OpenAI streaming: received HTTP response"
                     );
                     r
@@ -301,10 +338,12 @@ impl Provider for OpenAIProvider {
             // Parse SSE stream
             let mut stream = response.bytes_stream();
             let mut buffer = String::new();
+            let mut chunk_count: u64 = 0;
             // Accumulated tool calls across chunks
             let mut tool_calls: Vec<StreamingToolCall> = Vec::new();
 
             while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+                chunk_count += 1;
                 let chunk = match chunk_result {
                     Ok(c) => c,
                     Err(e) => {
@@ -312,6 +351,21 @@ impl Provider for OpenAIProvider {
                         return;
                     }
                 };
+
+                if chunk_count <= 3 {
+                    let preview = String::from_utf8_lossy(&chunk);
+                    let preview = if preview.len() > 500 {
+                        format!("{}...", &preview[..500])
+                    } else {
+                        preview.to_string()
+                    };
+                    tracing::info!(
+                        chunk = chunk_count,
+                        bytes = chunk.len(),
+                        content = %preview,
+                        "OpenAI streaming: received SSE chunk"
+                    );
+                }
 
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -344,27 +398,17 @@ impl Provider for OpenAIProvider {
                             Err(_) => continue,
                         };
 
-                        // Extract usage if present
-                        if let Some(usage) = event.get("usage") {
-                            // We'll include usage in the Done event
-                            let prompt = usage.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let completion = usage.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                            // Emit done with usage
-                            for tc in &tool_calls {
-                                yield Ok(StreamEvent::ToolCallEnd {
-                                    tool_call_id: tc.id.clone(),
-                                    function_name: tc.function_name.clone(),
-                                    arguments: tc.arguments.clone(),
-                                });
-                            }
-                            yield Ok(StreamEvent::Done {
-                                usage: Some(StreamUsage {
-                                    prompt_tokens: prompt,
-                                    completion_tokens: completion,
-                                }),
-                            });
-                            return;
-                        }
+                        // Check if this chunk marks the end of the stream.
+                        // The definitive signal is a non-null `finish_reason` in choices,
+                        // NOT the presence of `usage` (some providers include prompt-token
+                        // usage in early chunks while finish_reason is still null).
+                        let is_final_chunk = event
+                            .get("choices")
+                            .and_then(|c| c.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|c| c.get("finish_reason"))
+                            .and_then(|f| f.as_str())
+                            .is_some_and(|f| !f.is_empty() && f != "null");
 
                         // Extract content delta from choices
                         if let Some(choices) = event.get("choices").and_then(|c| c.as_array()) {
@@ -440,11 +484,44 @@ impl Provider for OpenAIProvider {
                                 }
                             }
                         }
+
+                        // If this is the final chunk (finish_reason is set), emit end events and Done.
+                        if is_final_chunk {
+                            let usage = event.get("usage").map(|u| StreamUsage {
+                                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                            });
+                            for tc in &tool_calls {
+                                yield Ok(StreamEvent::ToolCallEnd {
+                                    tool_call_id: tc.id.clone(),
+                                    function_name: tc.function_name.clone(),
+                                    arguments: tc.arguments.clone(),
+                                });
+                            }
+                            yield Ok(StreamEvent::Done { usage });
+                            return;
+                        }
                     }
                 }
             }
 
             // If we get here without [DONE], still emit events for any tool calls
+            if chunk_count == 0 || tool_calls.is_empty() {
+                let buf_preview = if buffer.len() > 1000 {
+                    format!("{}...", &buffer[..1000])
+                } else {
+                    buffer.clone()
+                };
+                tracing::warn!(
+                    chunks = chunk_count,
+                    tool_calls = tool_calls.len(),
+                    total_buffer_bytes = buffer.len(),
+                    buffer = %buf_preview,
+                    "OpenAI streaming: SSE stream ended with no usable events"
+                );
+            } else {
+                tracing::info!(chunks = chunk_count, tool_calls = tool_calls.len(), "OpenAI streaming: SSE stream ended");
+            }
             for tc in &tool_calls {
                 yield Ok(StreamEvent::ToolCallEnd {
                     tool_call_id: tc.id.clone(),

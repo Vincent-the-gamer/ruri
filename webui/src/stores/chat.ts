@@ -208,21 +208,16 @@ export const useChatStore = defineStore('chat', () => {
       sending.value = false
       isStreaming.value = false
       _accumulatedToolCalls.value = []
-      // Refresh history from database after streaming completes to ensure
-      // the DB-stored messages are in sync with what was displayed.
-      // This is done asynchronously so it doesn't block the UI.
-      //
-      // NOTE: The server history now includes tool_calls and tool messages
-      // (persisted as structured JSON in the DB), so replacing local state
-      // with server data will preserve tool call/result information.
+      // Sync with database in the background, but do NOT replace local
+      // messages if an error occurred — the local state may contain error
+      // messages that haven't been persisted to DB. Replacing them would
+      // make errors invisible to the user.
       api.getChatHistory().then((serverHistory) => {
-        if (serverHistory && serverHistory.length > 0) {
+        if (serverHistory && serverHistory.length > 0 && !error.value) {
           messages.value = serverHistory
           saveMessagesToCache(messages.value)
         }
       }).catch(() => {
-        // Ignore errors — the optimistic UI state is already shown
-        // Save current state to cache so tool data is preserved locally
         saveMessagesToCache(messages.value)
       })
     }

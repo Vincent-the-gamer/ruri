@@ -214,12 +214,20 @@ impl HttpTransport {
 
         // Fast path: if the request has no multimodal content, no fallback is needed.
         if !request.has_multimodal_content() {
+            tracing::info!(
+                provider = %self.provider.name(),
+                "send_stream: taking fast path (no multimodal content)"
+            );
             return self.provider.chat_stream(request);
         }
 
         // If the provider has already declared it doesn't support multimodal,
         // strip images upfront.
         if !self.provider.supports_multimodal() {
+            tracing::info!(
+                provider = %self.provider.name(),
+                "send_stream: provider doesn't support multimodal, stripping images"
+            );
             let stripped = request.strip_multimodal_content();
             return self.provider.chat_stream(stripped);
         }
@@ -228,6 +236,10 @@ impl HttpTransport {
         // not. We peek at the first event; if it's a multimodal-related error,
         // we transform it into a `MultimodalNotSupported` error so the caller
         // (AgentStreamer) can retry with stripped content.
+        tracing::info!(
+            provider = %self.provider.name(),
+            "send_stream: taking multimodal fallback path"
+        );
         let original_stream = self.provider.chat_stream(request);
 
         let streaming_fallback = async_stream::stream! {
@@ -237,7 +249,15 @@ impl HttpTransport {
             let first = peekable.next().await;
             let first = match first {
                 Some(event) => event,
-                None => return,
+                None => {
+                    // The provider returned an empty stream — propagate as an error
+                    // so the caller (AgentStreamer) can handle it gracefully.
+                    tracing::error!("Multimodal fallback: provider returned an empty stream");
+                    yield Err(ProviderError::Custom(
+                        "Provider returned an empty stream".into(),
+                    ));
+                    return;
+                }
             };
 
             // Check if the first event is a multimodal error

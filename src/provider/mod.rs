@@ -77,17 +77,51 @@ pub trait Provider: Send + Sync {
         request: ChatRequest,
     ) -> BoxStream<'a, Result<StreamEvent, ProviderError>> {
         // Default: use non-streaming chat and emit the full response as a single delta
+        let provider_name = self.name().to_string();
+        let model = request
+            .model
+            .clone()
+            .unwrap_or_else(|| self.default_model().to_string());
+        let msg_count = request.messages.len();
         let stream = async_stream::stream! {
+            tracing::info!(
+                provider = %provider_name,
+                model = %model,
+                messages = msg_count,
+                "chat_stream (default): starting non-streaming fallback"
+            );
             match self.chat(request).await {
                 Ok(response) => {
-                    // Extract content from the first choice
+                    let mut has_content = false;
+                    let mut has_tool_calls = false;
                     if let Some(choice) = response.choices.first() {
                         if let Some(content) = &choice.message.content {
                             let text = content.as_text_full().unwrap_or_default();
                             if !text.is_empty() {
+                                has_content = true;
+                                tracing::info!(
+                                    provider = %provider_name,
+                                    text_len = text.len(),
+                                    "chat_stream (default): yielding ContentDelta"
+                                );
                                 yield Ok(StreamEvent::ContentDelta { delta: text });
                             }
                         }
+                        if choice.message.tool_calls.as_ref().is_some_and(|c| !c.is_empty()) {
+                            has_tool_calls = true;
+                        }
+                    }
+                    if !has_content && !has_tool_calls {
+                        tracing::warn!(
+                            provider = %provider_name,
+                            "chat_stream (default): response has no content and no tool calls"
+                        );
+                    }
+                    if has_tool_calls {
+                        tracing::warn!(
+                            provider = %provider_name,
+                            "chat_stream (default): response has tool calls but default impl cannot stream them"
+                        );
                     }
 
                     yield Ok(StreamEvent::Done {
@@ -98,6 +132,12 @@ pub trait Provider: Send + Sync {
                     });
                 }
                 Err(e) => {
+                    let err_str = e.to_string();
+                    tracing::error!(
+                        provider = %provider_name,
+                        error = %err_str,
+                        "chat_stream (default): non-streaming fallback failed"
+                    );
                     yield Err(e);
                 }
             }
