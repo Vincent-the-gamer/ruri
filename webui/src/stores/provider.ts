@@ -107,6 +107,22 @@ export const useProviderStore = defineStore('provider', () => {
           default_model: 'gpt-4o',
           supports_multimodal: true,
         }
+      case 'siliconflow':
+        return {
+          type: 'siliconflow',
+          base_url: 'https://api.siliconflow.cn/v1',
+          api_key: '',
+          default_model: 'deepseek-ai/DeepSeek-V3',
+          supports_multimodal: true,
+        }
+      case 'deepseek':
+        return {
+          type: 'deepseek',
+          base_url: 'https://api.deepseek.com',
+          api_key: '',
+          default_model: 'deepseek-chat',
+          supports_multimodal: false,
+        }
       case 'anthropic':
         return {
           type: 'anthropic',

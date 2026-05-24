@@ -64,6 +64,10 @@ const providerTypeLabel = (type: string) => {
             return t("providers.type.anthropic");
         case "gemini":
             return t("providers.type.gemini");
+        case "siliconflow":
+            return t("providers.type.siliconflow");
+        case "deepseek":
+            return t("providers.type.deepseek");
         default:
             return type;
     }
@@ -820,6 +824,24 @@ function maskApiKey(key: string): string {
     background: linear-gradient(135deg, #4285f4, #ea4335);
 }
 
+.card-icon--siliconflow {
+    background: linear-gradient(
+        135deg,
+        rgba(6, 182, 212, 0.1) 0%,
+        rgba(14, 165, 233, 0.08) 100%
+    );
+    border-color: rgba(6, 182, 212, 0.25);
+}
+
+.card-icon--deepseek {
+    background: linear-gradient(
+        135deg,
+        rgba(59, 130, 246, 0.1) 0%,
+        rgba(37, 99, 235, 0.08) 100%
+    );
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
 .type-dot {
     width: 10px;
     height: 10px;
@@ -839,6 +861,16 @@ function maskApiKey(key: string): string {
 
 .type-dot--gemini {
     background: #4285f4;
+}
+
+.type-dot--siliconflow {
+    background-color: #06b6d4;
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+}
+
+.type-dot--deepseek {
+    background-color: #3b82f6;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
 /* Card details */

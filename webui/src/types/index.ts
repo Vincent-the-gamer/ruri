@@ -8,6 +8,22 @@ export interface OpenAIProviderConfig {
   supports_multimodal?: boolean
 }
 
+export interface SiliconFlowProviderConfig {
+  type: 'siliconflow'
+  base_url: string
+  api_key: string
+  default_model: string
+  supports_multimodal?: boolean
+}
+
+export interface DeepSeekProviderConfig {
+  type: 'deepseek'
+  base_url: string
+  api_key: string
+  default_model: string
+  supports_multimodal?: boolean
+}
+
 export interface AnthropicProviderConfig {
   type: 'anthropic'
   base_url: string
@@ -25,9 +41,9 @@ export interface GeminiProviderConfig {
   supports_multimodal?: boolean
 }
 
-export type ProviderConfig = OpenAIProviderConfig | AnthropicProviderConfig | GeminiProviderConfig
+export type ProviderConfig = OpenAIProviderConfig | SiliconFlowProviderConfig | DeepSeekProviderConfig | AnthropicProviderConfig | GeminiProviderConfig
 
-export type ProviderType = 'openai' | 'anthropic' | 'gemini'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'siliconflow' | 'deepseek'
 
 export interface Provider {
   id: string

@@ -240,7 +240,7 @@ impl Tool for ReadFileTool {
         let start_line = parsed["start_line"].as_u64();
         let end_line = parsed["end_line"].as_u64();
 
-        match (start_line, end_line) {
+        let (selected_content, header) = match (start_line, end_line) {
             (Some(start), Some(end)) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total = lines.len();
@@ -250,23 +250,31 @@ impl Tool for ReadFileTool {
                     return Ok(String::new());
                 }
                 let selected: Vec<&str> = lines[start..end].to_vec();
-                Ok(selected.join("\n"))
+                let header = format!("[read_file: {path} (lines {}-{})]", start + 1, end);
+                (selected.join("\n"), header)
             }
             (Some(start), None) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let total = lines.len();
                 let start = (start as usize).saturating_sub(1).min(total);
                 let selected: Vec<&str> = lines[start..].to_vec();
-                Ok(selected.join("\n"))
+                let header = format!("[read_file: {path} (lines {}-{})]", start + 1, total);
+                (selected.join("\n"), header)
             }
             (None, Some(end)) => {
                 let lines: Vec<&str> = content.lines().collect();
                 let end = (end as usize).min(lines.len());
                 let selected: Vec<&str> = lines[..end].to_vec();
-                Ok(selected.join("\n"))
+                let header = format!("[read_file: {path} (lines 1-{end})]");
+                (selected.join("\n"), header)
             }
-            (None, None) => Ok(content),
-        }
+            (None, None) => {
+                let header = format!("[read_file: {path}]");
+                (content, header)
+            }
+        };
+
+        Ok(format!("{header}\n\n{selected_content}"))
     }
 }
 

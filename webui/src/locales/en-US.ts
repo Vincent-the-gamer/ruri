@@ -326,6 +326,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
+      siliconflow: 'SiliconFlow',
+      deepseek: 'DeepSeek',
     },
     status: {
       active: 'Active',
@@ -386,7 +388,10 @@ export default {
     prefix: 'Prefix: ',
     deactivate: 'Deactivate Skill',
     activate: 'Activate Skill',
+    activated: 'Skill activated',
+    deactivated: 'Skill deactivated',
     remove: 'Remove Skill',
+    removeSuccess: 'Skill removed',
   },
 
   // Tools

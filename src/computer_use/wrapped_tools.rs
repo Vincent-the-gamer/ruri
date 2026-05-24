@@ -72,7 +72,10 @@ impl Tool for WrappedReadFileTool {
             .await
             .map_err(|e| ToolError::ExecutionError(format!("Failed to read file: {}", e)))?;
 
-        Ok(content)
+        Ok(format!(
+            "[read_file: {}]\n\n{content}",
+            resolved_path.display()
+        ))
     }
 }
 

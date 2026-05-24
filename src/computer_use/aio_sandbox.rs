@@ -576,10 +576,11 @@ impl Tool for AioSandboxReadFileTool {
 
         info!("Reading file from AIO Sandbox: {}", path);
 
-        self.client
-            .read_file(path)
-            .await
-            .map_err(|e| ToolError::ExecutionError(format!("AIO Sandbox read file error: {}", e)))
+        let content = self.client.read_file(path).await.map_err(|e| {
+            ToolError::ExecutionError(format!("AIO Sandbox read file error: {}", e))
+        })?;
+
+        Ok(format!("[read_file: {path}]\n\n{content}"))
     }
 }
 

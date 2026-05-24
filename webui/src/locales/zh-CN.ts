@@ -288,6 +288,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
+      siliconflow: '硅基流动',
+      deepseek: 'DeepSeek',
     },
     status: {
       active: '已激活',
@@ -348,7 +350,10 @@ export default {
     prefix: '前缀：',
     deactivate: '停用技能',
     activate: '启用技能',
+    activated: '技能已启用',
+    deactivated: '技能已停用',
     remove: '移除技能',
+    removeSuccess: '技能已移除',
   },
 
   // 工具

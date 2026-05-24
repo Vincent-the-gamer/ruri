@@ -70,6 +70,8 @@ pub enum ProviderConfigDto {
     Openai(OpenAIProviderConfigDto),
     Anthropic(AnthropicProviderConfigDto),
     Gemini(GeminiProviderConfigDto),
+    Siliconflow(OpenAIProviderConfigDto),
+    Deepseek(OpenAIProviderConfigDto),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

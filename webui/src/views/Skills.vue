@@ -14,11 +14,11 @@ onMounted(() => {
 });
 
 async function handleRemove(name: string) {
-    if (!confirm(t("skills.deleteConfirm"))) return;
     try {
         await skillStore.removeSkill(name);
+        toast.success(t("skills.removeSuccess"));
     } catch {
-        // error is in store
+        // error is in store, shown by error banner
     }
 }
 
@@ -29,8 +29,11 @@ async function handleRefresh() {
 async function handleToggle(name: string, isActive: boolean) {
     try {
         await skillStore.toggleSkill(name, isActive);
+        toast.success(
+            isActive ? t("skills.activated") : t("skills.deactivated"),
+        );
     } catch {
-        // error is in store
+        // error is in store, shown by error banner
     }
 }
 

@@ -540,6 +540,48 @@ impl SessionManager {
             .insert(session_id.clone(), session);
         session_id
     }
+
+    /// Shutdown all sessions gracefully.
+    ///
+    /// Cancels every running prompt token, then removes all sessions
+    /// and connections. Called when the ACP server is shutting down
+    /// (IDE disconnect or Ctrl+C).
+    pub async fn shutdown_all(&self) {
+        // 1. Cancel all running prompts so agent loops exit cleanly
+        let prompt_ids: Vec<String> = {
+            self.running_prompt_tokens
+                .read()
+                .await
+                .keys()
+                .cloned()
+                .collect()
+        };
+        for session_id in &prompt_ids {
+            tracing::info!(%session_id, "ACP shutdown: cancelling running prompt");
+            // Cancel via token first (stops the agent loop)
+            if let Some(token) = self
+                .running_prompt_tokens
+                .read()
+                .await
+                .get(session_id)
+                .cloned()
+            {
+                token.cancel();
+            }
+        }
+
+        // 2. Clear all state — drop sessions, connections, and tokens
+        self.running_prompt_tokens.write().await.clear();
+        self.connections.write().await.clear();
+        let count = {
+            let mut sessions = self.sessions.write().await;
+            let n = sessions.len();
+            sessions.clear();
+            n
+        };
+
+        tracing::info!(session_count = count, "ACP shutdown: all sessions cleared");
+    }
 }
 
 impl Default for SessionManager {

@@ -11,6 +11,11 @@ export default defineConfig({
   build: {
     outDir: '../src/web_dist',
     emptyOutDir: true,
+    rollupOptions: {
+      onLog(_level, log) {
+        if (log.code === 'INVALID_ANNOTATION') return;
+      },
+    },
   },
   server: {
     port: 8080,

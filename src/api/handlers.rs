@@ -416,7 +416,7 @@ async fn fetch_provider_models(
 ) -> Result<Json<FetchModelsResponse>, (StatusCode, Json<serde_json::Value>)> {
     let client = reqwest::Client::new();
     let models = match req.provider_type.as_str() {
-        "openai" => {
+        "openai" | "siliconflow" | "deepseek" => {
             let base = req.base_url.trim_end_matches('/');
             let url = format!("{}/models", base);
 
@@ -2313,7 +2313,9 @@ async fn get_status(State(state): State<Arc<AppState>>) -> Json<AgentStatusDto> 
     let (active_provider, active_model) = if let Some(ref id) = *active_id {
         if let Some(p) = providers.get(id) {
             let model = match p.provider_type.as_str() {
-                "openai" => p.config_json["default_model"].as_str().unwrap_or("gpt-4o"),
+                "openai" | "siliconflow" | "deepseek" => {
+                    p.config_json["default_model"].as_str().unwrap_or("gpt-4o")
+                }
                 "anthropic" => p.config_json["default_model"]
                     .as_str()
                     .unwrap_or("claude-sonnet-4-20250514"),

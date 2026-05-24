@@ -2214,7 +2214,7 @@ impl AppState {
         let config = &stored.config_json;
 
         match stored.provider_type.as_str() {
-            "openai" => {
+            "openai" | "siliconflow" | "deepseek" => {
                 let base_url = config["base_url"].as_str().unwrap_or("").to_string();
                 let api_key = config["api_key"].as_str().map(|s| s.to_string());
                 let default_model = config["default_model"]
@@ -2379,7 +2379,7 @@ impl AppState {
         let config = &embedded.config_json;
 
         match embedded.provider_type.as_str() {
-            "openai" => {
+            "openai" | "siliconflow" | "deepseek" => {
                 let base_url = config["base_url"].as_str().unwrap_or("").to_string();
                 let api_key = config["api_key"].as_str().map(|s| s.to_string());
                 let default_model = config["default_model"]

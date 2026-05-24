@@ -6,6 +6,8 @@ import type {
     ProviderType,
     ProviderConfig,
     OpenAIProviderConfig,
+    SiliconFlowProviderConfig,
+    DeepSeekProviderConfig,
     AnthropicProviderConfig,
     GeminiProviderConfig,
     Provider,
@@ -68,6 +70,28 @@ const geminiConfig = reactive<GeminiProviderConfig>({
         : {}),
 });
 
+const siliconflowConfig = reactive<SiliconFlowProviderConfig>({
+    type: "siliconflow",
+    base_url: "https://api.siliconflow.cn/v1",
+    api_key: "",
+    default_model: "deepseek-ai/DeepSeek-V3",
+    supports_multimodal: true,
+    ...(props.provider?.provider_type === "siliconflow"
+        ? (props.provider.config as SiliconFlowProviderConfig)
+        : {}),
+});
+
+const deepseekConfig = reactive<DeepSeekProviderConfig>({
+    type: "deepseek",
+    base_url: "https://api.deepseek.com",
+    api_key: "",
+    default_model: "deepseek-chat",
+    supports_multimodal: false,
+    ...(props.provider?.provider_type === "deepseek"
+        ? (props.provider.config as DeepSeekProviderConfig)
+        : {}),
+});
+
 function handleSave() {
     if (!name.value.trim()) return;
 
@@ -75,6 +99,12 @@ function handleSave() {
     switch (providerType.value) {
         case "openai":
             config = { ...openaiConfig };
+            break;
+        case "siliconflow":
+            config = { ...siliconflowConfig };
+            break;
+        case "deepseek":
+            config = { ...deepseekConfig };
             break;
         case "anthropic":
             config = { ...anthropicConfig };
@@ -144,6 +174,8 @@ function handleSave() {
                             <button
                                 v-for="typeItem in [
                                     'openai',
+                                    'siliconflow',
+                                    'deepseek',
                                     'anthropic',
                                     'gemini',
                                 ] as ProviderType[]"
@@ -198,12 +230,43 @@ function handleSave() {
                                         points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
                                     />
                                 </svg>
+                                <svg
+                                    v-if="typeItem === 'siliconflow'"
+                                    class="type-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                    <path d="M2 17l10 5 10-5" />
+                                    <path d="M2 12l10 5 10-5" />
+                                </svg>
+                                <svg
+                                    v-if="typeItem === 'deepseek'"
+                                    class="type-icon"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <circle cx="11" cy="11" r="8" />
+                                    <path d="m21 21-4.35-4.35" />
+                                </svg>
                                 {{
                                     typeItem === "openai"
                                         ? t("providers.type.openai")
-                                        : typeItem === "anthropic"
-                                          ? t("providers.type.anthropic")
-                                          : t("providers.type.gemini")
+                                        : typeItem === "siliconflow"
+                                          ? t("providers.type.siliconflow")
+                                          : typeItem === "deepseek"
+                                            ? t("providers.type.deepseek")
+                                            : typeItem === "anthropic"
+                                              ? t("providers.type.anthropic")
+                                              : t("providers.type.gemini")
                                 }}
                             </button>
                         </div>
@@ -300,6 +363,196 @@ function handleSave() {
                                     :class="{
                                         'toggle-thumb-active':
                                             openaiConfig.supports_multimodal,
+                                    }"
+                                ></span>
+                            </button>
+                        </div>
+                    </template>
+
+                    <!-- SiliconFlow Config -->
+                    <template v-if="providerType === 'siliconflow'">
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.baseUrl")
+                            }}</label>
+                            <input
+                                v-model="siliconflowConfig.base_url"
+                                type="text"
+                                class="form-input"
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.apiKey")
+                            }}</label>
+                            <div class="input-with-action">
+                                <input
+                                    v-model="siliconflowConfig.api_key"
+                                    :type="showApiKey ? 'text' : 'password'"
+                                    :placeholder="
+                                        t('providers.form.apiKeyPlaceholder')
+                                    "
+                                    class="form-input"
+                                />
+                                <button
+                                    @click="showApiKey = !showApiKey"
+                                    class="btn-eye"
+                                >
+                                    <svg
+                                        v-if="showApiKey"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                                        />
+                                        <line x1="1" y1="1" x2="23" y2="23" />
+                                    </svg>
+                                    <svg
+                                        v-else
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                                        />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <ModelSelector
+                            v-model="siliconflowConfig.default_model"
+                            :provider-type="'siliconflow'"
+                            :base-url="siliconflowConfig.base_url"
+                            :api-key="siliconflowConfig.api_key"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
+                        />
+                        <div class="toggle-row">
+                            <label class="form-label">{{
+                                t("providers.form.supportsMultimodal")
+                            }}</label>
+                            <button
+                                @click="
+                                    siliconflowConfig.supports_multimodal =
+                                        !siliconflowConfig.supports_multimodal
+                                "
+                                class="toggle"
+                                :class="{
+                                    'toggle-active':
+                                        siliconflowConfig.supports_multimodal,
+                                }"
+                            >
+                                <span
+                                    class="toggle-thumb"
+                                    :class="{
+                                        'toggle-thumb-active':
+                                            siliconflowConfig.supports_multimodal,
+                                    }"
+                                ></span>
+                            </button>
+                        </div>
+                    </template>
+
+                    <!-- DeepSeek Config -->
+                    <template v-if="providerType === 'deepseek'">
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.baseUrl")
+                            }}</label>
+                            <input
+                                v-model="deepseekConfig.base_url"
+                                type="text"
+                                class="form-input"
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">{{
+                                t("providers.form.apiKey")
+                            }}</label>
+                            <div class="input-with-action">
+                                <input
+                                    v-model="deepseekConfig.api_key"
+                                    :type="showApiKey ? 'text' : 'password'"
+                                    :placeholder="
+                                        t('providers.form.apiKeyPlaceholder')
+                                    "
+                                    class="form-input"
+                                />
+                                <button
+                                    @click="showApiKey = !showApiKey"
+                                    class="btn-eye"
+                                >
+                                    <svg
+                                        v-if="showApiKey"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                                        />
+                                        <line x1="1" y1="1" x2="23" y2="23" />
+                                    </svg>
+                                    <svg
+                                        v-else
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path
+                                            d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                                        />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <ModelSelector
+                            v-model="deepseekConfig.default_model"
+                            :provider-type="'deepseek'"
+                            :base-url="deepseekConfig.base_url"
+                            :api-key="deepseekConfig.api_key"
+                            :placeholder="
+                                t('providers.form.defaultModelPlaceholder')
+                            "
+                        />
+                        <div class="toggle-row">
+                            <label class="form-label">{{
+                                t("providers.form.supportsMultimodal")
+                            }}</label>
+                            <button
+                                @click="
+                                    deepseekConfig.supports_multimodal =
+                                        !deepseekConfig.supports_multimodal
+                                "
+                                class="toggle"
+                                :class="{
+                                    'toggle-active':
+                                        deepseekConfig.supports_multimodal,
+                                }"
+                            >
+                                <span
+                                    class="toggle-thumb"
+                                    :class="{
+                                        'toggle-thumb-active':
+                                            deepseekConfig.supports_multimodal,
                                     }"
                                 ></span>
                             </button>

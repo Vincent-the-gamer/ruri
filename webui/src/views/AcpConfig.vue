@@ -41,18 +41,7 @@ function syncFromStore() {
         selectedKbIds.value = [
             ...(acpStore.config.active_knowledge_base_ids || []),
         ];
-        const pc = acpStore.config.proxy_config;
-        proxyConfig.value = {
-            enabled: pc?.enabled ?? false,
-            url: pc?.url ?? "",
-            mode: pc?.mode ?? "global",
-            proxy_domains: [...(pc?.proxy_domains ?? [])],
-            bypass_domains: [...(pc?.bypass_domains ?? [])],
-            username: pc?.username ?? null,
-            password: pc?.password ?? null,
-            bypass_localhost: pc?.bypass_localhost ?? true,
-            rules: [...(pc?.rules ?? [])],
-        };
+        proxyConfig.value = normalizeProxy(acpStore.config.proxy_config);
     }
 }
 
@@ -121,6 +110,12 @@ const providerTypeLabel = (type: string) => {
             return "OpenAI";
         case "anthropic":
             return "Anthropic";
+        case "gemini":
+            return "Gemini";
+        case "siliconflow":
+            return "SiliconFlow";
+        case "deepseek":
+            return "DeepSeek";
         case "custom":
             return "Custom";
         default:
@@ -128,9 +123,23 @@ const providerTypeLabel = (type: string) => {
     }
 };
 
+function normalizeProxy(pc: ProxyConfig | null | undefined): ProxyConfig {
+    return {
+        enabled: pc?.enabled ?? false,
+        url: pc?.url ?? "",
+        mode: pc?.mode ?? "global",
+        proxy_domains: [...(pc?.proxy_domains ?? [])],
+        bypass_domains: [...(pc?.bypass_domains ?? [])],
+        username: pc?.username ?? null,
+        password: pc?.password ?? null,
+        bypass_localhost: pc?.bypass_localhost ?? true,
+        rules: [...(pc?.rules ?? [])],
+    };
+}
+
 const hasChanges = computed(() => {
     if (!acpStore.config) return false;
-    const origProxy = acpStore.config.proxy_config;
+    const origProxy = normalizeProxy(acpStore.config.proxy_config);
     return (
         selectedProviderId.value !== acpStore.config.active_provider_id ||
         JSON.stringify(selectedSkillNames.value) !==
@@ -1084,6 +1093,16 @@ function getRuleTypeColor(type: ProxyRuleType) {
 .type-badge--custom {
     background-color: var(--color-bg-mute);
     color: var(--color-text-muted);
+}
+
+.type-badge--siliconflow {
+    background-color: rgba(6, 182, 212, 0.1);
+    color: #0891b2;
+}
+
+.type-badge--deepseek {
+    background-color: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
 }
 
 .provider-model {

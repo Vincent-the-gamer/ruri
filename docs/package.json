@@ -24,7 +24,7 @@
     "eslint-plugin-format": "^2.0.1",
     "taze": "^19.13.0",
     "unocss": "66.4.1",
-    "vite": "^8.0.13",
+    "vite": "^8.0.14",
     "vitepress": "^2.0.0-alpha.17",
     "vitepress-theme-teek": "^1.6.0"
   }

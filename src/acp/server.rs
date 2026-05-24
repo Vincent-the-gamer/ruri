@@ -28,7 +28,15 @@ use crate::provider::Provider;
 /// The agent communicates using the `agent_client_protocol` crate's
 /// `Agent` builder pattern, which handles all JSON-RPC framing,
 /// serialization, and deserialization automatically.
-/// Runs the ACP server with an optional config file path.
+///
+/// Graceful shutdown is handled in two ways:
+/// - **IDE disconnect**: When the IDE closes the connection, stdin
+///   returns EOF and the server loop exits naturally.
+/// - **Ctrl+C / SIGINT**: A signal handler cancels the global shutdown
+///   token, which races against the server future and triggers cleanup.
+///
+/// In both cases, all running prompts are cancelled and sessions are
+/// closed before the process exits.
 pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> anyhow::Result<()> {
     let config_path = config_path.unwrap_or_else(default_config_path);
     tracing::info!(
@@ -47,156 +55,198 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
     let stdin = tokio::io::stdin().compat();
     let stdout = tokio::io::stdout().compat_write();
 
-    Agent
-        .builder()
-        .name("ruri-acp")
-        .on_receive_request(
-            {
-                let agent_state = agent_state.clone();
-                async move |request: InitializeRequest, responder, _cx| {
-                    let result = handle_initialize(agent_state.clone(), request).await;
-                    responder.respond_with_result(result)
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                async move |_request: AuthenticateRequest, responder, _cx| {
-                    tracing::info!("ACP authenticate request received");
-                    responder.respond(AuthenticateResponse::new())
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let agent_state = agent_state.clone();
-                let session_manager = session_manager.clone();
-                async move |request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
-                    let agent_state = agent_state.clone();
-                    let session_manager = session_manager.clone();
-                    let cx2 = cx.clone();
-                    cx.spawn(async move {
-                        let result =
-                            handle_session_new(agent_state, session_manager, request, cx2).await;
-                        responder.respond_with_result(result)
-                    })?;
-                    Ok(())
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let agent_state = agent_state.clone();
-                let session_manager = session_manager.clone();
-                async move |request: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
-                    let agent_state = agent_state.clone();
-                    let session_manager = session_manager.clone();
-                    let cx2 = cx.clone();
-                    cx.spawn(async move {
-                        let result =
-                            handle_session_load(agent_state, session_manager, request, cx2).await;
-                        responder.respond_with_result(result)
-                    })?;
-                    Ok(())
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                async move |request: ListSessionsRequest, responder, _cx| {
-                    let result = handle_session_list(request).await;
-                    responder.respond_with_result(result)
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let session_manager = session_manager.clone();
-                async move |request: CloseSessionRequest, responder, _cx| {
-                    let session_manager = session_manager.clone();
-                    let result = handle_session_close(session_manager, request).await;
-                    responder.respond_with_result(result)
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let agent_state = agent_state.clone();
-                let session_manager = session_manager.clone();
-                async move |request: ForkSessionRequest, responder, cx: ConnectionTo<Client>| {
-                    let agent_state = agent_state.clone();
-                    let session_manager = session_manager.clone();
-                    let cx2 = cx.clone();
-                    cx.spawn(async move {
-                        let result =
-                            handle_session_fork(agent_state, session_manager, request, cx2).await;
-                        responder.respond_with_result(result)
-                    })?;
-                    Ok(())
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let session_manager = session_manager.clone();
-                async move |request: SetSessionModeRequest, responder, _cx| {
-                    let session_manager = session_manager.clone();
-                    let result = handle_session_set_mode(session_manager, request).await;
-                    responder.respond_with_result(result)
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                async move |request: SetSessionConfigOptionRequest, responder, _cx| {
-                    let result = handle_session_set_config_option(request).await;
-                    responder.respond_with_result(result)
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let session_manager = session_manager.clone();
-                async move |request: PromptRequest, responder, cx: ConnectionTo<Client>| {
-                    let session_manager = session_manager.clone();
-                    let cx2 = cx.clone();
-                    cx.spawn(async move {
-                        let result = handle_session_prompt(session_manager, request, cx2).await;
-                        responder.respond_with_result(result)
-                    })?;
-                    Ok(())
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_notification(
-            {
-                let session_manager = session_manager.clone();
-                async move |notification: CancelNotification, _cx| {
-                    let session_id_str = notification.session_id.0.as_ref();
-                    tracing::info!("Cancelling session: {}", session_id_str);
-                    session_manager.cancel_session(session_id_str).await;
-                    Ok(())
-                }
-            },
-            agent_client_protocol::on_receive_notification!(),
-        )
-        .connect_to(ByteStreams::new(stdout, stdin))
-        .await
-        .map_err(|e| anyhow::anyhow!("ACP error: {}", e))?;
+    // ── Global shutdown signal (Ctrl+C) ───────────────────────────
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let shutdown_token_for_signal = shutdown_token.clone();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {
+                tracing::info!(
+                    "ACP server received Ctrl+C / SIGINT, initiating graceful shutdown..."
+                );
+                shutdown_token_for_signal.cancel();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to register Ctrl+C handler: {}", e);
+            }
+        }
+    });
 
-    tracing::info!("ACP server connected successfully");
+    // ── Run the ACP server, racing against shutdown signal ────────
+    //
+    // The server future is Box::pin'd so it can be used in tokio::select!.
+    // When the IDE disconnects (stdin EOF), connect_to returns normally.
+    // When Ctrl+C arrives, the shutdown token is cancelled and we exit
+    // the select with a clean Ok(()) to trigger the cleanup path.
+    let server_result = tokio::select! {
+        result = Box::pin(
+            Agent
+                .builder()
+                .name("ruri-acp")
+                .on_receive_request(
+                    {
+                        let agent_state = agent_state.clone();
+                        async move |request: InitializeRequest, responder, _cx| {
+                            let result = handle_initialize(agent_state.clone(), request).await;
+                            responder.respond_with_result(result)
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        async move |_request: AuthenticateRequest, responder, _cx| {
+                            tracing::info!("ACP authenticate request received");
+                            responder.respond(AuthenticateResponse::new())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let agent_state = agent_state.clone();
+                        let session_manager = session_manager.clone();
+                        async move |request: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
+                            let agent_state = agent_state.clone();
+                            let session_manager = session_manager.clone();
+                            let cx2 = cx.clone();
+                            cx.spawn(async move {
+                                let result =
+                                    handle_session_new(agent_state, session_manager, request, cx2).await;
+                                responder.respond_with_result(result)
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let agent_state = agent_state.clone();
+                        let session_manager = session_manager.clone();
+                        async move |request: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
+                            let agent_state = agent_state.clone();
+                            let session_manager = session_manager.clone();
+                            let cx2 = cx.clone();
+                            cx.spawn(async move {
+                                let result =
+                                    handle_session_load(agent_state, session_manager, request, cx2).await;
+                                responder.respond_with_result(result)
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        async move |request: ListSessionsRequest, responder, _cx| {
+                            let result = handle_session_list(request).await;
+                            responder.respond_with_result(result)
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let session_manager = session_manager.clone();
+                        async move |request: CloseSessionRequest, responder, _cx| {
+                            let session_manager = session_manager.clone();
+                            let result = handle_session_close(session_manager, request).await;
+                            responder.respond_with_result(result)
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let agent_state = agent_state.clone();
+                        let session_manager = session_manager.clone();
+                        async move |request: ForkSessionRequest, responder, cx: ConnectionTo<Client>| {
+                            let agent_state = agent_state.clone();
+                            let session_manager = session_manager.clone();
+                            let cx2 = cx.clone();
+                            cx.spawn(async move {
+                                let result =
+                                    handle_session_fork(agent_state, session_manager, request, cx2).await;
+                                responder.respond_with_result(result)
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let session_manager = session_manager.clone();
+                        async move |request: SetSessionModeRequest, responder, _cx| {
+                            let session_manager = session_manager.clone();
+                            let result = handle_session_set_mode(session_manager, request).await;
+                            responder.respond_with_result(result)
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        async move |request: SetSessionConfigOptionRequest, responder, _cx| {
+                            let result = handle_session_set_config_option(request).await;
+                            responder.respond_with_result(result)
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    {
+                        let session_manager = session_manager.clone();
+                        async move |request: PromptRequest, responder, cx: ConnectionTo<Client>| {
+                            let session_manager = session_manager.clone();
+                            let cx2 = cx.clone();
+                            cx.spawn(async move {
+                                let result = handle_session_prompt(session_manager, request, cx2).await;
+                                responder.respond_with_result(result)
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_notification(
+                    {
+                        let session_manager = session_manager.clone();
+                        async move |notification: CancelNotification, _cx| {
+                            let session_id_str = notification.session_id.0.as_ref();
+                            tracing::info!("Cancelling session: {}", session_id_str);
+                            session_manager.cancel_session(session_id_str).await;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                .connect_to(ByteStreams::new(stdout, stdin))
+        ) => {
+            match &result {
+                Ok(()) => tracing::info!("ACP client disconnected (stdin closed)"),
+                Err(e) => tracing::warn!("ACP connection closed with error: {}", e),
+            }
+            result
+        }
+        _ = shutdown_token.cancelled() => {
+            tracing::info!("ACP server shutting down due to signal");
+            Ok(())
+        }
+    };
 
-    Ok(())
+    // ── Graceful cleanup ──────────────────────────────────────────
+    tracing::info!("Cleaning up ACP sessions...");
+    session_manager.shutdown_all().await;
+
+    // Brief pause to let spawned tasks observe cancellation and unwind
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    tracing::info!("ACP server shutdown complete");
+
+    server_result.map_err(|e| anyhow::anyhow!("ACP error: {}", e))
 }
 
 // ─── Shared Agent State ────────────────────────────────────────────
@@ -1176,6 +1226,8 @@ async fn handle_session_prompt(
                         content_list.push(content_block.into());
 
                         let update_fields = ToolCallUpdateFields::new()
+                            .title(tool_name_to_title(tool_name, &args))
+                            .kind(tool_name_to_kind(tool_name))
                             .status(ToolCallStatus::Completed)
                             .content(Some(content_list))
                             .locations(locations);
