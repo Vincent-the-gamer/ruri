@@ -35,6 +35,7 @@ function handleCancel() {
     temperature.value = snap.temperature;
     maxTokens.value = snap.maxTokens;
     commandPrefix.value = snap.commandPrefix;
+    thinkingEnabled.value = snap.thinkingEnabled;
     customErrorMessage.value = snap.customErrorMessage;
     selectedKbIds.value = [...snap.selectedKbIds];
     selectedSkillNames.value = [...snap.selectedSkillNames];
@@ -103,6 +104,9 @@ const activePersona = computed(() => {
 
 // ── Command Prefix ──
 const commandPrefix = ref("/");
+
+// ── Thinking Toggle ──
+const thinkingEnabled = ref(true);
 
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
@@ -252,6 +256,7 @@ interface Snapshot {
     temperature: number;
     maxTokens: number;
     commandPrefix: string;
+    thinkingEnabled: boolean;
     customErrorMessage: string;
     selectedKbIds: string[];
     selectedSkillNames: string[];
@@ -265,6 +270,7 @@ function takeSnapshot(): Snapshot {
         temperature: temperature.value,
         maxTokens: maxTokens.value,
         commandPrefix: commandPrefix.value,
+        thinkingEnabled: thinkingEnabled.value,
         customErrorMessage: customErrorMessage.value,
         selectedKbIds: [...selectedKbIds.value],
         selectedSkillNames: [...selectedSkillNames.value],
@@ -282,6 +288,7 @@ const isDirty = computed(() => {
         temperature.value !== snap.temperature ||
         maxTokens.value !== snap.maxTokens ||
         commandPrefix.value !== snap.commandPrefix ||
+        thinkingEnabled.value !== snap.thinkingEnabled ||
         customErrorMessage.value !== snap.customErrorMessage ||
         JSON.stringify(selectedKbIds.value) !==
             JSON.stringify(snap.selectedKbIds) ||
@@ -304,6 +311,7 @@ function syncFromServer(session: any) {
     maxTokens.value = session.max_tokens ?? 4096;
     customErrorMessage.value = session.custom_error_message || "";
     commandPrefix.value = session.command_prefix || "/";
+    thinkingEnabled.value = session.thinking_enabled ?? true;
     selectedKbIds.value = [...(session.knowledge_base_ids || [])];
     selectedSkillNames.value = [...(session.active_skill_names || [])];
     if (session.proxy_config) {
@@ -338,6 +346,7 @@ async function handleSave() {
             persona_id: selectedPersonaId.value || null,
             temperature: temperature.value,
             max_tokens: maxTokens.value,
+            thinking_enabled: thinkingEnabled.value,
             custom_error_message: customErrorMessage.value || null,
             knowledge_base_ids: selectedKbIds.value,
             active_skill_names: selectedSkillNames.value,
@@ -496,6 +505,39 @@ defineExpose({
                                     )
                                 }}
                             </p>
+                        </div>
+
+                        <!-- Thinking Toggle -->
+                        <div class="toggle-row" style="margin-top: 0.5rem">
+                            <label class="toggle-container">
+                                <input
+                                    type="checkbox"
+                                    v-model="thinkingEnabled"
+                                    class="toggle-input"
+                                />
+                                <span
+                                    class="toggle"
+                                    :class="{
+                                        'toggle--on': thinkingEnabled,
+                                    }"
+                                >
+                                    <span class="toggle-thumb"></span>
+                                </span>
+                            </label>
+                            <div class="toggle-info">
+                                <span class="toggle-text">{{
+                                    t(
+                                        "chatConfig.thinkingEnabled",
+                                        "Extended Thinking",
+                                    )
+                                }}</span>
+                                <span class="toggle-description">{{
+                                    t(
+                                        "chatConfig.thinkingEnabledDesc",
+                                        "Allow the model to use chain-of-thought reasoning for complex tasks. Disable to save tokens on simple queries.",
+                                    )
+                                }}</span>
+                            </div>
                         </div>
                     </section>
 

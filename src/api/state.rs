@@ -141,6 +141,10 @@ pub struct PersistedConfigProfile {
     pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    /// When disabled, the model will not spend extra tokens on internal reasoning.
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
@@ -297,6 +301,10 @@ pub struct DebugSessionConfig {
     /// Whether computer use is enabled for this debug session.
     #[serde(default)]
     pub computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    /// When disabled, the model will not spend extra tokens on internal reasoning.
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
     /// Embedded skill configurations for debug sessions
     #[serde(default)]
     pub skills: Vec<EmbeddedSkill>,
@@ -363,6 +371,8 @@ struct ResolvedConfigContext {
     web_search_enabled: bool,
     /// Whether computer use is enabled for this profile/session
     computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    thinking_enabled: bool,
 }
 
 // ─── In-Memory State Types ───────────────────────────────────────
@@ -392,6 +402,7 @@ pub struct StoredConfigProfile {
     pub active_embedded_skill_names: Vec<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
+    pub thinking_enabled: bool,
     pub active_skill_names: Vec<String>,
     pub active_knowledge_base_ids: Vec<String>,
     pub proxy_config: crate::types::ProxyConfig,
@@ -982,6 +993,7 @@ impl AppState {
                                 active_embedded_skill_names: p.active_embedded_skill_names,
                                 web_search_enabled: p.web_search_enabled,
                                 computer_use_enabled: p.computer_use_enabled,
+                                thinking_enabled: p.thinking_enabled,
                                 active_skill_names: p.active_skill_names,
                                 active_knowledge_base_ids: p.active_knowledge_base_ids,
                                 proxy_config: p.proxy_config,
@@ -1549,6 +1561,7 @@ impl AppState {
                         active_embedded_skill_names: p.active_embedded_skill_names,
                         web_search_enabled: p.web_search_enabled,
                         computer_use_enabled: p.computer_use_enabled,
+                        thinking_enabled: p.thinking_enabled,
                         active_skill_names: p.active_skill_names,
                         active_knowledge_base_ids: p.active_knowledge_base_ids,
                         proxy_config: p.proxy_config,
@@ -2181,6 +2194,7 @@ impl AppState {
                         active_embedded_skill_names: p.active_embedded_skill_names.clone(),
                         web_search_enabled: p.web_search_enabled,
                         computer_use_enabled: p.computer_use_enabled,
+                        thinking_enabled: p.thinking_enabled,
                         active_skill_names: p.active_skill_names.clone(),
                         active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
                         proxy_config: p.proxy_config.clone(),
@@ -2569,6 +2583,7 @@ impl AppState {
                 proxy_config: debug.proxy_config.clone(),
                 web_search_enabled: debug.web_search_enabled,
                 computer_use_enabled: debug.computer_use_enabled,
+                thinking_enabled: debug.thinking_enabled,
             });
         }
 
@@ -2590,6 +2605,7 @@ impl AppState {
                     proxy_config: profile.proxy_config.clone(),
                     web_search_enabled: profile.web_search_enabled,
                     computer_use_enabled: profile.computer_use_enabled,
+                    thinking_enabled: profile.thinking_enabled,
                 });
             }
         }
@@ -2609,6 +2625,7 @@ impl AppState {
                 proxy_config: profile.proxy_config.clone(),
                 web_search_enabled: profile.web_search_enabled,
                 computer_use_enabled: profile.computer_use_enabled,
+                thinking_enabled: profile.thinking_enabled,
             });
         }
 
@@ -2789,9 +2806,13 @@ impl AppState {
             }
         }
 
-        let config = AgentConfig::new()
+        let mut config = AgentConfig::new()
             .with_max_tool_rounds(10)
             .with_auto_execute_tools(true);
+
+        if let Some(ctx) = &context {
+            config.thinking_enabled = ctx.thinking_enabled;
+        }
 
         let mut agent = Agent::with_config(provider, config);
 

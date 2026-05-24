@@ -2841,6 +2841,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             persona_id: p.persona_id.clone(),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
+            thinking_enabled: p.thinking_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
@@ -2873,6 +2874,7 @@ async fn get_config_profile(
             persona_id: p.persona_id.clone(),
             web_search_enabled: p.web_search_enabled,
             computer_use_enabled: p.computer_use_enabled,
+            thinking_enabled: p.thinking_enabled,
             active_skill_names: p.active_skill_names.clone(),
             active_knowledge_base_ids: p.active_knowledge_base_ids.clone(),
             proxy_config: p.proxy_config.clone(),
@@ -2917,6 +2919,7 @@ async fn create_config_profile(
         active_embedded_skill_names: Vec::new(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
+        thinking_enabled: req.thinking_enabled,
         active_skill_names: req.active_skill_names.clone(),
         active_knowledge_base_ids: req.active_knowledge_base_ids.clone(),
         proxy_config: req.proxy_config.clone(),
@@ -2984,6 +2987,7 @@ async fn create_config_profile(
         persona_id: req.persona_id.clone(),
         web_search_enabled: req.web_search_enabled,
         computer_use_enabled: req.computer_use_enabled,
+        thinking_enabled: req.thinking_enabled,
         active_skill_names: req.active_skill_names,
         active_knowledge_base_ids: req.active_knowledge_base_ids,
         proxy_config: req.proxy_config,
@@ -3081,6 +3085,9 @@ async fn update_config_profile(
         if let Some(computer_use_enabled) = req.computer_use_enabled {
             profile.computer_use_enabled = computer_use_enabled;
         }
+        if let Some(thinking_enabled) = req.thinking_enabled {
+            profile.thinking_enabled = thinking_enabled;
+        }
         if let Some(active_skill_names) = req.active_skill_names {
             profile.active_skill_names = active_skill_names;
         }
@@ -3122,6 +3129,7 @@ async fn update_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
+            thinking_enabled: profile.thinking_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
@@ -3255,6 +3263,7 @@ async fn activate_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
+            thinking_enabled: profile.thinking_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
@@ -3340,6 +3349,7 @@ async fn deactivate_config_profile(
             persona_id: profile.persona_id.clone(),
             web_search_enabled: profile.web_search_enabled,
             computer_use_enabled: profile.computer_use_enabled,
+            thinking_enabled: profile.thinking_enabled,
             active_skill_names: profile.active_skill_names.clone(),
             active_knowledge_base_ids: profile.active_knowledge_base_ids.clone(),
             proxy_config: profile.proxy_config.clone(),
@@ -5676,6 +5686,7 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
         provider_id: session.provider_id.clone(),
         web_search_enabled: session.web_search_enabled,
         computer_use_enabled: session.computer_use_enabled,
+        thinking_enabled: session.thinking_enabled,
         skills: session.skills.iter().map(Into::into).collect(),
         active_skill_names: session.active_skill_names.clone(),
         knowledge_base_ids: session.knowledge_base_ids.clone(),
@@ -5720,6 +5731,9 @@ async fn update_debug_session(
         }
         if let Some(computer_use_enabled) = req.computer_use_enabled {
             session.computer_use_enabled = computer_use_enabled;
+        }
+        if let Some(thinking_enabled) = req.thinking_enabled {
+            session.thinking_enabled = thinking_enabled;
         }
         if let Some(skills) = req.skills {
             session.skills = skills
@@ -5767,6 +5781,7 @@ async fn update_debug_session(
             provider_id: session.provider_id.clone(),
             web_search_enabled: session.web_search_enabled,
             computer_use_enabled: session.computer_use_enabled,
+            thinking_enabled: session.thinking_enabled,
             skills: session
                 .skills
                 .iter()

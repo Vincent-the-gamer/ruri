@@ -379,6 +379,7 @@ export interface ConfigProfile {
   persona_id: string | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
+  thinking_enabled: boolean
   // 技能配置
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
@@ -404,6 +405,7 @@ export interface CreateConfigProfileRequest {
   persona_id?: string | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
+  thinking_enabled: boolean
   active_skill_names: string[]
   active_knowledge_base_ids: string[]
   command_prefix: string
@@ -422,6 +424,7 @@ export interface UpdateConfigProfileRequest {
   persona_id?: string | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
+  thinking_enabled?: boolean
   active_skill_names?: string[]
   active_knowledge_base_ids?: string[]
   command_prefix?: string
@@ -810,6 +813,7 @@ export interface DebugSession {
   provider_id: string | null
   web_search_enabled: boolean
   computer_use_enabled: boolean
+  thinking_enabled: boolean
   skills: EmbeddedSkill[]
   active_skill_names: string[]
   knowledge_base_ids: string[]
@@ -829,6 +833,7 @@ export interface UpdateDebugSessionRequest {
   provider_id?: string | null
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
+  thinking_enabled?: boolean
   skills?: EmbeddedSkill[]
   active_skill_names?: string[]
   knowledge_base_ids?: string[]

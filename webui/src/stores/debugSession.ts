@@ -20,6 +20,7 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
   const enabledCommands = computed(() => debugSession.value?.enabled_commands ?? [])
   const webSearchEnabled = computed(() => debugSession.value?.web_search_enabled ?? false)
   const computerUseEnabled = computed(() => debugSession.value?.computer_use_enabled ?? false)
+  const thinkingEnabled = computed(() => debugSession.value?.thinking_enabled ?? true)
   const proxyConfig = computed(() => debugSession.value?.proxy_config)
   const commandAdminRequired = computed(() => debugSession.value?.command_admin_required ?? {})
 
@@ -66,6 +67,7 @@ export const useDebugSessionStore = defineStore('debugSession', () => {
     enabledCommands,
     webSearchEnabled,
     computerUseEnabled,
+    thinkingEnabled,
     proxyConfig,
     commandAdminRequired,
     fetchDebugSession,

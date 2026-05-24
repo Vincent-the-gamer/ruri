@@ -241,6 +241,8 @@ export default {
     temperature: 'Temperature',
     maxTokens: 'Max Tokens',
     maxTokensHint: 'Range: 1 – 128000',
+    thinkingEnabled: 'Extended Thinking',
+    thinkingEnabledDesc: 'Allow the model to use chain-of-thought reasoning for complex tasks. Disable to save tokens on simple queries.',
     persona: 'Persona',
     personaDesc: 'Choose a persona that shapes the assistant\'s behavior and tone, or use the default from your config profile',
     personaDefault: 'Default (follow config profile)',

@@ -203,6 +203,8 @@ export default {
     temperature: '温度',
     maxTokens: '最大 Token',
     maxTokensHint: '范围：1 – 128000',
+    thinkingEnabled: '扩展思考',
+    thinkingEnabledDesc: '允许大模型使用思维链推理来处理复杂任务。关闭可节省简单查询的 Token 消耗。',
     persona: '人设',
     personaDesc: '选择一个人设来定义 AI 的行为和语气，或使用配置文件中的默认设置',
     personaDefault: '默认（跟随配置文件）',

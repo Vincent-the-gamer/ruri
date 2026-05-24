@@ -53,6 +53,7 @@ const formData = ref<{
     custom_error_message: string;
     web_search_enabled: boolean;
     computer_use_enabled: boolean;
+    thinking_enabled: boolean;
     active_skill_names: string[];
     active_knowledge_base_ids: string[];
     platform_ids: string[];
@@ -79,6 +80,7 @@ const formData = ref<{
     custom_error_message: "",
     web_search_enabled: false,
     computer_use_enabled: false,
+    thinking_enabled: true,
     active_skill_names: [],
     active_knowledge_base_ids: [],
     platform_ids: [],
@@ -113,6 +115,7 @@ watch(
                 custom_error_message: newConfig.custom_error_message || "",
                 web_search_enabled: newConfig.web_search_enabled ?? false,
                 computer_use_enabled: newConfig.computer_use_enabled ?? false,
+                thinking_enabled: newConfig.thinking_enabled ?? true,
                 active_skill_names: [...(newConfig.active_skill_names || [])],
                 active_knowledge_base_ids: [
                     ...(newConfig.active_knowledge_base_ids || []),
@@ -148,6 +151,7 @@ watch(
                 custom_error_message: "",
                 web_search_enabled: false,
                 computer_use_enabled: false,
+                thinking_enabled: true,
                 active_skill_names: [],
                 active_knowledge_base_ids: [],
                 platform_ids: [],
@@ -658,6 +662,43 @@ function handleSubmit() {
                                 :class="{
                                     'toggle-thumb-active':
                                         formData.computer_use_enabled,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="toggle-info">
+                            <span class="toggle-text">{{
+                                t(
+                                    "chatConfig.thinkingEnabled",
+                                    "Extended Thinking",
+                                )
+                            }}</span>
+                            <span class="toggle-description">{{
+                                t(
+                                    "chatConfig.thinkingEnabledDesc",
+                                    "Allow the model to use chain-of-thought reasoning for complex tasks",
+                                )
+                            }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active':
+                                    formData.thinking_enabled,
+                            }"
+                            @click="
+                                formData.thinking_enabled =
+                                    !formData.thinking_enabled
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        formData.thinking_enabled,
                                 }"
                             ></span>
                         </button>

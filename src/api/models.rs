@@ -624,6 +624,9 @@ pub struct ConfigProfileDto {
     pub persona_id: Option<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
     pub active_skill_names: Vec<String>,
     #[serde(default)]
     pub active_knowledge_base_ids: Vec<String>,
@@ -659,6 +662,9 @@ pub struct CreateConfigProfileRequest {
     pub persona_id: Option<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
     #[serde(default)]
     pub active_skill_names: Vec<String>,
     #[serde(default)]
@@ -705,6 +711,9 @@ pub struct UpdateConfigProfileRequest {
     pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_enabled: Option<bool>,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_skill_names: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1109,6 +1118,9 @@ pub struct DebugSessionDto {
     pub provider_id: Option<String>,
     pub web_search_enabled: bool,
     pub computer_use_enabled: bool,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    #[serde(default = "default_true")]
+    pub thinking_enabled: bool,
     #[serde(default)]
     pub skills: Vec<EmbeddedSkillDto>,
     #[serde(default)]
@@ -1161,6 +1173,9 @@ pub struct UpdateDebugSessionRequest {
     pub web_search_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use_enabled: Option<bool>,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<EmbeddedSkillDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]

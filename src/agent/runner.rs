@@ -27,6 +27,10 @@ pub struct AgentConfig {
     /// response so that independent tools can be invoked in parallel.
     /// When `None`, the API default is used.
     pub parallel_tool_calls: Option<bool>,
+    /// Whether the LLM's extended thinking (chain-of-thought reasoning) is enabled.
+    /// When disabled, the model will not spend extra tokens on internal reasoning.
+    /// Defaults to `true`.
+    pub thinking_enabled: bool,
 }
 
 impl Default for AgentConfig {
@@ -36,6 +40,7 @@ impl Default for AgentConfig {
             auto_execute_tools: true,
             tool_choice: None,
             parallel_tool_calls: None,
+            thinking_enabled: true,
         }
     }
 }
@@ -1342,6 +1347,16 @@ impl Agent {
             if let Some(enabled) = self.config.parallel_tool_calls {
                 request = request.with_parallel_tool_calls(enabled);
             }
+        }
+
+        // Apply thinking configuration: when disabled, instruct the model
+        // not to use extended thinking / chain-of-thought reasoning.
+        // This uses Anthropic's format (supported by many API-compatible providers).
+        if !self.config.thinking_enabled {
+            request.extra.insert(
+                "thinking".to_string(),
+                serde_json::json!({"type": "disabled"}),
+            );
         }
 
         request
