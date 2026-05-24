@@ -134,6 +134,8 @@ pub struct Agent {
     /// status. (tool_name, arguments_preview) is sent just before a tool runs.
     /// Used by platform handlers to show tool execution feedback to users.
     tool_notify_tx: Option<tokio::sync::mpsc::UnboundedSender<(String, String)>>,
+    /// Metrics collector for tracking token usage and request counts.
+    metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
 }
 
 /// An entry in the skill index, used for skill routing.
@@ -301,7 +303,17 @@ impl Agent {
             cancel_token: None,
             tool_permission_tx: None,
             tool_notify_tx: None,
+            metrics: None,
         }
+    }
+
+    /// Set the metrics collector for tracking token usage and request counts.
+    pub fn set_metrics(
+        &mut self,
+        metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
+    ) {
+        self.transport.set_metrics(metrics.clone());
+        self.metrics = Some(metrics);
     }
 
     /// Set the cancellation token for this agent.
@@ -686,8 +698,18 @@ impl Agent {
                             StreamEvent::ContentDelta { delta } => {
                                 content_text.push_str(delta);
                             }
-                            StreamEvent::Done { .. } => {
-                                // End of this streaming round
+                            StreamEvent::Done { usage } => {
+                                // Record token usage
+                                if let Some(token_usage) = usage {
+                                    if let Some(ref m) = self.metrics {
+                                        m.write().await.record_tokens(
+                                            self.transport.provider_name(),
+                                            None,
+                                            token_usage.prompt_tokens,
+                                            token_usage.completion_tokens,
+                                        );
+                                    }
+                                }
                             }
                             StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
                                 // Shouldn't happen from provider (synthesized by runner)
@@ -1727,8 +1749,18 @@ impl AgentStreamer {
                                     StreamEvent::ContentDelta { delta } => {
                                         content_text.push_str(delta);
                                     }
-                                    StreamEvent::Done { .. } => {
-                                        // End of this streaming round, don't forward
+                                    StreamEvent::Done { usage } => {
+                                        // Record token usage
+                                        if let Some(token_usage) = usage {
+                                            if let Some(ref m) = agent.metrics {
+                                                m.write().await.record_tokens(
+                                                    agent.transport.provider_name(),
+                                                    None,
+                                                    token_usage.prompt_tokens,
+                                                    token_usage.completion_tokens,
+                                                );
+                                            }
+                                        }
                                     }
                                     StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
                                         // Shouldn't happen from provider, but forward anyway

@@ -56,6 +56,7 @@ impl Default for HttpTransportConfig {
 pub struct HttpTransport {
     provider: Box<dyn Provider>,
     config: HttpTransportConfig,
+    metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
 }
 
 impl HttpTransport {
@@ -63,7 +64,16 @@ impl HttpTransport {
         Self {
             provider,
             config: HttpTransportConfig::default(),
+            metrics: None,
         }
+    }
+
+    /// Set the metrics collector for traffic and token tracking.
+    pub fn set_metrics(
+        &mut self,
+        metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
+    ) {
+        self.metrics = Some(metrics);
     }
 
     /// Send a chat request through the transport layer.
@@ -72,6 +82,11 @@ impl HttpTransport {
     /// does not support multimodal content: the request is retried once with
     /// image content stripped from all messages.
     pub async fn send(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
+        // Track the request
+        if let Some(ref m) = self.metrics {
+            m.write().await.record_request(self.provider.name());
+        }
+
         let mut last_error = None;
 
         for attempt in 0..=self.config.max_retries {
@@ -86,7 +101,20 @@ impl HttpTransport {
             }
 
             match self.send_once(&request).await {
-                Ok(response) => return Ok(response),
+                Ok(response) => {
+                    // Track token usage from response
+                    if let Some(ref m) = self.metrics {
+                        if let Some(ref usage) = response.usage {
+                            m.write().await.record_tokens(
+                                self.provider.name(),
+                                response.model.as_deref(),
+                                usage.prompt_tokens.unwrap_or(0),
+                                usage.completion_tokens.unwrap_or(0),
+                            );
+                        }
+                    }
+                    return Ok(response);
+                }
                 Err(error) => {
                     tracing::warn!(
                         attempt = attempt,

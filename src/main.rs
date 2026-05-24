@@ -10,6 +10,7 @@ mod db;
 mod knowledge;
 mod logging;
 mod mcp;
+mod metrics;
 mod platform;
 mod provider;
 mod transport;

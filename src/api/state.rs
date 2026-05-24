@@ -803,6 +803,9 @@ pub struct AppState {
     pub chat_conversation_ids: RwLock<std::collections::HashMap<String, String>>,
     /// Server start time.
     pub start_time: DateTime<Utc>,
+
+    /// Metrics collector for network monitoring and token tracking.
+    pub metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
     /// Path to the config file.
     pub(crate) config_path: PathBuf,
 
@@ -1116,6 +1119,9 @@ impl AppState {
             workspace_manager,
             tool_definitions: Vec::new(),
             start_time: Utc::now(),
+            metrics: std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::metrics::MetricsCollector::new(),
+            )),
             config_path: config_path.to_path_buf(),
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
             db_pool: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
@@ -3235,6 +3241,8 @@ impl AppState {
         // Initialize skills: collects context from on_attach() for dynamic
         // injection into user messages. Does NOT inject system messages.
         agent.initialize_skills().await;
+
+        agent.set_metrics(self.metrics.clone());
 
         Ok(agent)
     }

@@ -89,6 +89,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/network-monitor',
+      name: 'NetworkMonitor',
+      component: () => import('../views/NetworkMonitor.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/mcp-config',
       name: 'MCP Config',
       component: () => import('../views/McpConfig.vue'),

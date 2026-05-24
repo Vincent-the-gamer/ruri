@@ -137,6 +137,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/chat/stop", post(stop_chat_generation))
         // Agent status
         .route("/api/agent/status", get(get_status))
+        // Metrics / Network monitoring
+        .route("/api/metrics/requests", get(get_request_metrics))
+        .route("/api/metrics/traffic", get(get_traffic_metrics))
+        .route("/api/metrics/tokens", get(get_token_metrics))
+        .route("/api/metrics/summary", get(get_metrics_summary))
         // Persona library (reusable templates — not active/global config)
         .route("/api/personas", get(list_personas).post(create_persona))
         .route(
@@ -5807,4 +5812,139 @@ async fn update_debug_session(
     tracing::info!("Debug session configuration updated");
 
     Ok(Json(dto))
+}
+
+// ─── Metrics handlers ────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct MetricsQuery {
+    #[serde(default = "default_days")]
+    days: u32,
+}
+
+fn default_days() -> u32 {
+    1
+}
+
+async fn get_request_metrics(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MetricsQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let metrics = state.metrics.read().await;
+    let days = query.days.clamp(1, 7);
+    let series = metrics.get_request_time_series(days);
+    let total = metrics.get_total_requests(days);
+
+    let points: Vec<serde_json::Value> = series
+        .into_iter()
+        .map(|p| {
+            json!({
+                "timestamp": p.timestamp_ms / 1000,
+                "value": p.value
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "days": days,
+        "total": total,
+        "series": points
+    })))
+}
+
+async fn get_traffic_metrics(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MetricsQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let metrics = state.metrics.read().await;
+    let days = query.days.clamp(1, 7);
+    let (series_in, series_out) = metrics.get_traffic_time_series(days);
+    let (total_in, total_out) = metrics.get_total_traffic(days);
+
+    let to_points = |series: Vec<crate::metrics::MetricPoint>| -> Vec<serde_json::Value> {
+        series
+            .into_iter()
+            .map(|p| {
+                json!({
+                    "timestamp": p.timestamp_ms / 1000,
+                    "value": p.value
+                })
+            })
+            .collect()
+    };
+
+    Ok(Json(json!({
+        "days": days,
+        "total_in": total_in,
+        "total_out": total_out,
+        "series_in": to_points(series_in),
+        "series_out": to_points(series_out)
+    })))
+}
+
+async fn get_token_metrics(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MetricsQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let metrics = state.metrics.read().await;
+    let days = query.days.clamp(1, 7);
+    let token_series = metrics.get_token_time_series(days);
+    let total_tokens = metrics.get_total_tokens(days);
+    let by_provider = metrics.get_tokens_by_provider(days);
+
+    let series_json: Vec<serde_json::Value> = token_series
+        .into_iter()
+        .map(|s| {
+            json!({
+                "provider_name": s.provider_name,
+                "total_tokens": s.total_tokens,
+                "points": s.points.into_iter().map(|p| {
+                    json!({
+                        "timestamp": p.timestamp,
+                        "value": p.value
+                    })
+                }).collect::<Vec<_>>()
+            })
+        })
+        .collect();
+
+    let provider_json: Vec<serde_json::Value> = by_provider
+        .into_iter()
+        .map(|p| {
+            json!({
+                "provider_name": p.provider_name,
+                "tokens": p.tokens
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "days": days,
+        "total_tokens": total_tokens,
+        "token_series": series_json,
+        "tokens_by_provider": provider_json
+    })))
+}
+
+async fn get_metrics_summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<MetricsQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let metrics = state.metrics.read().await;
+    let days = query.days.clamp(1, 7);
+    let summary = metrics.get_summary(days);
+
+    Ok(Json(json!({
+        "days": summary.days,
+        "total_requests": summary.total_requests,
+        "total_traffic_in": summary.total_traffic_in,
+        "total_traffic_out": summary.total_traffic_out,
+        "total_tokens": summary.total_tokens,
+        "tokens_by_provider": summary.tokens_by_provider.into_iter().map(|p| {
+            json!({
+                "provider_name": p.provider_name,
+                "tokens": p.tokens
+            })
+        }).collect::<Vec<_>>()
+    })))
 }

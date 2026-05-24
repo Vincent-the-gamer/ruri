@@ -133,6 +133,11 @@ const navGroups = computed(() => [
                 icon: "lucide:scroll-text",
             },
             {
+                path: "/network-monitor",
+                label: t("nav.networkMonitor", "Network Monitor"),
+                icon: "lucide:activity",
+            },
+            {
                 path: "/api-test",
                 label: t("nav.apiTest"),
                 icon: "lucide:flask-conical",
