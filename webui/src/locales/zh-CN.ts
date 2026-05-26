@@ -1110,5 +1110,11 @@ export default {
     received: '接收',
     sent: '发送',
     loadFailed: '加载失败',
+    live: '实时',
+    disconnected: '已断开',
+    justNow: '刚刚',
+    secondsAgo: '{n}秒前',
+    minutesAgo: '{n}分钟前',
+    refresh: '刷新',
   },
 }

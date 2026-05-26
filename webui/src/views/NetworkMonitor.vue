@@ -9,6 +9,9 @@ Chart.register(...registerables);
 
 const { t, locale } = useI18n();
 
+// Polling interval when WebSocket is not available (seconds)
+const POLL_INTERVAL_MS = 10_000;
+
 // ─── Types ──────────────────────────────────────────────────────
 
 interface TimeSeriesPoint {
@@ -52,6 +55,8 @@ const selectedRange = ref<TimeRange>(1);
 const loading = ref(true);
 const error = ref("");
 const lastUpdated = ref<Date | null>(null);
+const wsConnected = ref(false);
+const elapsedSeconds = ref(0);
 
 const requestMetrics = ref<RequestMetrics | null>(null);
 const trafficMetrics = ref<TrafficMetrics | null>(null);
@@ -67,6 +72,8 @@ let trafficChart: Chart | null = null;
 let tokenChart: Chart | null = null;
 let ws: WebSocket | null = null;
 let wsReconnectTimer: number | null = null;
+let pollTimer: number | null = null;
+let elapsedTimer: number | null = null;
 
 // ─── Computed ───────────────────────────────────────────────────
 
@@ -78,11 +85,15 @@ const rangeOptions: TimeRange[] = [1, 3, 7];
 
 const lastUpdatedLabel = computed(() => {
     if (!lastUpdated.value) return t("networkMonitor.notUpdated");
+    const secs = elapsedSeconds.value;
+    if (secs < 5) return t("networkMonitor.justNow");
+    if (secs < 60) return t("networkMonitor.secondsAgo", { n: secs });
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return t("networkMonitor.minutesAgo", { n: mins });
     const loc = locale.value === "en-US" ? "en-US" : "zh-CN";
     return lastUpdated.value.toLocaleTimeString(loc, {
         hour: "2-digit",
         minute: "2-digit",
-        second: "2-digit",
     });
 });
 
@@ -132,11 +143,41 @@ async function fetchAllMetrics() {
         trafficMetrics.value = trafRes.data;
         tokenMetrics.value = tokRes.data;
         lastUpdated.value = new Date();
+        elapsedSeconds.value = 0;
     } catch (e: unknown) {
         error.value =
             e instanceof Error ? e.message : t("networkMonitor.loadFailed");
     } finally {
         loading.value = false;
+    }
+}
+
+function startPolling() {
+    stopPolling();
+    pollTimer = window.setInterval(() => {
+        fetchAllMetrics();
+        renderCharts();
+    }, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+    if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
+function startElapsedTimer() {
+    stopElapsedTimer();
+    elapsedTimer = window.setInterval(() => {
+        elapsedSeconds.value++;
+    }, 1000);
+}
+
+function stopElapsedTimer() {
+    if (elapsedTimer !== null) {
+        window.clearInterval(elapsedTimer);
+        elapsedTimer = null;
     }
 }
 
@@ -423,6 +464,14 @@ function connectWebSocket() {
     const url = `${protocol}//${window.location.host}/api/metrics/ws`;
     ws = new WebSocket(url);
 
+    ws.onopen = () => {
+        wsConnected.value = true;
+        // When WebSocket is active, stop fallback polling
+        stopPolling();
+        // Fetch immediately on connect to get latest data
+        fetchAllMetrics().then(() => renderCharts());
+    };
+
     ws.onmessage = async (event) => {
         try {
             const data = JSON.parse(event.data);
@@ -436,6 +485,9 @@ function connectWebSocket() {
     };
 
     ws.onclose = () => {
+        wsConnected.value = false;
+        // Fall back to polling when WebSocket is down
+        startPolling();
         // Reconnect after 3 seconds
         wsReconnectTimer = window.setTimeout(() => {
             connectWebSocket();
@@ -443,6 +495,7 @@ function connectWebSocket() {
     };
 
     ws.onerror = () => {
+        wsConnected.value = false;
         ws?.close();
     };
 }
@@ -457,10 +510,13 @@ watch(selectedRange, async () => {
 onMounted(async () => {
     await fetchAllMetrics();
     renderCharts();
+    startElapsedTimer();
     connectWebSocket();
 });
 
 onUnmounted(() => {
+    stopElapsedTimer();
+    stopPolling();
     if (ws) {
         ws.onclose = null;
         ws.close();
@@ -484,6 +540,20 @@ onUnmounted(() => {
                 </p>
             </div>
             <div class="header-meta">
+                <span
+                    class="live-indicator"
+                    :class="{
+                        connected: wsConnected,
+                        disconnected: !wsConnected,
+                    }"
+                >
+                    <span class="live-dot"></span>
+                    <span class="live-text">{{
+                        wsConnected
+                            ? t("networkMonitor.live")
+                            : t("networkMonitor.disconnected")
+                    }}</span>
+                </span>
                 <span class="update-badge">
                     <svg
                         width="14"
@@ -498,6 +568,28 @@ onUnmounted(() => {
                     </svg>
                     {{ lastUpdatedLabel }}
                 </span>
+                <button
+                    class="refresh-btn"
+                    :disabled="loading"
+                    @click="
+                        fetchAllMetrics();
+                        renderCharts();
+                    "
+                    :title="t('networkMonitor.refresh')"
+                >
+                    <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        :class="{ spinning: loading }"
+                    >
+                        <polyline points="23 4 23 10 17 10" />
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -857,6 +949,86 @@ onUnmounted(() => {
 .header-meta {
     display: flex;
     gap: 12px;
+    align-items: center;
+}
+
+.live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.live-indicator.connected {
+    color: #16a34a;
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+}
+
+.live-indicator.disconnected {
+    color: #dc2626;
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.live-indicator.connected .live-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.4;
+        transform: scale(0.7);
+    }
+}
+
+.live-text {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--c-border, #e0e0e0);
+    border-radius: 999px;
+    background: var(--c-surface, #fff);
+    color: var(--c-muted, #666);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+    color: var(--c-text, #1a1a2e);
+    border-color: var(--c-text, #1a1a2e);
+}
+
+.refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.refresh-btn .spinning {
+    animation: spin 0.8s linear infinite;
 }
 
 .update-badge {
@@ -1104,6 +1276,29 @@ onUnmounted(() => {
 /* Dark mode */
 html.dark .monitor-container {
     color-scheme: dark;
+}
+
+html.dark .live-indicator.connected {
+    color: #4ade80;
+    border-color: #14532d;
+    background: #052e16;
+}
+
+html.dark .live-indicator.disconnected {
+    color: #f87171;
+    border-color: #450a0a;
+    background: #1c0404;
+}
+
+html.dark .refresh-btn {
+    border-color: var(--c-border, #333);
+    background: var(--c-surface, #1a1a2e);
+    color: var(--c-muted, #888);
+}
+
+html.dark .refresh-btn:hover:not(:disabled) {
+    color: var(--c-text, #e0e0e0);
+    border-color: var(--c-text, #e0e0e0);
 }
 
 @media (max-width: 768px) {

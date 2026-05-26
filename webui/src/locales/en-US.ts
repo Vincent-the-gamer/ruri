@@ -1109,5 +1109,11 @@ export default {
     received: 'Received',
     sent: 'Sent',
     loadFailed: 'Load failed',
+    live: 'Live',
+    disconnected: 'Disconnected',
+    justNow: 'Just now',
+    secondsAgo: '{n}s ago',
+    minutesAgo: '{n}m ago',
+    refresh: 'Refresh',
   },
 }
