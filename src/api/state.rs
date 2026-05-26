@@ -806,6 +806,8 @@ pub struct AppState {
 
     /// Metrics collector for network monitoring and token tracking.
     pub metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
+    /// Broadcast sender for notifying WebSocket clients of metrics updates.
+    pub metrics_update_tx: tokio::sync::broadcast::Sender<()>,
     /// Path to the config file.
     pub(crate) config_path: PathBuf,
 
@@ -1107,6 +1109,11 @@ impl AppState {
         // Create shutdown channel for graceful server shutdown
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
+        // Create metrics broadcast channel for real-time WebSocket updates
+        let (metrics_update_tx, _) = tokio::sync::broadcast::channel::<()>(256);
+        let mut metrics_collector = crate::metrics::MetricsCollector::new();
+        metrics_collector.set_update_channel(metrics_update_tx.clone());
+
         Self {
             providers: RwLock::new(providers),
             active_provider_id: RwLock::new(active_provider_id),
@@ -1119,9 +1126,8 @@ impl AppState {
             workspace_manager,
             tool_definitions: Vec::new(),
             start_time: Utc::now(),
-            metrics: std::sync::Arc::new(tokio::sync::RwLock::new(
-                crate::metrics::MetricsCollector::new(),
-            )),
+            metrics: std::sync::Arc::new(tokio::sync::RwLock::new(metrics_collector)),
+            metrics_update_tx,
             config_path: config_path.to_path_buf(),
             log_manager: std::sync::Arc::new(crate::logging::LogManager::new(1000)), // Placeholder, will be replaced
             db_pool: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
@@ -3243,6 +3249,29 @@ impl AppState {
         agent.initialize_skills().await;
 
         agent.set_metrics(self.metrics.clone());
+
+        // Set metrics source based on the resolved context
+        let metrics_source = context.as_ref().map(|ctx| {
+            if ctx.source == "debug_session" {
+                crate::metrics::TokenSource::DebugSession
+            } else if ctx.source.starts_with("profile_")
+                || ctx.source.starts_with("active_profile_")
+            {
+                // Extract profile name from the source string
+                let name = ctx
+                    .source
+                    .strip_prefix("active_profile_")
+                    .or_else(|| ctx.source.strip_prefix("profile_"))
+                    .unwrap_or(&ctx.source)
+                    .to_string();
+                crate::metrics::TokenSource::Profile(name)
+            } else {
+                crate::metrics::TokenSource::Profile(ctx.source.clone())
+            }
+        });
+        if let Some(source) = metrics_source {
+            agent.set_metrics_source(source);
+        }
 
         Ok(agent)
     }

@@ -136,6 +136,8 @@ pub struct Agent {
     tool_notify_tx: Option<tokio::sync::mpsc::UnboundedSender<(String, String)>>,
     /// Metrics collector for tracking token usage and request counts.
     metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
+    /// Source of the metrics (debug_session / profile / acp) for token source tracking.
+    metrics_source: Option<crate::metrics::TokenSource>,
 }
 
 /// An entry in the skill index, used for skill routing.
@@ -304,6 +306,7 @@ impl Agent {
             tool_permission_tx: None,
             tool_notify_tx: None,
             metrics: None,
+            metrics_source: None,
         }
     }
 
@@ -314,6 +317,13 @@ impl Agent {
     ) {
         self.transport.set_metrics(metrics.clone());
         self.metrics = Some(metrics);
+    }
+
+    /// Set the metrics source for token source tracking.
+    /// Also propagates to the transport layer.
+    pub fn set_metrics_source(&mut self, source: crate::metrics::TokenSource) {
+        self.transport.set_metrics_source(source.clone());
+        self.metrics_source = Some(source);
     }
 
     /// Set the cancellation token for this agent.
@@ -649,6 +659,7 @@ impl Agent {
             let mut has_tool_calls = false;
             let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
             let mut content_text = String::new();
+            let mut response_bytes: u64 = 0;
 
             while let Some(event_result) = stream.next().await {
                 // Check cancellation at the top of each stream iteration
@@ -685,6 +696,7 @@ impl Agent {
                                 tool_call_id,
                                 arguments_delta,
                             } => {
+                                response_bytes += arguments_delta.len() as u64;
                                 if let Some(tc) = tool_calls_accum
                                     .iter_mut()
                                     .find(|tc| &tc.id == tool_call_id)
@@ -697,16 +709,22 @@ impl Agent {
                             }
                             StreamEvent::ContentDelta { delta } => {
                                 content_text.push_str(delta);
+                                response_bytes += delta.len() as u64;
                             }
                             StreamEvent::Done { usage } => {
+                                // Record response traffic
+                                if let Some(ref m) = self.metrics {
+                                    m.write().await.record_traffic(0, response_bytes);
+                                }
                                 // Record token usage
                                 if let Some(token_usage) = usage {
                                     if let Some(ref m) = self.metrics {
-                                        m.write().await.record_tokens(
+                                        m.write().await.record_tokens_with_source(
                                             self.transport.provider_name(),
                                             None,
                                             token_usage.prompt_tokens,
                                             token_usage.completion_tokens,
+                                            self.metrics_source.clone(),
                                         );
                                     }
                                 }
@@ -752,6 +770,7 @@ impl Agent {
                                             tool_call_id,
                                             arguments_delta,
                                         } => {
+                                            response_bytes += arguments_delta.len() as u64;
                                             if let Some(tc) = tool_calls_accum
                                                 .iter_mut()
                                                 .find(|tc| &tc.id == tool_call_id)
@@ -761,6 +780,25 @@ impl Agent {
                                         }
                                         StreamEvent::ContentDelta { delta } => {
                                             content_text.push_str(delta);
+                                            response_bytes += delta.len() as u64;
+                                        }
+                                        StreamEvent::Done { usage } => {
+                                            // Record response traffic for retry path
+                                            if let Some(ref m) = self.metrics {
+                                                m.write().await.record_traffic(0, response_bytes);
+                                            }
+                                            // Record token usage for retry path
+                                            if let Some(token_usage) = usage {
+                                                if let Some(ref m) = self.metrics {
+                                                    m.write().await.record_tokens_with_source(
+                                                        self.transport.provider_name(),
+                                                        None,
+                                                        token_usage.prompt_tokens,
+                                                        token_usage.completion_tokens,
+                                                        self.metrics_source.clone(),
+                                                    );
+                                                }
+                                            }
                                         }
                                         _ => {}
                                     }
@@ -1694,6 +1732,7 @@ impl AgentStreamer {
                     let mut has_tool_calls = false;
                     let mut tool_calls_accum: Vec<AccumulatedToolCall> = Vec::new();
                     let mut content_text = String::new();
+                    let mut response_bytes: u64 = 0;
 
                     use futures_util::StreamExt;
 
@@ -1736,6 +1775,7 @@ impl AgentStreamer {
                                         tool_call_id,
                                         arguments_delta,
                                     } => {
+                                        response_bytes += arguments_delta.len() as u64;
                                         if let Some(tc) = tool_calls_accum
                                             .iter_mut()
                                             .find(|tc| &tc.id == tool_call_id)
@@ -1748,16 +1788,22 @@ impl AgentStreamer {
                                     }
                                     StreamEvent::ContentDelta { delta } => {
                                         content_text.push_str(delta);
+                                        response_bytes += delta.len() as u64;
                                     }
                                     StreamEvent::Done { usage } => {
+                                        // Record response traffic
+                                        if let Some(ref m) = agent.metrics {
+                                            m.write().await.record_traffic(0, response_bytes);
+                                        }
                                         // Record token usage
                                         if let Some(token_usage) = usage {
                                             if let Some(ref m) = agent.metrics {
-                                                m.write().await.record_tokens(
+                                                m.write().await.record_tokens_with_source(
                                                     agent.transport.provider_name(),
                                                     None,
                                                     token_usage.prompt_tokens,
                                                     token_usage.completion_tokens,
+                                                    agent.metrics_source.clone(),
                                                 );
                                             }
                                         }
@@ -1807,6 +1853,7 @@ impl AgentStreamer {
                                                     tool_call_id,
                                                     arguments_delta,
                                                 } => {
+                                                    response_bytes += arguments_delta.len() as u64;
                                                     if let Some(tc) = tool_calls_accum
                                                         .iter_mut()
                                                         .find(|tc| &tc.id == tool_call_id)
@@ -1816,6 +1863,25 @@ impl AgentStreamer {
                                                 }
                                                 StreamEvent::ContentDelta { delta } => {
                                                     content_text.push_str(delta);
+                                                    response_bytes += delta.len() as u64;
+                                                }
+                                                StreamEvent::Done { usage } => {
+                                                    // Record response traffic for retry path
+                                                    if let Some(ref m) = agent.metrics {
+                                                        m.write().await.record_traffic(0, response_bytes);
+                                                    }
+                                                    // Record token usage for retry path
+                                                    if let Some(token_usage) = usage {
+                                                        if let Some(ref m) = agent.metrics {
+                                                            m.write().await.record_tokens_with_source(
+                                                                agent.transport.provider_name(),
+                                                                None,
+                                                                token_usage.prompt_tokens,
+                                                                token_usage.completion_tokens,
+                                                                agent.metrics_source.clone(),
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                                 _ => {}
                                             }

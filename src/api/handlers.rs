@@ -142,6 +142,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/metrics/traffic", get(get_traffic_metrics))
         .route("/api/metrics/tokens", get(get_token_metrics))
         .route("/api/metrics/summary", get(get_metrics_summary))
+        .route("/api/metrics/ws", get(ws_metrics_upgrade))
         // Persona library (reusable templates — not active/global config)
         .route("/api/personas", get(list_personas).post(create_persona))
         .route(
@@ -2511,6 +2512,11 @@ async fn ws_logs_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>
     ws.on_upgrade(move |socket| ws_logs_handler(socket, state))
 }
 
+/// WebSocket metrics推送handler
+async fn ws_metrics_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(move |socket| ws_metrics_handler(socket, state))
+}
+
 // ─── Computer Use Config Handlers ───────────────────────────────
 
 async fn get_computer_use_config(State(state): State<Arc<AppState>>) -> Json<ComputerUseConfigDto> {
@@ -3680,6 +3686,88 @@ async fn ws_logs_handler(socket: WebSocket, state: Arc<AppState>) {
                     _ => {
                         // Ignore Binary, Pong, etc.
                     }
+                }
+            }
+
+            // 3. Periodic ping to keep connection alive
+            _ = ping_interval.tick() => {
+                if ws_sender
+                    .send(axum::extract::ws::Message::Ping(Vec::new().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// WebSocket metrics推送处理器
+/// Sends a simple notification whenever metrics data changes, so the
+/// frontend can refresh its data via the HTTP API.
+async fn ws_metrics_handler(socket: WebSocket, state: Arc<AppState>) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+    let mut metrics_rx = state.metrics_update_tx.subscribe();
+
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    ping_interval.tick().await;
+
+    loop {
+        tokio::select! {
+            // 1. Metrics update notifications
+            result = metrics_rx.recv() => {
+                match result {
+                    Ok(()) => {
+                        let msg = serde_json::json!({"type": "metrics_updated"});
+                        if let Ok(json_str) = serde_json::to_string(&msg) {
+                            if ws_sender
+                                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(json_str)))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::debug!("WebSocket metrics receiver lagged, skipped {} messages", skipped);
+                        // Still notify — the client should refresh to get latest data
+                        let msg = serde_json::json!({"type": "metrics_updated"});
+                        if let Ok(json_str) = serde_json::to_string(&msg) {
+                            if ws_sender
+                                .send(axum::extract::ws::Message::Text(Utf8Bytes::from(json_str)))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+
+            // 2. Incoming messages from client
+            maybe_msg = ws_receiver.next() => {
+                match maybe_msg {
+                    Some(Ok(axum::extract::ws::Message::Ping(data))) => {
+                        let _ = ws_sender
+                            .send(axum::extract::ws::Message::Pong(data))
+                            .await;
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => {
+                        break;
+                    }
+                    Some(Err(_)) => {
+                        break;
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
                 }
             }
 
@@ -5891,6 +5979,7 @@ async fn get_token_metrics(
     let token_series = metrics.get_token_time_series(days);
     let total_tokens = metrics.get_total_tokens(days);
     let by_provider = metrics.get_tokens_by_provider(days);
+    let by_source = metrics.get_tokens_by_source(days);
 
     let series_json: Vec<serde_json::Value> = token_series
         .into_iter()
@@ -5918,11 +6007,22 @@ async fn get_token_metrics(
         })
         .collect();
 
+    let source_json: Vec<serde_json::Value> = by_source
+        .into_iter()
+        .map(|s| {
+            json!({
+                "source": s.source,
+                "tokens": s.tokens
+            })
+        })
+        .collect();
+
     Ok(Json(json!({
         "days": days,
         "total_tokens": total_tokens,
         "token_series": series_json,
-        "tokens_by_provider": provider_json
+        "tokens_by_provider": provider_json,
+        "tokens_by_source": source_json
     })))
 }
 
@@ -5944,6 +6044,12 @@ async fn get_metrics_summary(
             json!({
                 "provider_name": p.provider_name,
                 "tokens": p.tokens
+            })
+        }).collect::<Vec<_>>(),
+        "tokens_by_source": summary.tokens_by_source.into_iter().map(|s| {
+            json!({
+                "source": s.source,
+                "tokens": s.tokens
             })
         }).collect::<Vec<_>>()
     })))

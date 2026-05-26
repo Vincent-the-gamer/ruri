@@ -341,6 +341,8 @@ impl Provider for OpenAIProvider {
             let mut chunk_count: u64 = 0;
             // Accumulated tool calls across chunks
             let mut tool_calls: Vec<StreamingToolCall> = Vec::new();
+            // Final usage (may come in a usage-only chunk with empty choices)
+            let mut final_usage: Option<StreamUsage> = None;
 
             while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
                 chunk_count += 1;
@@ -388,7 +390,7 @@ impl Provider for OpenAIProvider {
                                     arguments: tc.arguments.clone(),
                                 });
                             }
-                            yield Ok(StreamEvent::Done { usage: None });
+                            yield Ok(StreamEvent::Done { usage: final_usage });
                             return;
                         }
 
@@ -397,6 +399,19 @@ impl Provider for OpenAIProvider {
                             Ok(v) => v,
                             Err(_) => continue,
                         };
+
+                        // Accumulate usage from any chunk that provides it.
+                        // With stream_options.include_usage=true, OpenAI sends
+                        // usage in a dedicated chunk with empty choices, so
+                        // capture it regardless of is_final_chunk.
+                        if final_usage.is_none() {
+                            if let Some(u) = event.get("usage") {
+                                final_usage = Some(StreamUsage {
+                                    prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                                    completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                                });
+                            }
+                        }
 
                         // Check if this chunk marks the end of the stream.
                         // The definitive signal is a non-null `finish_reason` in choices,
@@ -529,7 +544,7 @@ impl Provider for OpenAIProvider {
                     arguments: tc.arguments.clone(),
                 });
             }
-            yield Ok(StreamEvent::Done { usage: None });
+            yield Ok(StreamEvent::Done { usage: final_usage });
         };
 
         stream.boxed()

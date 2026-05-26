@@ -47,17 +47,38 @@ struct TrafficRecord {
     bytes_received: u64,
 }
 
+/// Source of token consumption.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TokenSource {
+    /// WebUI chat (debug session).
+    DebugSession,
+    /// Config profile with the profile name.
+    Profile(String),
+    /// ACP protocol session.
+    Acp,
+}
+
+impl std::fmt::Display for TokenSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenSource::DebugSession => write!(f, "debug_session"),
+            TokenSource::Profile(name) => write!(f, "profile:{name}"),
+            TokenSource::Acp => write!(f, "acp"),
+        }
+    }
+}
+
 /// Token consumption metric record.
 #[derive(Debug, Clone)]
 struct TokenRecord {
     timestamp_ms: i64,
     provider_name: String,
+    source: Option<TokenSource>,
     prompt_tokens: u64,
     completion_tokens: u64,
 }
 
 /// Metrics collector that stores time-series data in memory.
-#[derive(Debug)]
 pub struct MetricsCollector {
     /// Request count records.
     requests: Vec<RequestRecord>,
@@ -67,6 +88,19 @@ pub struct MetricsCollector {
     tokens: Vec<TokenRecord>,
     /// Maximum number of records of each type.
     max_records: usize,
+    /// Broadcast sender to notify WebSocket clients of updates.
+    update_tx: Option<tokio::sync::broadcast::Sender<()>>,
+}
+
+impl std::fmt::Debug for MetricsCollector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricsCollector")
+            .field("requests", &self.requests.len())
+            .field("traffic", &self.traffic.len())
+            .field("tokens", &self.tokens.len())
+            .field("max_records", &self.max_records)
+            .finish()
+    }
 }
 
 impl Default for MetricsCollector {
@@ -76,6 +110,7 @@ impl Default for MetricsCollector {
             traffic: Vec::new(),
             tokens: Vec::new(),
             max_records: DEFAULT_MAX_RECORDS,
+            update_tx: None,
         }
     }
 }
@@ -85,17 +120,27 @@ impl MetricsCollector {
         Self::default()
     }
 
+    /// Set the broadcast channel for notifying WebSocket clients of updates.
+    pub fn set_update_channel(&mut self, tx: tokio::sync::broadcast::Sender<()>) {
+        self.update_tx = Some(tx);
+    }
+
+    /// Notify subscribers that metrics have been updated.
+    fn notify_update(&self) {
+        if let Some(ref tx) = self.update_tx {
+            let _ = tx.send(());
+        }
+    }
+
     /// Record a provider API request.
     pub fn record_request(&mut self, _provider_name: &str) {
         let now = Utc::now().timestamp_millis();
-        self.requests.push(RequestRecord {
-            timestamp_ms: now,
-        });
+        self.requests.push(RequestRecord { timestamp_ms: now });
         self.trim_if_needed();
+        self.notify_update();
     }
 
     /// Record network traffic (bytes sent and received).
-    #[allow(dead_code)]
     pub fn record_traffic(&mut self, bytes_sent: u64, bytes_received: u64) {
         let now = Utc::now().timestamp_millis();
         self.traffic.push(TrafficRecord {
@@ -104,15 +149,17 @@ impl MetricsCollector {
             bytes_received,
         });
         self.trim_if_needed();
+        self.notify_update();
     }
 
-    /// Record token usage for a provider.
-    pub fn record_tokens(
+    /// Record token usage for a provider with explicit source (debug_session / profile / acp).
+    pub fn record_tokens_with_source(
         &mut self,
         provider_name: &str,
         _model: Option<&str>,
         prompt_tokens: u64,
         completion_tokens: u64,
+        source: Option<TokenSource>,
     ) {
         if prompt_tokens == 0 && completion_tokens == 0 {
             return; // Don't record empty token usage
@@ -121,11 +168,12 @@ impl MetricsCollector {
         self.tokens.push(TokenRecord {
             timestamp_ms: now,
             provider_name: provider_name.to_string(),
+            source,
             prompt_tokens,
             completion_tokens,
-            
         });
         self.trim_if_needed();
+        self.notify_update();
     }
 
     fn trim_if_needed(&mut self) {
@@ -288,12 +336,32 @@ impl MetricsCollector {
             .collect()
     }
 
+    /// Get token usage breakdown by source for the given time range.
+    pub fn get_tokens_by_source(&self, days: u32) -> Vec<SourceTokenTotal> {
+        let cutoff = Self::cutoff_ms(days);
+        let mut map: HashMap<String, u64> = HashMap::new();
+        for r in &self.tokens {
+            if r.timestamp_ms >= cutoff {
+                let source_key = r
+                    .source
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                *map.entry(source_key).or_default() += r.prompt_tokens + r.completion_tokens;
+            }
+        }
+        map.into_iter()
+            .map(|(source, tokens)| SourceTokenTotal { source, tokens })
+            .collect()
+    }
+
     /// Get summary stats for the given time range.
     pub fn get_summary(&self, days: u32) -> MetricsSummary {
         let (total_in, total_out) = self.get_total_traffic(days);
         let total_requests = self.get_total_requests(days);
         let total_tokens = self.get_total_tokens(days);
         let tokens_by_provider = self.get_tokens_by_provider(days);
+        let tokens_by_source = self.get_tokens_by_source(days);
 
         MetricsSummary {
             days,
@@ -302,6 +370,7 @@ impl MetricsCollector {
             total_traffic_out: total_out,
             total_tokens,
             tokens_by_provider,
+            tokens_by_source,
         }
     }
 
@@ -436,6 +505,13 @@ pub struct ProviderTokenTotal {
     pub tokens: u64,
 }
 
+/// Token total for a source (debug_session / profile / acp).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceTokenTotal {
+    pub source: String,
+    pub tokens: u64,
+}
+
 /// Summary of all metrics for a time range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsSummary {
@@ -445,6 +521,5 @@ pub struct MetricsSummary {
     pub total_traffic_out: u64,
     pub total_tokens: u64,
     pub tokens_by_provider: Vec<ProviderTokenTotal>,
+    pub tokens_by_source: Vec<SourceTokenTotal>,
 }
-
-

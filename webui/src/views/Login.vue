@@ -40,7 +40,9 @@ async function handleLogin() {
             router.push("/");
         }
     } catch (e: unknown) {
-        errorMessage.value = authStore.error || t("login.loginFailed");
+        // Use localized error message instead of raw backend error
+        void e;
+        errorMessage.value = t("login.loginFailed");
     }
 }
 

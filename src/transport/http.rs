@@ -57,6 +57,8 @@ pub struct HttpTransport {
     provider: Box<dyn Provider>,
     config: HttpTransportConfig,
     metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
+    /// Source of the metrics (debug_session / profile / acp) for token source tracking.
+    metrics_source: Option<crate::metrics::TokenSource>,
 }
 
 impl HttpTransport {
@@ -65,6 +67,7 @@ impl HttpTransport {
             provider,
             config: HttpTransportConfig::default(),
             metrics: None,
+            metrics_source: None,
         }
     }
 
@@ -76,15 +79,26 @@ impl HttpTransport {
         self.metrics = Some(metrics);
     }
 
+    /// Set the metrics source for token source tracking.
+    pub fn set_metrics_source(&mut self, source: crate::metrics::TokenSource) {
+        self.metrics_source = Some(source);
+    }
+
     /// Send a chat request through the transport layer.
     ///
     /// Includes automatic fallback if the request fails because the model
     /// does not support multimodal content: the request is retried once with
     /// image content stripped from all messages.
     pub async fn send(&self, request: ChatRequest) -> Result<ChatResponse, ProviderError> {
+        // Estimate request size for traffic tracking
+        let req_size = serde_json::to_string(&request)
+            .map(|s| s.len() as u64)
+            .unwrap_or(0);
+
         // Track the request
         if let Some(ref m) = self.metrics {
             m.write().await.record_request(self.provider.name());
+            m.write().await.record_traffic(req_size, 0);
         }
 
         let mut last_error = None;
@@ -102,14 +116,19 @@ impl HttpTransport {
 
             match self.send_once(&request).await {
                 Ok(response) => {
-                    // Track token usage from response
+                    // Track response traffic and token usage
                     if let Some(ref m) = self.metrics {
+                        let res_size = serde_json::to_string(&response)
+                            .map(|s| s.len() as u64)
+                            .unwrap_or(0);
+                        m.write().await.record_traffic(0, res_size);
                         if let Some(ref usage) = response.usage {
-                            m.write().await.record_tokens(
+                            m.write().await.record_tokens_with_source(
                                 self.provider.name(),
                                 response.model.as_deref(),
                                 usage.prompt_tokens.unwrap_or(0),
                                 usage.completion_tokens.unwrap_or(0),
+                                self.metrics_source.clone(),
                             );
                         }
                     }
@@ -239,6 +258,20 @@ impl HttpTransport {
         request: ChatRequest,
     ) -> BoxStream<'_, Result<StreamEvent, ProviderError>> {
         use futures_util::StreamExt;
+
+        // Track the request
+        if let Some(ref m) = self.metrics {
+            let metrics = m.clone();
+            let provider_name = self.provider.name().to_string();
+            let req_size = serde_json::to_string(&request)
+                .map(|s| s.len() as u64)
+                .unwrap_or(0);
+            tokio::spawn(async move {
+                let mut m = metrics.write().await;
+                m.record_request(&provider_name);
+                m.record_traffic(req_size, 0);
+            });
+        }
 
         // Fast path: if the request has no multimodal content, no fallback is needed.
         if !request.has_multimodal_content() {

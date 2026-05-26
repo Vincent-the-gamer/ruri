@@ -38,6 +38,7 @@ impl AcpSession {
         knowledge_base_service: Arc<RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
         active_knowledge_base_ids: Vec<String>,
         persona_prompt: Option<String>,
+        metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
     ) -> Self {
         let config = AgentConfig::new()
             .with_max_tool_rounds(10)
@@ -233,6 +234,9 @@ impl AcpSession {
 
         agent.initialize_skills().await;
 
+        agent.set_metrics(metrics);
+        agent.set_metrics_source(crate::metrics::TokenSource::Acp);
+
         Self {
             agent,
             current_mode: "ask".to_string(),
@@ -274,6 +278,8 @@ pub struct SessionManager {
     knowledge_base_service: Arc<RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
     /// Active knowledge base IDs from the active config profile.
     active_knowledge_base_ids: Vec<String>,
+    /// Metrics collector for network monitoring and token tracking.
+    metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
 }
 
 impl SessionManager {
@@ -283,6 +289,7 @@ impl SessionManager {
         computer_use_config: crate::computer_use::ComputerUseConfig,
         knowledge_base_service: Arc<RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
         active_knowledge_base_ids: Vec<String>,
+        metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
     ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
@@ -292,6 +299,7 @@ impl SessionManager {
             computer_use_config,
             knowledge_base_service,
             active_knowledge_base_ids,
+            metrics,
         }
     }
 
@@ -323,11 +331,13 @@ impl SessionManager {
             None,
             available_skills,
             persona_prompt,
+            Arc::clone(&self.metrics),
         )
         .await
     }
 
     /// Create a new session with skills and ACP tools, optionally with a session ID.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_session_with_skills_and_acp(
         &self,
         provider: Box<dyn Provider>,
@@ -336,6 +346,7 @@ impl SessionManager {
         session_id: Option<String>,
         available_skills: Vec<(String, String, Option<String>, serde_json::Value)>,
         persona_prompt: Option<String>,
+        metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
     ) -> String {
         let session_id_val = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let session = AcpSession::new_with_skills_and_acp(
@@ -349,6 +360,7 @@ impl SessionManager {
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
             persona_prompt,
+            metrics,
         )
         .await;
         self.sessions
@@ -461,6 +473,7 @@ impl SessionManager {
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
             persona_prompt,
+            Arc::clone(&self.metrics),
         )
         .await;
         self.sessions.write().await.insert(session_id, session);
@@ -524,6 +537,7 @@ impl SessionManager {
             Arc::clone(&self.knowledge_base_service),
             self.active_knowledge_base_ids.clone(),
             persona_prompt,
+            Arc::clone(&self.metrics),
         )
         .await;
 
@@ -591,6 +605,9 @@ impl Default for SessionManager {
             crate::computer_use::ComputerUseConfig::default(),
             Arc::new(RwLock::new(None)),
             Vec::new(),
+            std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::metrics::MetricsCollector::new(),
+            )),
         )
     }
 }

@@ -50,6 +50,7 @@ pub async fn run_acp_server_with_config_path(config_path: Option<PathBuf>) -> an
         agent_state.computer_use_config.clone(),
         Arc::clone(&agent_state.knowledge_base_service),
         agent_state.active_knowledge_base_ids.clone(),
+        Arc::clone(&agent_state.metrics),
     ));
 
     let stdin = tokio::io::stdin().compat();
@@ -263,6 +264,8 @@ struct RuriAgentState {
         Arc<tokio::sync::RwLock<Option<crate::knowledge::KnowledgeBaseService>>>,
     /// Active knowledge base IDs from the active config profile.
     active_knowledge_base_ids: Vec<String>,
+    /// Metrics collector for network monitoring and token tracking.
+    metrics: std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>,
 }
 
 impl RuriAgentState {
@@ -324,12 +327,17 @@ impl RuriAgentState {
             }
         };
 
+        let metrics = std::sync::Arc::new(tokio::sync::RwLock::new(
+            crate::metrics::MetricsCollector::new(),
+        ));
+
         Self {
             provider_factory: tokio::sync::RwLock::new(provider_factory),
             web_search_config,
             computer_use_config,
             knowledge_base_service,
             active_knowledge_base_ids,
+            metrics,
         }
     }
 }
