@@ -1,11 +1,9 @@
 import type { EnhanceAppContext } from 'vitepress'
-import TwoslashFloatingVue from '@shikijs/vitepress-twoslash/client'
 import Teek, { teekConfigContext } from 'vitepress-theme-teek'
 import { h, provide } from 'vue'
 import TeekLayoutProvider from '../components/TeekLayoutProvider.vue'
 
 import 'vitepress-theme-teek/index.css'
-import '@shikijs/vitepress-twoslash/style.css'
 import 'virtual:uno.css'
 import 'vitepress-theme-teek/theme-chalk/tk-code-block-mobile.css'
 import 'vitepress-theme-teek/theme-chalk/tk-sidebar.css'
@@ -31,6 +29,7 @@ export default {
     ]),
   enhanceApp(ctx: EnhanceAppContext) {
     const { app } = ctx
-    app.use(TwoslashFloatingVue as any)
+    // TwoslashFloatingVue removed: not compatible with VitePress 1.x + @shikijs/vitepress-twoslash v3
+    // Re-add when upgrading to a compatible version
   },
 }

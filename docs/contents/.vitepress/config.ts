@@ -1,4 +1,3 @@
-import { transformerTwoslash } from '@shikijs/vitepress-twoslash'
 import { defineConfig } from 'vitepress'
 import { defineTeekConfig } from 'vitepress-theme-teek/config'
 import { enConfig } from './configs/en'
@@ -131,9 +130,6 @@ export default defineConfig({
     },
   },
   markdown: {
-    codeTransformers: [
-      transformerTwoslash(),
-    ],
     image: {
       // 默认禁用；设置为 true 可为所有图片启用懒加载。
       lazyLoading: true,
