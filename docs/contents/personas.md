@@ -20,6 +20,8 @@ All personas you create are saved in Ruri and can be switched with a single clic
 
 ## Creating Your First Persona
 
+![Personas Page](/ruri-pics/en/personas.png)
+
 Let's create a **"Translator"** persona to experience how the persona system works.
 
 ### Step 1: Open the Personas Page

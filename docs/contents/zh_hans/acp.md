@@ -16,6 +16,8 @@ lastUpdated: true
 | **JetBrains**       | IntelliJ IDEA、PyCharm、WebStorm 等 |
 | **其他 ACP 客户端** | 任何支持智能体客户端协议的工具      |
 
+![ACP 配置](/ruri-pics/zh_hans/acp-config-cn.png)
+
 ## 配置指南
 
 ### 在 Zed 中使用 Ruri

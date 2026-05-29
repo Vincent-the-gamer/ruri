@@ -19,6 +19,8 @@ By default, the AI relies on its training data, which has a knowledge cutoff. Wi
 
 ## Enabling Web Search
 
+![Web Search Settings](/ruri-pics/en/web-search.png)
+
 ### Step 1: Configure Web Search Settings
 
 1. Go to **Web Search** in the sidebar
@@ -34,13 +36,13 @@ Web Search can be controlled per [Config Profile](/config-profiles). Make sure i
 
 ## Supported Search Engines
 
-| Engine | API Key Required | Description |
-| ------ | ---------------- | ----------- |
-| **DuckDuckGo** | No | Free and private search engine, no setup needed |
-| **Tavily** | Yes | AI-optimized search engine built for agents |
-| **BoCha** | No | Search engine optimized for Chinese content |
-| **Baidu** | No | China's largest search engine |
-| **Brave** | Yes | Privacy-focused search engine |
+| Engine         | API Key Required | Description                                     |
+| -------------- | ---------------- | ----------------------------------------------- |
+| **DuckDuckGo** | No               | Free and private search engine, no setup needed |
+| **Tavily**     | Yes              | AI-optimized search engine built for agents     |
+| **BoCha**      | No               | Search engine optimized for Chinese content     |
+| **Baidu**      | No               | China's largest search engine                   |
+| **Brave**      | Yes              | Privacy-focused search engine                   |
 
 ### DuckDuckGo (Recommended for Quick Start)
 

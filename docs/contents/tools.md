@@ -10,6 +10,8 @@ Ruri's AI isn't just a chatbot — it can take action on your behalf. Built-in t
 
 ## What Can the AI Do?
 
+![Built-in Tools Page](/ruri-pics/en/tools.png)
+
 Here's a quick overview of the tools available to the AI:
 
 | Tool               | What It Does                                      |

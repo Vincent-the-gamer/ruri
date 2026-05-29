@@ -66,6 +66,8 @@ http://localhost:3000
 | 用户名 | `ruri` |
 | 密码   | `ruri` |
 
+![Ruri 登录页面](/ruri-pics/zh_hans/homepage-cn.png)
+
 ::: warning
 首次登录时系统会提示你修改密码。请设置一个强密码以确保实例安全！
 :::
@@ -85,6 +87,10 @@ http://localhost:3000
 ### 第 3 步：开始聊天！
 
 前往聊天页面，开始对话。随便问 Ruri 点什么 — 它已经准备好了！
+
+![Ruri 主面板](/ruri-pics/zh_hans/dashboard-cn.png)
+
+![Ruri 对话界面](/ruri-pics/zh_hans/chat-cn.png)
 
 ## 下一步
 

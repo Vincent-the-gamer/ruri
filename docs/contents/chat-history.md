@@ -6,6 +6,8 @@ lastUpdated: true
 
 # Chat History
 
+![Chat History Page](/ruri-pics/en/chat-history.png)
+
 Chat History lets you browse, search, and review all conversations between your bots and users. Every message sent and received is automatically stored, so you can look back at any conversation, check what the AI said, and trace how issues were resolved.
 
 ## What is Chat History?

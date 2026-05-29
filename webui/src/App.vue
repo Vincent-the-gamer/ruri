@@ -63,6 +63,9 @@ onMounted(() => {
 
                 <!-- Right side: Locale, Theme Toggle & User Menu -->
                 <div class="flex items-center gap-3">
+                    <span class="text-sm text-muted-foreground font-medium"
+                        >{{ $t("settings.language") }}：</span
+                    >
                     <LocaleSwitcher />
                     <ThemeToggle />
                     <UserMenu />

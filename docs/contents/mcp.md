@@ -33,6 +33,8 @@ When Ruri connects to an MCP server, here's what happens:
 
 You'll see MCP tool calls in the chat just like built-in ones — full transparency into what the AI is doing.
 
+![MCP Configuration Page](/ruri-pics/en/mcp-config.png)
+
 ## Adding an MCP Server
 
 ### Step 1: Open the MCP Page

@@ -23,6 +23,8 @@ The AI behaves consistently across all platforms — same persona, skills, and t
 
 ## Setting Up DingTalk (钉钉)
 
+![Platforms Page](/ruri-pics/en/platforms.png)
+
 DingTalk integration lets the AI respond to messages in group chats or direct messages.
 
 ### What You'll Need
@@ -95,23 +97,12 @@ Personal WeChat integration uses the Wechat ClawBot framework to connect Ruri to
 
 1. Go to the **Platforms** page in Ruri's Web UI
 2. Click **Add Platform** and select **WeChat**
-3. Fill in your credentials:
-   - **Base URL** — The URL of your Wechat ClawBot server
-   - **Token** — Your authentication token
-4. Save and enable the platform
-5. Start QR login by clicking the QR login button — scan the QR code with your WeChat app
-6. Send a message to your WeChat account — Ruri will respond!
+3. Use the QR code login button to scan the displayed QR code with your WeChat app, the WeChat Clawbot plugin will be automatically configured and enabled.
+4. Send a message to your WeChat account — Ruri will respond!
 
 ::: tip
 WeChat integration supports QR code login directly from the Web UI. After configuring the platform, click the login button and scan the displayed QR code with your WeChat app to authenticate.
 :::
-
-### Config Fields
-
-| Field    | Description               |
-| -------- | ------------------------- |
-| Base URL | Wechat ClawBot server URL |
-| Token    | Authentication token      |
 
 ## Setting Up OneBot12
 

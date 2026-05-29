@@ -274,12 +274,60 @@ impl HttpTransport {
         }
 
         // Fast path: if the request has no multimodal content, no fallback is needed.
+        // ── Prepare metrics capture for stream wrapping ──
+        let metrics_clone = self.metrics.clone();
+        let provider_name = self.provider.name().to_string();
+        let metrics_source = self.metrics_source.clone();
+
+        // Helper to wrap a stream with response-side metrics recording.
+        // Uses a macro-style inline approach to avoid lifetime issues.
+        macro_rules! wrap_with_metrics {
+            ($stream:expr) => {{
+                let s = $stream;
+                let m = metrics_clone.clone();
+                let pn = provider_name.clone();
+                let ms = metrics_source.clone();
+                async_stream::stream! {
+                    let mut response_bytes: u64 = 0;
+                    let mut stream = s;
+                    while let Some(event_result) = stream.next().await {
+                        match &event_result {
+                            Ok(StreamEvent::ContentDelta { delta }) => {
+                                response_bytes += delta.len() as u64;
+                            }
+                            Ok(StreamEvent::ToolCallDelta { arguments_delta, .. }) => {
+                                response_bytes += arguments_delta.len() as u64;
+                            }
+                            Ok(StreamEvent::Done { usage }) => {
+                                if let Some(ref metrics) = m {
+                                    metrics.write().await.record_traffic(0, response_bytes);
+                                }
+                                if let Some(token_usage) = usage {
+                                    if let Some(ref metrics) = m {
+                                        metrics.write().await.record_tokens_with_source(
+                                            &pn,
+                                            None,
+                                            token_usage.prompt_tokens,
+                                            token_usage.completion_tokens,
+                                            ms.clone(),
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        yield event_result;
+                    }
+                }
+                .boxed()
+            }};
+        }
         if !request.has_multimodal_content() {
             tracing::info!(
                 provider = %self.provider.name(),
                 "send_stream: taking fast path (no multimodal content)"
             );
-            return self.provider.chat_stream(request);
+            return wrap_with_metrics!(self.provider.chat_stream(request));
         }
 
         // If the provider has already declared it doesn't support multimodal,
@@ -290,7 +338,7 @@ impl HttpTransport {
                 "send_stream: provider doesn't support multimodal, stripping images"
             );
             let stripped = request.strip_multimodal_content();
-            return self.provider.chat_stream(stripped);
+            return wrap_with_metrics!(self.provider.chat_stream(stripped));
         }
 
         // The provider claims to support multimodal, but the model itself may
@@ -345,6 +393,6 @@ impl HttpTransport {
             }
         };
 
-        streaming_fallback.boxed()
+        wrap_with_metrics!(streaming_fallback.boxed())
     }
 }

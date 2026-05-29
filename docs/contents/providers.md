@@ -24,6 +24,8 @@ Not sure which one to choose? Go with **OpenAI Compatible**! It's the most unive
 
 ## Managing Providers
 
+![Providers Page](/ruri-pics/en/providers.png)
+
 ### Adding a Provider
 
 1. Navigate to the **Providers** page in the sidebar

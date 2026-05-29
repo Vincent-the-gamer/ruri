@@ -6,6 +6,8 @@ lastUpdated: true
 
 # Command System
 
+![Built-in Commands](/ruri-pics/en/builtin-commands.png)
+
 Ruri includes handy chat commands that you can type directly in the message input. They start with `/` and give you quick control over your session.
 
 ## Quick Reference

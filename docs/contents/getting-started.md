@@ -66,6 +66,8 @@ Log in with the default credentials:
 | Username | `ruri`        |
 | Password | `ruri`        |
 
+![Ruri Login Page](/ruri-pics/en/homepage.png)
+
 ::: warning
 You'll be prompted to change your password on first login. Choose a strong password to keep your instance secure!
 :::
@@ -85,6 +87,10 @@ See the [Model Providers](/providers) page for step-by-step setup guides for pop
 ### Step 3: Start Chatting!
 
 Head to the chat page and start a conversation. Try asking Ruri something — it's ready to go!
+
+![Ruri Dashboard](/ruri-pics/en/dashboard.png)
+
+![Ruri Chat Interface](/ruri-pics/en/chat.png)
 
 ## Next Steps
 

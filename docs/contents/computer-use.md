@@ -97,6 +97,8 @@ Commands run directly on your system with full access:
 In **Local mode**, the AI has the full permissions of the Ruri process on your system. Only use this in trusted environments. We strongly recommend using AIO Sandbox mode instead.
 :::
 
+![Computer Use Settings](/ruri-pics/en/computer-use.png)
+
 ## Enabling Computer Use
 
 ### Via Web UI

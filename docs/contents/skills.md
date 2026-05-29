@@ -25,6 +25,8 @@ For example, you could create a "Code Review" skill that:
 
 ## Creating Your First Skill
 
+![Skills Page](/ruri-pics/en/skills.png)
+
 Let's walk through creating a practical skill from scratch. We'll make a **"Summarize"** skill that reads any file and gives you a clear summary.
 
 ### Step 1: Open the Skills Page

@@ -25,6 +25,8 @@ lastUpdated: true
 
 ## 创建你的第一个技能
 
+![技能页面](/ruri-pics/zh_hans/skills-cn.png)
+
 让我们从头开始创建一个实用的技能。我们将制作一个 **"Summarize"（摘要）** 技能，它可以读取任何文件并给出清晰的摘要。
 
 ### 第 1 步：打开技能页面

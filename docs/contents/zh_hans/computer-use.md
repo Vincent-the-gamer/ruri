@@ -89,6 +89,8 @@ AIO 沙盒客户端内置了自动重试机制，确保在沙盒服务暂时不�
 **本地模式**下 AI 拥有你系统上 Ruri 进程的全部权限。仅在受信任的环境中使用，建议优先使用 AIO 沙盒模式。
 :::
 
+![Computer Use 设置](/ruri-pics/zh_hans/computer-use-cn.png)
+
 ## 启用 Computer Use
 
 ### 通过 Web UI

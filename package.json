@@ -10,8 +10,8 @@
   ],
   "author": "",
   "license": "MIT",
-  "packageManager": "pnpm@11.3.0",
+  "packageManager": "pnpm@11.4.0",
   "devDependencies": {
-    "taze": "^19.13.0"
+    "taze": "^19.14.1"
   }
 }

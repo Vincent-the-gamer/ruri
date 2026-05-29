@@ -33,6 +33,8 @@ MCP 服务器是为 Ruri 提供额外工具和数据的外部程序。当你连�
 
 你会在聊天中看到 MCP 工具调用，就像内置工具一样 — AI 在做什么完全透明可见。
 
+![MCP 配置页面](/ruri-pics/zh_hans/mcp-config-cn.png)
+
 ## 添加 MCP 服务器
 
 ### 步骤 1：打开 MCP 页面

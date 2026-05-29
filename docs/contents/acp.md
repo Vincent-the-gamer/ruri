@@ -16,6 +16,8 @@ Want Ruri's AI power right inside your code editor? The **Agent Client Protocol 
 | **JetBrains**         | IntelliJ IDEA, PyCharm, WebStorm, and more           |
 | **Other ACP clients** | Any tool that supports the Agent Client Protocol     |
 
+![ACP Configuration](/ruri-pics/en/acp-config.png)
+
 ## Setup Guide
 
 ### Using Ruri in Zed

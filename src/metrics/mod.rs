@@ -133,8 +133,12 @@ impl MetricsCollector {
     }
 
     /// Record a provider API request.
-    pub fn record_request(&mut self, _provider_name: &str) {
+    pub fn record_request(&mut self, provider_name: &str) {
         let now = Utc::now().timestamp_millis();
+        tracing::debug!(
+            provider = %provider_name,
+            "metrics: recording request"
+        );
         self.requests.push(RequestRecord { timestamp_ms: now });
         self.trim_if_needed();
         self.notify_update();
@@ -156,15 +160,29 @@ impl MetricsCollector {
     pub fn record_tokens_with_source(
         &mut self,
         provider_name: &str,
-        _model: Option<&str>,
+        model: Option<&str>,
         prompt_tokens: u64,
         completion_tokens: u64,
         source: Option<TokenSource>,
     ) {
         if prompt_tokens == 0 && completion_tokens == 0 {
+            tracing::debug!(
+                provider = %provider_name,
+                model = model.unwrap_or("unknown"),
+                source = ?source,
+                "metrics: skipping token record (zero tokens)"
+            );
             return; // Don't record empty token usage
         }
         let now = Utc::now().timestamp_millis();
+        tracing::info!(
+            provider = %provider_name,
+            model = model.unwrap_or("unknown"),
+            prompt_tokens = prompt_tokens,
+            completion_tokens = completion_tokens,
+            source = ?source,
+            "metrics: recording token usage"
+        );
         self.tokens.push(TokenRecord {
             timestamp_ms: now,
             provider_name: provider_name.to_string(),

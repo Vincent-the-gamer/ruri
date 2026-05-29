@@ -37,6 +37,8 @@ On the Config Profiles page, click any profile to switch instantly. All settings
 Create a general-purpose profile as your default first, then create specialized profiles for specific scenarios.
 :::
 
+![Config Profiles Page](/ruri-pics/en/configs.png)
+
 ## What Can a Profile Configure?
 
 Each profile can include the following settings:
@@ -96,7 +98,7 @@ Select which [Knowledge Bases](/knowledge-base) the AI can query in this profile
 
 ### Network Proxy
 
-If you need to access external services through a proxy (e.g., for API calls), configure the proxy address and bypass list here.
+If you need to access external services through a proxy (e.g., for API calls), configure the proxy address in config modal.
 
 ### Command Prefix
 

@@ -20,6 +20,8 @@ lastUpdated: true
 
 ## 创建你的第一个角色
 
+![人格页面](/ruri-pics/zh_hans/personas-cn.png)
+
 让我们创建一个"翻译助手"人格，体验人格系统的工作方式。
 
 ### 第 1 步：打开人格页面

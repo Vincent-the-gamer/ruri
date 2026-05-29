@@ -19,6 +19,8 @@ lastUpdated: true
 
 AI 会在检测到相关问题时自动搜索知识库——你不需要做任何额外操作。
 
+![知识库页面](/ruri-pics/zh_hans/knowledge-base-cn.png)
+
 ## 知识库入门
 
 ### 第 1 步：配置嵌入模型

@@ -6,6 +6,8 @@ lastUpdated: true
 
 # 指令系统
 
+![内置指令](/ruri-pics/zh_hans/builtin-commands-cn.png)
+
 Ruri 提供了一系列便捷的聊天指令，你可以直接在消息输入框中输入。它们以 `/` 开头，让你能快速掌控当前会话。
 
 ## 快速参考

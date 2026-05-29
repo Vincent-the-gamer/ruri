@@ -19,6 +19,8 @@ By default, the AI only knows what it learned during training. With a knowledge 
 
 The AI automatically searches your knowledge base when it detects a relevant question — you don't need to do anything special.
 
+![Knowledge Base Page](/ruri-pics/en/knowledge-base.png)
+
 ## Getting Started with Knowledge Base
 
 ### Step 1: Set Up an Embedding Model

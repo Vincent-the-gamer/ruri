@@ -22,7 +22,7 @@
     "@types/node": "^25.9.1",
     "eslint": "^10.4.0",
     "eslint-plugin-format": "^2.0.1",
-    "taze": "^19.13.0",
+    "taze": "^19.14.1",
     "unocss": "66.4.1",
     "vite": "^8.0.14",
     "vitepress": "^2.0.0-alpha.17",
