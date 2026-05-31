@@ -121,6 +121,10 @@ fn default_command_prefix_dto() -> String {
     "/".to_string()
 }
 
+fn default_segmented_reply_interval_ms() -> u64 {
+    500
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderDto {
     pub id: String,
@@ -647,6 +651,12 @@ pub struct ConfigProfileDto {
     /// Platform instance IDs that this profile is associated with.
     #[serde(default)]
     pub platform_ids: Vec<String>,
+    /// Whether segmented (multi-message) reply is enabled for this profile.
+    #[serde(default)]
+    pub segmented_reply_enabled: bool,
+    /// Interval in milliseconds between segmented reply messages.
+    #[serde(default = "default_segmented_reply_interval_ms")]
+    pub segmented_reply_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -684,6 +694,10 @@ pub struct CreateConfigProfileRequest {
     /// Platform instance IDs that this profile is associated with.
     #[serde(default)]
     pub platform_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub segmented_reply_enabled: bool,
+    #[serde(default = "default_segmented_reply_interval_ms")]
+    pub segmented_reply_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -736,6 +750,10 @@ pub struct UpdateConfigProfileRequest {
     /// Platform instance IDs that this profile is associated with.
     #[serde(default)]
     pub platform_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_interval_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1144,6 +1162,8 @@ pub struct DebugSessionDto {
     pub max_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_error_message: Option<String>,
+    pub segmented_reply_enabled: bool,
+    pub segmented_reply_interval_ms: u64,
 }
 
 /// Request DTO for updating debug session configuration
@@ -1208,6 +1228,10 @@ pub struct UpdateDebugSessionRequest {
         deserialize_with = "deserialize_some"
     )]
     pub custom_error_message: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_interval_ms: Option<u64>,
 }
 
 impl From<&crate::api::state::EmbeddedProvider> for EmbeddedProviderDto {

@@ -905,6 +905,39 @@ impl Agent {
                         true
                     };
 
+                    // ── Notify the client immediately that a tool is about to execute ──
+                    let args_preview = if call.function.arguments.len() > 200 {
+                        let end = call.function.arguments.floor_char_boundary(200);
+                        format!("{}...", &call.function.arguments[..end])
+                    } else {
+                        call.function.arguments.clone()
+                    };
+                    if tx
+                        .send(Ok(StreamEvent::ToolExecuting {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.function.name.clone(),
+                            arguments_preview: args_preview,
+                        }))
+                        .await
+                        .is_err()
+                    {
+                        return Ok("stop".to_string());
+                    }
+
+                    // Add a natural-language progress message to history so the user
+                    // sees what's happening and can correct if needed.
+                    let progress_msg = format!(
+                        "Let me use `{}` to help you with this...",
+                        call.function.name
+                    );
+                    self.history.push(ChatMessage::assistant(&progress_msg));
+                    // Also send it as a content delta for the user to see
+                    let _ = tx
+                        .send(Ok(StreamEvent::ContentDelta {
+                            delta: progress_msg,
+                        }))
+                        .await;
+
                     let result = if !allowed {
                         ToolResult {
                             tool_call_id: call.id.clone(),

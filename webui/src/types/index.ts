@@ -214,6 +214,7 @@ export interface StreamUsage {
 
 export type StreamEvent =
   | { type: 'content_delta'; delta: string }
+  | { type: 'tool_executing'; tool_call_id: string; tool_name: string; arguments_preview: string }
   | { type: 'tool_call_start'; tool_call_id: string; function_name: string }
   | { type: 'tool_call_delta'; tool_call_id: string; arguments_delta: string }
   | { type: 'tool_call_end'; tool_call_id: string; function_name: string; arguments: string }
@@ -371,6 +372,10 @@ export interface ConfigProfile {
   description: string
   enable: boolean
   is_active: boolean
+  /** Whether segmented (multi-message) reply is enabled */
+  segmented_reply_enabled: boolean
+  /** Interval in milliseconds between segmented reply messages */
+  segmented_reply_interval_ms: number
   created_at: string
   updated_at: string
   // 关联的配置
@@ -401,6 +406,8 @@ export interface CreateConfigProfileRequest {
   name: string
   description: string
   enable: boolean
+  segmented_reply_enabled: boolean
+  segmented_reply_interval_ms: number
   provider_id: string | null
   persona_id?: string | null
   web_search_enabled: boolean
@@ -420,6 +427,8 @@ export interface UpdateConfigProfileRequest {
   name?: string
   description?: string
   enable?: boolean
+  segmented_reply_enabled?: boolean
+  segmented_reply_interval_ms?: number
   provider_id?: string | null
   persona_id?: string | null
   web_search_enabled?: boolean
@@ -814,6 +823,8 @@ export interface DebugSession {
   web_search_enabled: boolean
   computer_use_enabled: boolean
   thinking_enabled: boolean
+  segmented_reply_enabled: boolean
+  segmented_reply_interval_ms: number
   skills: EmbeddedSkill[]
   active_skill_names: string[]
   knowledge_base_ids: string[]
@@ -834,6 +845,8 @@ export interface UpdateDebugSessionRequest {
   web_search_enabled?: boolean
   computer_use_enabled?: boolean
   thinking_enabled?: boolean
+  segmented_reply_enabled?: boolean
+  segmented_reply_interval_ms?: number
   skills?: EmbeddedSkill[]
   active_skill_names?: string[]
   knowledge_base_ids?: string[]

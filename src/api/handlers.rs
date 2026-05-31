@@ -1866,6 +1866,43 @@ async fn stream_chat_message(
     let streamer = AgentStreamer::new(agent, user_msg);
     let event_stream = streamer.into_stream();
 
+    // ── Segmented Reply Config ───────────────────────────────────
+    let (segmented_reply_enabled, segmented_reply_interval_ms) = {
+        let debug = state.debug_session.read().await;
+        (
+            debug.segmented_reply_enabled,
+            debug.segmented_reply_interval_ms,
+        )
+    };
+
+    /// Split text into segments for segmented reply.
+    /// Splits on sentence boundaries (Chinese/English punctuation) and newlines.
+    fn split_text_into_segments(text: &str) -> Vec<String> {
+        let mut segments = Vec::new();
+        let mut current = String::new();
+        for ch in text.chars() {
+            current.push(ch);
+            // Split on sentence-ending punctuation
+            if matches!(ch, '。' | '！' | '？' | '!' | '?' | '\n') {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    segments.push(trimmed);
+                }
+                current.clear();
+            }
+        }
+        let trimmed = current.trim().to_string();
+        if !trimmed.is_empty() {
+            segments.push(trimmed);
+        }
+        // If no segments were produced (e.g., no punctuation found), return the original
+        if segments.is_empty() {
+            vec![text.to_string()]
+        } else {
+            segments
+        }
+    }
+
     // Convert StreamEvents to SSE Events, and persist messages to DB on completion
     let sse_stream = async_stream::stream! {
         let mut full_content = String::new();
@@ -1985,12 +2022,28 @@ async fn stream_chat_message(
                             }
 
                             // Convert to SSE event
-                            let data = serde_json::to_string(&event).unwrap_or_default();
-                            yield Ok::<Event, std::convert::Infallible>(Event::default().data(data));
 
-                            // On Done, persist messages to DB
+                            // On Done, handle segmented reply if enabled
                             if let crate::types::StreamEvent::Done { .. } = &event {
+                                // Persist messages to DB first
                                 persist_to_db(&full_content, accumulated_tool_calls.clone(), accumulated_tool_results.clone()).await;
+
+                                // If segmented reply is enabled and we have content, split and send
+                                if segmented_reply_enabled && !full_content.is_empty() && accumulated_tool_calls.is_empty() {
+                                    let segments = split_text_into_segments(&full_content);
+                                    let interval = std::time::Duration::from_millis(segmented_reply_interval_ms);
+                                    for segment in segments {
+                                        let seg_event = crate::types::StreamEvent::ContentDelta { delta: segment };
+                                        let data = serde_json::to_string(&seg_event).unwrap_or_default();
+                                        yield Ok::<Event, std::convert::Infallible>(Event::default().data(data));
+                                        tokio::time::sleep(interval).await;
+                                    }
+                                }
+
+                                // Now send the Done event
+                                let data = serde_json::to_string(&event).unwrap_or_default();
+                                yield Ok::<Event, std::convert::Infallible>(Event::default().data(data));
+
                                 // Remove the cancellation token
                                 {
                                     let mut tasks = state_clone.running_agent_tasks.write().await;
@@ -1998,6 +2051,9 @@ async fn stream_chat_message(
                                 }
                                 break;
                             }
+
+                            let data = serde_json::to_string(&event).unwrap_or_default();
+                            yield Ok::<Event, std::convert::Infallible>(Event::default().data(data));
                         }
                         Some(Err(e)) => {
                             // Provider error
@@ -2861,6 +2917,8 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             command_admin_required: p.command_admin_required.clone(),
             custom_error_message: p.custom_error_message.clone(),
             platform_ids: p.platform_ids.clone(),
+            segmented_reply_enabled: p.segmented_reply_enabled,
+            segmented_reply_interval_ms: p.segmented_reply_interval_ms,
         })
         .collect();
     Json(dtos)
@@ -2894,6 +2952,8 @@ async fn get_config_profile(
             command_admin_required: p.command_admin_required.clone(),
             custom_error_message: p.custom_error_message.clone(),
             platform_ids: p.platform_ids.clone(),
+            segmented_reply_enabled: p.segmented_reply_enabled,
+            segmented_reply_interval_ms: p.segmented_reply_interval_ms,
         };
         Ok(Json(dto))
     } else {
@@ -2939,6 +2999,8 @@ async fn create_config_profile(
         command_admin_required: req.command_admin_required.clone(),
         custom_error_message: req.custom_error_message.clone(),
         platform_ids: req.platform_ids.clone().unwrap_or_default(),
+        segmented_reply_enabled: req.segmented_reply_enabled,
+        segmented_reply_interval_ms: req.segmented_reply_interval_ms,
     };
 
     // Validate platform_ids: only one platform per profile allowed
@@ -3007,6 +3069,8 @@ async fn create_config_profile(
         command_admin_required: req.command_admin_required.clone(),
         custom_error_message: req.custom_error_message.clone(),
         platform_ids: req.platform_ids.unwrap_or_default(),
+        segmented_reply_enabled: req.segmented_reply_enabled,
+        segmented_reply_interval_ms: req.segmented_reply_interval_ms,
     };
 
     state.auto_save().await;
@@ -3122,6 +3186,12 @@ async fn update_config_profile(
         if let Some(custom_error_message) = req.custom_error_message {
             profile.custom_error_message = custom_error_message;
         }
+        if let Some(segmented_reply_enabled) = req.segmented_reply_enabled {
+            profile.segmented_reply_enabled = segmented_reply_enabled;
+        }
+        if let Some(segmented_reply_interval_ms) = req.segmented_reply_interval_ms {
+            profile.segmented_reply_interval_ms = segmented_reply_interval_ms;
+        }
         if let Some(platform_ids) = req.platform_ids {
             // Validation was already done above before acquiring mutable borrow
             profile.platform_ids = platform_ids;
@@ -3149,6 +3219,8 @@ async fn update_config_profile(
             command_admin_required: profile.command_admin_required.clone(),
             custom_error_message: profile.custom_error_message.clone(),
             platform_ids: profile.platform_ids.clone(),
+            segmented_reply_enabled: profile.segmented_reply_enabled,
+            segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
         };
 
         let is_active = dto.is_active;
@@ -3283,6 +3355,8 @@ async fn activate_config_profile(
             command_admin_required: profile.command_admin_required.clone(),
             custom_error_message: profile.custom_error_message.clone(),
             platform_ids: profile.platform_ids.clone(),
+            segmented_reply_enabled: profile.segmented_reply_enabled,
+            segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
         };
 
         drop(profiles);
@@ -3369,6 +3443,8 @@ async fn deactivate_config_profile(
             command_admin_required: profile.command_admin_required.clone(),
             custom_error_message: profile.custom_error_message.clone(),
             platform_ids: profile.platform_ids.clone(),
+            segmented_reply_enabled: profile.segmented_reply_enabled,
+            segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
         };
 
         drop(profiles);
@@ -5790,6 +5866,8 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
         temperature: session.temperature,
         max_tokens: session.max_tokens,
         custom_error_message: session.custom_error_message.clone(),
+        segmented_reply_enabled: session.segmented_reply_enabled,
+        segmented_reply_interval_ms: session.segmented_reply_interval_ms,
     };
 
     Json(dto)
@@ -5861,6 +5939,12 @@ async fn update_debug_session(
         if let Some(custom_error_message) = req.custom_error_message {
             session.custom_error_message = custom_error_message;
         }
+        if let Some(segmented_reply_enabled) = req.segmented_reply_enabled {
+            session.segmented_reply_enabled = segmented_reply_enabled;
+        }
+        if let Some(segmented_reply_interval_ms) = req.segmented_reply_interval_ms {
+            session.segmented_reply_interval_ms = segmented_reply_interval_ms;
+        }
 
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
@@ -5889,6 +5973,8 @@ async fn update_debug_session(
             temperature: session.temperature,
             max_tokens: session.max_tokens,
             custom_error_message: session.custom_error_message.clone(),
+            segmented_reply_enabled: session.segmented_reply_enabled,
+            segmented_reply_interval_ms: session.segmented_reply_interval_ms,
         };
 
         dto

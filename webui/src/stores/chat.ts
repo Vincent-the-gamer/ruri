@@ -249,6 +249,22 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'tool_executing': {
+        // Show tool execution progress to user
+        const statusMsg = `🔧 Calling \`${event.tool_name}\`...`;
+        // If we had a previous streaming message, finalize it
+        if (streamingContent.value) {
+          finalizeStreamingMessage();
+        }
+        messages.value.push({
+          role: 'tool',
+          content: statusMsg,
+          tool_call_id: event.tool_call_id,
+          tool_name: event.tool_name,
+          _executing: true,  // mark as executing status
+        } as any);
+        break;
+      }
       case 'tool_call_delta': {
         // Arguments being streamed for a tool call - not shown in chat
         break
@@ -270,10 +286,17 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_result': {
-        // A tool was executed - add as a tool message
+        // Remove the executing status message if it exists
+        for (let i = messages.value.length - 1; i >= 0; i--) {
+          const msg = messages.value[i] as any;
+          if (msg.role === 'tool' && msg.tool_call_id === event.tool_call_id && msg._executing) {
+            messages.value.splice(i, 1);
+            break;
+          }
+        }
         // If we have streaming content, finalize it first
         if (streamingContent.value) {
-          finalizeStreamingMessage()
+          finalizeStreamingMessage();
         }
         messages.value.push({
           role: 'tool',

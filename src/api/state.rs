@@ -106,6 +106,10 @@ pub struct EmbeddedSkill {
     pub config: serde_json::Value,
 }
 
+fn default_segmented_reply_interval_ms() -> u64 {
+    500
+}
+
 /// Config profile persisted to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedConfigProfile {
@@ -170,6 +174,13 @@ pub struct PersistedConfigProfile {
     /// A platform instance can only belong to one config profile at a time.
     #[serde(default)]
     pub platform_ids: Vec<String>,
+    /// Whether segmented (multi-message) reply is enabled for this profile.
+    /// When enabled, LLM responses are split into multiple messages with delays.
+    #[serde(default)]
+    pub segmented_reply_enabled: bool,
+    /// Interval in milliseconds between segmented reply messages.
+    #[serde(default = "default_segmented_reply_interval_ms")]
+    pub segmented_reply_interval_ms: u64,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -282,6 +293,12 @@ fn default_shell_blacklist() -> Vec<String> {
 /// This is completely separate from Config Profiles.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugSessionConfig {
+    /// Whether segmented (multi-message) reply is enabled for this debugsession.
+    #[serde(default)]
+    pub segmented_reply_enabled: bool,
+    /// Interval in milliseconds between segmented reply messages.
+    #[serde(default = "default_segmented_reply_interval_ms")]
+    pub segmented_reply_interval_ms: u64,
     /// Embedded provider configurations for debug sessions
     #[serde(default)]
     pub providers: Vec<EmbeddedProvider>,
@@ -387,6 +404,8 @@ pub struct StoredConfigProfile {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub segmented_reply_enabled: bool,
+    pub segmented_reply_interval_ms: u64,
     /// Legacy field: references a global provider by ID
     pub provider_id: Option<String>,
     /// Persona ID reference to the persona library.
@@ -1007,6 +1026,8 @@ impl AppState {
                                 command_admin_required: p.command_admin_required,
                                 custom_error_message: p.custom_error_message,
                                 platform_ids: p.platform_ids.clone(),
+                                segmented_reply_enabled: p.segmented_reply_enabled,
+                                segmented_reply_interval_ms: p.segmented_reply_interval_ms,
                             },
                         )
                     })
@@ -1582,6 +1603,8 @@ impl AppState {
                         command_admin_required: p.command_admin_required,
                         custom_error_message: p.custom_error_message,
                         platform_ids: p.platform_ids.clone(),
+                        segmented_reply_enabled: p.segmented_reply_enabled,
+                        segmented_reply_interval_ms: p.segmented_reply_interval_ms,
                     },
                 )
             })
@@ -2215,6 +2238,8 @@ impl AppState {
                         command_admin_required: p.command_admin_required.clone(),
                         custom_error_message: p.custom_error_message.clone(),
                         platform_ids: p.platform_ids.clone(),
+                        segmented_reply_enabled: p.segmented_reply_enabled,
+                        segmented_reply_interval_ms: p.segmented_reply_interval_ms,
                     },
                 )
             })

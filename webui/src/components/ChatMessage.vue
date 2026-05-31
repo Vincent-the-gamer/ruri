@@ -20,6 +20,11 @@ const isSystem = computed(() => props.message.role === "system");
 const hasToolCalls =
     props.message.tool_calls && props.message.tool_calls.length > 0;
 
+const isToolExecuting = computed(() => {
+    if (!isTool.value) return false;
+    return (props.message as any)._executing === true;
+});
+
 /** Whether this assistant message is currently being streamed */
 const isCurrentlyStreaming = computed(
     () =>
@@ -285,8 +290,14 @@ function renderMarkdown(
                 </div>
                 <div
                     class="message-content tool-content"
-                    v-html="renderMarkdown(message.content)"
-                ></div>
+                    :class="{ 'tool-executing': isToolExecuting }"
+                >
+                    <template v-if="isToolExecuting">
+                        <span class="tool-spinner"></span>
+                        <span v-html="renderMarkdown(message.content)"></span>
+                    </template>
+                    <div v-else v-html="renderMarkdown(message.content)"></div>
+                </div>
             </div>
         </div>
 
@@ -577,6 +588,36 @@ function renderMarkdown(
     border-radius: 1rem 1rem 1rem 0.25rem;
     color: hsl(38 92% 30%);
     font-size: 0.8125rem;
+}
+.tool-executing {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    opacity: 0.8;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+.tool-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid hsl(38 92% 50% / 0.3);
+    border-top-color: hsl(38 92% 50%);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 0.5;
+    }
 }
 
 .chat-image {

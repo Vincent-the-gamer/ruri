@@ -108,6 +108,10 @@ const commandPrefix = ref("/");
 // ── Thinking Toggle ──
 const thinkingEnabled = ref(true);
 
+// ── Segmented Reply ──
+const segmentedReplyEnabled = ref(false);
+const segmentedReplyIntervalMs = ref(500);
+
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
 
@@ -257,6 +261,8 @@ interface Snapshot {
     maxTokens: number;
     commandPrefix: string;
     thinkingEnabled: boolean;
+    segmentedReplyEnabled: boolean;
+    segmentedReplyIntervalMs: number;
     customErrorMessage: string;
     selectedKbIds: string[];
     selectedSkillNames: string[];
@@ -271,6 +277,8 @@ function takeSnapshot(): Snapshot {
         maxTokens: maxTokens.value,
         commandPrefix: commandPrefix.value,
         thinkingEnabled: thinkingEnabled.value,
+        segmentedReplyEnabled: segmentedReplyEnabled.value,
+        segmentedReplyIntervalMs: segmentedReplyIntervalMs.value,
         customErrorMessage: customErrorMessage.value,
         selectedKbIds: [...selectedKbIds.value],
         selectedSkillNames: [...selectedSkillNames.value],
@@ -289,6 +297,8 @@ const isDirty = computed(() => {
         maxTokens.value !== snap.maxTokens ||
         commandPrefix.value !== snap.commandPrefix ||
         thinkingEnabled.value !== snap.thinkingEnabled ||
+        segmentedReplyEnabled.value !== snap.segmentedReplyEnabled ||
+        segmentedReplyIntervalMs.value !== snap.segmentedReplyIntervalMs ||
         customErrorMessage.value !== snap.customErrorMessage ||
         JSON.stringify(selectedKbIds.value) !==
             JSON.stringify(snap.selectedKbIds) ||
@@ -312,6 +322,8 @@ function syncFromServer(session: any) {
     customErrorMessage.value = session.custom_error_message || "";
     commandPrefix.value = session.command_prefix || "/";
     thinkingEnabled.value = session.thinking_enabled ?? true;
+    segmentedReplyEnabled.value = session.segmented_reply_enabled ?? false;
+    segmentedReplyIntervalMs.value = session.segmented_reply_interval_ms ?? 500;
     selectedKbIds.value = [...(session.knowledge_base_ids || [])];
     selectedSkillNames.value = [...(session.active_skill_names || [])];
     if (session.proxy_config) {
@@ -347,6 +359,8 @@ async function handleSave() {
             temperature: temperature.value,
             max_tokens: maxTokens.value,
             thinking_enabled: thinkingEnabled.value,
+            segmented_reply_enabled: segmentedReplyEnabled.value,
+            segmented_reply_interval_ms: segmentedReplyIntervalMs.value,
             custom_error_message: customErrorMessage.value || null,
             knowledge_base_ids: selectedKbIds.value,
             active_skill_names: selectedSkillNames.value,
@@ -538,6 +552,62 @@ defineExpose({
                                     )
                                 }}</span>
                             </div>
+                        </div>
+                    </section>
+
+                    <!-- Segmented Reply -->
+                    <section class="config-section">
+                        <h2 class="section-title">
+                            <span class="section-icon">💬</span>
+                            分段回复
+                        </h2>
+                        <p class="section-desc">
+                            启用后，长回复将自动拆分为多个消息，间隔发送，模拟真人对话体验。
+                        </p>
+                        <div class="toggle-row" style="margin-top: 0.5rem">
+                            <label class="toggle-container">
+                                <input
+                                    v-model="segmentedReplyEnabled"
+                                    type="checkbox"
+                                    class="toggle-input"
+                                />
+                                <span
+                                    class="toggle"
+                                    :class="{
+                                        'toggle--on': segmentedReplyEnabled,
+                                    }"
+                                >
+                                    <span class="toggle-thumb"></span>
+                                </span>
+                            </label>
+                            <div class="toggle-info">
+                                <span class="toggle-text">{{
+                                    segmentedReplyEnabled ? "已启用" : "已禁用"
+                                }}</span>
+                                <span class="toggle-description">{{
+                                    segmentedReplyEnabled
+                                        ? "回复会自动分段发送"
+                                        : "完整回复一次性发送"
+                                }}</span>
+                            </div>
+                        </div>
+                        <div
+                            v-if="segmentedReplyEnabled"
+                            class="form-field"
+                            style="margin-top: 0.75rem"
+                        >
+                            <label class="input-label"> 发送间隔 (毫秒) </label>
+                            <input
+                                v-model.number="segmentedReplyIntervalMs"
+                                type="number"
+                                min="100"
+                                max="5000"
+                                step="100"
+                                class="text-input"
+                            />
+                            <p class="input-hint">
+                                每条消息之间的延迟时间，推荐 300-800ms
+                            </p>
                         </div>
                     </section>
 
