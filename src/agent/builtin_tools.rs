@@ -142,6 +142,21 @@ impl ProcessGroupGuard {
 
     #[cfg(not(any(unix, windows)))]
     pub fn kill(&self) {}
+
+    /// Disarm the guard so that `Drop` does not kill the process tree.
+    ///
+    /// Call this when the process has exited normally to avoid a
+    /// redundant kill attempt during cleanup.
+    pub fn disarm(&mut self) {
+        #[cfg(unix)]
+        {
+            self.pgid = 0;
+        }
+        #[cfg(windows)]
+        {
+            self.job_handle = std::ptr::null_mut();
+        }
+    }
 }
 
 impl Drop for ProcessGroupGuard {
@@ -1012,6 +1027,7 @@ impl Tool for BashTool {
 fn run_shell_command_sync(
     command: &str,
     _blacklist: &[String],
+    guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
 ) -> Result<std::process::Output, String> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
@@ -1047,7 +1063,14 @@ fn run_shell_command_sync(
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
-    // Wait for the process to exit first.
+    // Create a guard that creates a Job Object and assigns this process to it.
+    // When killed via `guard.kill()`, TerminateJobObject atomically terminates
+    // the entire process tree — including any grandchildren spawned by PowerShell.
+    let guard = ProcessGroupGuard::new(child.id());
+    *guard_holder.lock().unwrap() = Some(guard);
+
+    // Wait for the process to exit. If the timeout fires in the async layer,
+    // `guard.kill()` will terminate the job, causing this `wait()` to return.
     let status = child
         .wait()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
@@ -1063,6 +1086,11 @@ fn run_shell_command_sync(
     stderr_reader
         .read_to_end(&mut stderr)
         .map_err(|e| format!("Failed to read stderr: {}", e))?;
+
+    // Normal completion — disarm the guard so Drop doesn't double-kill.
+    if let Some(ref mut guard) = *guard_holder.lock().unwrap() {
+        guard.disarm();
+    }
 
     Ok(std::process::Output {
         status,
@@ -1120,19 +1148,55 @@ pub(crate) fn create_noninheritable_pipe() -> Result<(std::fs::File, std::fs::Fi
 fn run_shell_command_sync(
     command: &str,
     _blacklist: &[String],
+    guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
 ) -> Result<std::process::Output, String> {
+    use std::os::unix::process::CommandExt;
     use std::process::Command;
 
-    Command::new("bash")
-        .arg("-c")
-        .arg(command)
-        .output()
-        .map_err(|e| format!("Failed to execute command: {}", e))
+    let mut cmd = Command::new("bash");
+    cmd.arg("-c").arg(command);
+
+    // Create a new session / process group via setsid().
+    // This ensures that when we kill the process group (kill -PGID),
+    // the entire process tree — including grandchildren — is terminated.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn command: {}", e))?;
+
+    // Create a guard that can kill the process group on timeout.
+    let guard = ProcessGroupGuard::new(child.id());
+    *guard_holder.lock().unwrap() = Some(guard);
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Failed to wait for command: {}", e))?;
+
+    // Normal completion — disarm the guard so Drop doesn't double-kill.
+    if let Some(ref mut guard) = *guard_holder.lock().unwrap() {
+        guard.disarm();
+    }
+
+    Ok(output)
 }
 
 /// Timeout wrapper for shell command execution.
 ///
-/// Wraps the spawn_blocking call with a timeout to prevent indefinite hangs.
+/// On timeout, the entire process tree is killed via `ProcessGroupGuard`:
+/// - Unix: `kill(-pgid, SIGKILL)` kills the process group created by `setsid()`.
+/// - Windows: `TerminateJobObject` atomically terminates the Job Object.
+///
+/// This is critical on Windows where `tokio::spawn_blocking` cannot be
+/// preempted — merely cancelling the `JoinHandle` future does NOT stop
+/// the blocking thread or the OS process. The guard ensures the OS process
+/// tree is actually terminated, which causes `child.wait()` to return and
+/// the blocking thread to be released back to the pool.
 async fn execute_shell_with_timeout(
     command: &str,
     blacklist: &[String],
@@ -1141,16 +1205,37 @@ async fn execute_shell_with_timeout(
     let blacklist = blacklist.to_vec();
     let command = command.to_string();
 
-    let blocking_task =
-        tokio::task::spawn_blocking(move || run_shell_command_sync(&command, &blacklist));
+    // Shared guard holder: the blocking thread writes the guard after
+    // spawning the child, and the async timeout handler reads it to kill.
+    let guard_holder = std::sync::Arc::new(std::sync::Mutex::new(None::<ProcessGroupGuard>));
+    let gh = guard_holder.clone();
 
-    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
-        .await
-        .map_err(|_| {
-            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
-        })?
-        .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
-        .map_err(|e| ToolError::ExecutionError(e))
+    let blocking_task =
+        tokio::task::spawn_blocking(move || run_shell_command_sync(&command, &blacklist, &gh));
+
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task).await {
+        Ok(join_result) => join_result
+            .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
+            .map_err(|e| ToolError::ExecutionError(e)),
+        Err(_elapsed) => {
+            // Timeout — kill the entire process tree.
+            // This causes `child.wait()` in the blocking thread to return,
+            // releasing the thread back to the spawn_blocking pool.
+            let mut lock = guard_holder.lock().unwrap();
+            if let Some(ref guard) = *lock {
+                guard.kill();
+            }
+            // Disarm to prevent Drop from double-killing (avoid extra 200ms
+            // sleep on Unix for an already-dead process group).
+            if let Some(ref mut guard) = *lock {
+                guard.disarm();
+            }
+            Err(ToolError::ExecutionError(format!(
+                "Command timed out after {} seconds",
+                timeout_secs
+            )))
+        }
+    }
 }
 
 // ─── WebSearchTool ─────────────────────────────────
