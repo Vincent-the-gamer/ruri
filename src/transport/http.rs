@@ -1,6 +1,7 @@
 use crate::provider::{Provider, ProviderError};
 use crate::types::{ChatRequest, ChatResponse, StreamEvent};
 use futures_util::stream::BoxStream;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Keywords typically found in API error messages when the model does not
@@ -54,7 +55,7 @@ impl Default for HttpTransportConfig {
 /// - Automatic retries with exponential backoff
 /// - Request/response logging
 pub struct HttpTransport {
-    provider: Box<dyn Provider>,
+    provider: Arc<dyn Provider>,
     config: HttpTransportConfig,
     metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
     /// Source of the metrics (debug_session / profile / acp) for token source tracking.
@@ -64,8 +65,19 @@ pub struct HttpTransport {
 impl HttpTransport {
     pub fn with_default_config(provider: Box<dyn Provider>) -> Self {
         Self {
-            provider,
+            provider: Arc::from(provider),
             config: HttpTransportConfig::default(),
+            metrics: None,
+            metrics_source: None,
+        }
+    }
+
+    /// Create an HttpTransport from an `Arc<dyn Provider>`, allowing the
+    /// same provider to be shared between the main agent and sub-agents.
+    pub fn with_arc_provider(provider: Arc<dyn Provider>, config: HttpTransportConfig) -> Self {
+        Self {
+            provider,
+            config,
             metrics: None,
             metrics_source: None,
         }
@@ -234,6 +246,11 @@ impl HttpTransport {
     /// Return the provider name.
     pub fn provider_name(&self) -> &str {
         self.provider.name()
+    }
+
+    /// Return a clone of the `Arc<dyn Provider>` for sharing with sub-agents.
+    pub fn provider_arc(&self) -> Arc<dyn Provider> {
+        self.provider.clone()
     }
 
     /// Return the default model for the underlying provider.

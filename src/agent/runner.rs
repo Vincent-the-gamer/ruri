@@ -138,6 +138,10 @@ pub struct Agent {
     metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
     /// Source of the metrics (debug_session / profile / acp) for token source tracking.
     metrics_source: Option<crate::metrics::TokenSource>,
+    /// Pending background sub-agent results that should be injected into the
+    /// conversation as user messages before the next turn. Shared with
+    /// HandoffTool so background tasks can push results here.
+    background_notifications: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 /// An entry in the skill index, used for skill routing.
@@ -307,7 +311,57 @@ impl Agent {
             tool_notify_tx: None,
             metrics: None,
             metrics_source: None,
+            background_notifications: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
+    }
+
+    /// Create a new Agent using a shared `Arc<dyn Provider>`.
+    ///
+    /// This is used by sub-agents to share the same provider instance
+    /// with the main agent, avoiding the need to recreate connections.
+    pub fn with_config_via_arc(provider: Arc<dyn Provider>, config: AgentConfig) -> Self {
+        let transport_config = crate::transport::HttpTransportConfig::default();
+        let tool_executor = ToolExecutor::new();
+        let available_skill_configs = Arc::new(std::sync::RwLock::new(HashMap::new()));
+        Self {
+            transport: HttpTransport::with_arc_provider(provider, transport_config),
+            tool_executor,
+            skills: Vec::new(),
+            config,
+            history: Vec::new(),
+            system_prompt: None,
+            skill_contexts: Vec::new(),
+            skills_initialized: false,
+            available_skill_index: Vec::new(),
+            available_skill_configs,
+            cancel_token: None,
+            tool_permission_tx: None,
+            tool_notify_tx: None,
+            metrics: None,
+            metrics_source: None,
+            background_notifications: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Return a clone of the `Arc<dyn Provider>` from the transport layer.
+    /// This allows sub-agents to share the same provider instance.
+    pub fn provider_arc(&self) -> Arc<dyn Provider> {
+        self.transport.provider_arc()
+    }
+
+    /// Return a clone of the ToolExecutor for sharing with sub-agents.
+    pub fn tool_executor_clone(&self) -> ToolExecutor {
+        self.tool_executor.clone()
+    }
+
+    /// Return a clone of the current AgentConfig.
+    pub fn base_config(&self) -> AgentConfig {
+        self.config.clone()
+    }
+
+    /// Return the current system prompt (if any).
+    pub fn current_system_prompt(&self) -> Option<String> {
+        self.system_prompt.clone()
     }
 
     /// Set the metrics collector for tracking token usage and request counts.
@@ -572,6 +626,30 @@ impl Agent {
     /// Register a tool with the agent.
     pub fn register_tool(&mut self, tool: Arc<dyn crate::agent::tool_executor::Tool>) {
         self.tool_executor.register(tool);
+    }
+
+    /// Remove a tool from the agent by name.
+    /// Returns the removed tool if it existed.
+    pub fn remove_tool(
+        &mut self,
+        name: &str,
+    ) -> Option<Arc<dyn crate::agent::tool_executor::Tool>> {
+        self.tool_executor.remove_tool(name)
+    }
+
+    /// Register multiple tools at once from a map.
+    /// Used by HandoffTool to populate a sub-agent with filtered tools.
+    pub fn register_tools_from_map(
+        &mut self,
+        tools: std::collections::HashMap<String, Arc<dyn crate::agent::tool_executor::Tool>>,
+    ) {
+        self.tool_executor.register_all(tools);
+    }
+
+    /// Return a clone of the background notifications Arc so HandoffTool
+    /// can push results from background sub-agent tasks.
+    pub fn background_notifications_arc(&self) -> Arc<std::sync::Mutex<Vec<String>>> {
+        self.background_notifications.clone()
     }
 
     /// Set the conversation history (for restoring from persistence).
@@ -1071,6 +1149,19 @@ impl Agent {
 
         // Add user message to history
         self.history.push(message);
+
+        // Drain any pending background sub-agent results and inject them
+        // as user messages so the model sees them as notifications.
+        {
+            let mut pending = self.background_notifications.lock().unwrap();
+            for notification in pending.drain(..) {
+                tracing::info!(
+                    notification_len = notification.len(),
+                    "Injecting background sub-agent result as user message"
+                );
+                self.history.push(ChatMessage::user(&notification));
+            }
+        }
 
         // Run skill pre-processing (including dynamic context injection)
         self.run_skills_on_user_message().await;

@@ -27,6 +27,7 @@ pub enum ToolError {
 }
 
 /// Registry that manages available tools and dispatches calls.
+#[derive(Clone)]
 pub struct ToolExecutor {
     tools: HashMap<String, Arc<dyn Tool>>,
 }
@@ -45,9 +46,29 @@ impl ToolExecutor {
         self.tools.insert(name, tool);
     }
 
+    /// Register multiple tools from a map of tool instances.
+    /// Used by sub-agents to copy a filtered subset of tools from the main executor.
+    pub fn register_all(&mut self, tools: HashMap<String, Arc<dyn Tool>>) {
+        for (name, tool) in tools {
+            self.tools.insert(name, tool);
+        }
+    }
+
+    /// Remove a tool by name, returning the removed tool if it existed.
+    pub fn remove_tool(&mut self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.remove(name)
+    }
+
     /// Get all tool definitions for sending to the model.
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
+    }
+
+    /// Return a clone of the internal tool registry (for sharing with sub-agents).
+    /// This returns the full map of `Arc<dyn Tool>` instances so sub-agents
+    /// can register subsets of the same tool instances.
+    pub fn tools_map(&self) -> HashMap<String, Arc<dyn Tool>> {
+        self.tools.clone()
     }
 
     /// Execute a tool call by name.

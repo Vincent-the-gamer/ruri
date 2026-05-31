@@ -32,6 +32,7 @@ import type {
   SearchRequest,
   Skill,
   StreamEvent,
+  SubAgentOrchestratorConfig,
   Tool,
   UpdateAcpConfigRequest,
   UpdateComputerUseConfigRequest,
@@ -615,4 +616,14 @@ export async function getDebugSession(): Promise<DebugSession> {
 export async function updateDebugSession(data: UpdateDebugSessionRequest): Promise<DebugSession> {
   const res = await client.put('/api/debug-session', data)
   return res.data
+}
+
+// Sub-Agent Orchestrator
+export async function getSubAgentConfig(): Promise<SubAgentOrchestratorConfig> {
+  const res = await client.get('/api/subagent-orchestrator')
+  return res.data
+}
+
+export async function updateSubAgentConfig(data: SubAgentOrchestratorConfig): Promise<void> {
+  await client.put('/api/subagent-orchestrator', data)
 }

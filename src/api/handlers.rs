@@ -266,6 +266,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/debug-session",
             get(get_debug_session).put(update_debug_session),
         )
+        // Sub-agent orchestrator
+        .route(
+            "/api/subagent-orchestrator",
+            get(get_subagent_config).put(update_subagent_config),
+        )
         // Apply authentication middleware to all protected routes
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -6139,4 +6144,22 @@ async fn get_metrics_summary(
             })
         }).collect::<Vec<_>>()
     })))
+}
+
+// ─── Sub-Agent Orchestrator ───────────────────────────────────────
+
+async fn get_subagent_config(
+    State(state): State<Arc<AppState>>,
+) -> Json<crate::agent::subagent::SubAgentOrchestratorConfig> {
+    let config = state.subagent_orchestrator.read().await;
+    Json(config.clone())
+}
+
+async fn update_subagent_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<crate::agent::subagent::SubAgentOrchestratorConfig>,
+) -> Json<crate::agent::subagent::SubAgentOrchestratorConfig> {
+    let mut config = state.subagent_orchestrator.write().await;
+    *config = req;
+    Json(config.clone())
 }

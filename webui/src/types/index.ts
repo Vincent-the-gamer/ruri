@@ -859,4 +859,23 @@ export interface UpdateDebugSessionRequest {
   custom_error_message?: string | null
 }
 
+// Sub-Agent types
+export interface SubAgentDefinition {
+  name: string
+  enabled: boolean
+  system_prompt: string
+  description: string
+  model?: string | null
+  provider_id?: string | null
+  persona_id?: string | null
+  max_tool_rounds?: number | null
+}
+
+export interface SubAgentOrchestratorConfig {
+  main_enable: boolean
+  remove_main_duplicate_tools: boolean
+  router_system_prompt: string
+  agents: SubAgentDefinition[]
+}
+
 

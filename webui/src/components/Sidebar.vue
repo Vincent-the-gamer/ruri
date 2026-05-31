@@ -120,6 +120,11 @@ const navGroups = computed(() => [
                 label: t("nav.knowledgeBase", "Knowledge Base"),
                 icon: "lucide:book-open",
             },
+            {
+                path: "/sub-agents",
+                label: t("nav.subAgents"),
+                icon: "lucide:users",
+            },
         ],
     },
     {

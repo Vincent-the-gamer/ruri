@@ -137,6 +137,12 @@ const router = createRouter({
       component: () => import('../views/BuiltinCommands.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/sub-agents',
+      name: 'SubAgents',
+      component: () => import('../views/SubAgents.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

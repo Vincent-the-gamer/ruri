@@ -871,6 +871,8 @@ pub struct AppState {
     /// Debug session configuration (WebUI chat debug settings).
     /// Persisted separately from config profiles.
     pub debug_session: RwLock<DebugSessionConfig>,
+    /// Sub-agent orchestrator configuration.
+    pub subagent_orchestrator: RwLock<crate::agent::subagent::SubAgentOrchestratorConfig>,
     /// Shutdown trigger for the main HTTP server.
     /// Sending `true` via the sender initiates graceful shutdown.
     pub server_shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -1170,6 +1172,9 @@ impl AppState {
             knowledge_base_service: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
             shell_command_blacklist: RwLock::new(shell_command_blacklist),
             debug_session: RwLock::new(DebugSessionConfig::default()),
+            subagent_orchestrator: RwLock::new(
+                crate::agent::subagent::SubAgentOrchestratorConfig::default(),
+            ),
             server_shutdown_tx: shutdown_tx,
             server_shutdown_rx: shutdown_rx,
             restart_requested: std::sync::atomic::AtomicBool::new(false),
@@ -3296,6 +3301,56 @@ impl AppState {
         });
         if let Some(source) = metrics_source {
             agent.set_metrics_source(source);
+        }
+
+        // ── Sub-Agent Orchestrator integration ──────────────────────
+        // Register handoff tools and inject router prompt when sub-agents
+        // are configured and enabled.
+        {
+            let orch_config = self.subagent_orchestrator.read().await.clone();
+            if orch_config.main_enable {
+                let mut orchestrator = crate::agent::subagent::SubAgentOrchestrator::new();
+                orchestrator.load_from_config(orch_config);
+
+                if orchestrator.is_enabled() {
+                    // Inject router prompt into system prompt
+                    if let Some(router_prompt) = orchestrator.router_prompt() {
+                        let existing = agent.current_system_prompt().unwrap_or_default();
+                        agent.set_system_prompt(format!("{}\n\n{}", existing, router_prompt));
+                    }
+
+                    // Create handoff tools and register them
+                    let provider = agent.provider_arc();
+                    let background_notify = Some(agent.background_notifications_arc());
+                    let handoff_tools = orchestrator.create_handoff_tools(
+                        provider,
+                        &agent.base_config(),
+                        Arc::new(agent.tool_executor_clone()),
+                        background_notify,
+                    );
+                    for tool in handoff_tools {
+                        let name = tool.agent_name().to_string();
+                        agent.register_tool(Arc::new(tool));
+                        tracing::info!(subagent = %name, "Registered handoff tool");
+                    }
+
+                    // Optionally remove duplicate tools from the main agent
+                    let assigned = orchestrator.assigned_tool_names();
+                    if !assigned.is_empty() {
+                        tracing::info!(
+                            tools = ?assigned,
+                            "Removing duplicate tools assigned to sub-agents from main agent"
+                        );
+                        for name in &assigned {
+                            if agent.remove_tool(name).is_some() {
+                                tracing::info!(tool = %name, "Removed duplicate tool from main agent");
+                            } else {
+                                tracing::debug!(tool = %name, "Tool not found in main agent, skipping removal");
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Ok(agent)
