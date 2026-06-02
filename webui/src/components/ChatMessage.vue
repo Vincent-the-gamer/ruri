@@ -11,6 +11,41 @@ const props = defineProps<{
 
 const chatStore = useChatStore();
 const showToolCalls = ref(false);
+const copied = ref(false);
+
+function getMessageText(content: string | ContentPart[]): string {
+    if (typeof content === "string") return content;
+    return content
+        .filter((p) => p.type === "text" && p.text)
+        .map((p) => p.text!)
+        .join("\n");
+}
+
+async function copyToClipboard() {
+    const text = getMessageText(props.message.content);
+    if (!text) return;
+    try {
+        await navigator.clipboard.writeText(text);
+        copied.value = true;
+        setTimeout(() => {
+            copied.value = false;
+        }, 2000);
+    } catch {
+        // Fallback for older browsers
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        copied.value = true;
+        setTimeout(() => {
+            copied.value = false;
+        }, 2000);
+    }
+}
 
 const isUser = computed(() => props.message.role === "user");
 const isAssistant = computed(() => props.message.role === "assistant");
@@ -33,6 +68,14 @@ const isCurrentlyStreaming = computed(
         chatStore.streamingContent !== "" &&
         chatStore.messages[chatStore.messages.length - 1] === props.message,
 );
+
+/** Whether this message has no visible content and should be hidden */
+const hasContent = computed(() => {
+    const c = props.message.content;
+    if (typeof c === "string") return c.trim().length > 0;
+    if (Array.isArray(c)) return c.length > 0;
+    return false;
+});
 
 function formatArgs(args: string): string {
     try {
@@ -62,6 +105,12 @@ function renderMarkdown(
 
 <template>
     <div
+        v-if="
+            hasContent ||
+            hasToolCalls ||
+            isToolExecuting ||
+            isCurrentlyStreaming
+        "
         class="message-wrapper"
         :class="{
             'message-wrapper-user': isUser,
@@ -71,7 +120,49 @@ function renderMarkdown(
         <!-- User Message -->
         <div v-if="isUser" class="message message-user">
             <div class="message-content-wrapper user-content-wrapper">
-                <div class="message-label">你</div>
+                <div class="message-label">
+                    你
+                    <button
+                        class="copy-btn"
+                        @click.stop="copyToClipboard"
+                        :title="copied ? '已复制' : '复制文本'"
+                    >
+                        <svg
+                            v-if="!copied"
+                            class="copy-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            />
+                        </svg>
+                        <svg
+                            v-else
+                            class="copy-icon copied"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    </button>
+                </div>
                 <div class="message-content user-content">
                     <template v-if="Array.isArray(message.content)">
                         <template
@@ -198,6 +289,46 @@ function renderMarkdown(
                 <div class="message-label assistant-label">
                     <span>琉璃</span>
                     <span class="label-dot"></span>
+                    <button
+                        class="copy-btn"
+                        @click.stop="copyToClipboard"
+                        :title="copied ? '已复制' : '复制文本'"
+                    >
+                        <svg
+                            v-if="!copied"
+                            class="copy-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            />
+                        </svg>
+                        <svg
+                            v-else
+                            class="copy-icon copied"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    </button>
                 </div>
                 <!-- Tool calls (process) — shown before the response text (result) -->
                 <div v-if="hasToolCalls" class="tool-calls">
@@ -287,6 +418,46 @@ function renderMarkdown(
                     <span v-if="message.tool_call_id" class="tool-id">{{
                         message.tool_call_id
                     }}</span>
+                    <button
+                        class="copy-btn"
+                        @click.stop="copyToClipboard"
+                        :title="copied ? 'Copied' : 'Copy'"
+                    >
+                        <svg
+                            v-if="!copied"
+                            class="copy-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            />
+                        </svg>
+                        <svg
+                            v-else
+                            class="copy-icon copied"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    </button>
                 </div>
                 <div
                     class="message-content tool-content"
@@ -305,6 +476,46 @@ function renderMarkdown(
         <div v-else-if="isSystem" class="message message-system">
             <div class="message-content">
                 <div v-html="renderMarkdown(message.content)"></div>
+                <button
+                    class="copy-btn"
+                    @click.stop="copyToClipboard"
+                    :title="copied ? 'Copied' : 'Copy'"
+                >
+                    <svg
+                        v-if="!copied"
+                        class="copy-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <rect
+                            x="9"
+                            y="9"
+                            width="13"
+                            height="13"
+                            rx="2"
+                            ry="2"
+                        />
+                        <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                        />
+                    </svg>
+                    <svg
+                        v-else
+                        class="copy-icon copied"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                </button>
             </div>
         </div>
     </div>
@@ -879,5 +1090,48 @@ function renderMarkdown(
     50% {
         opacity: 0;
     }
+}
+
+/* Copy button */
+.copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity 0.2s ease,
+        background 0.2s ease;
+    padding: 0;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.message-wrapper:hover .copy-btn {
+    opacity: 1;
+}
+
+.copy-btn:hover {
+    background: hsl(var(--foreground) / 0.1);
+    color: hsl(var(--foreground));
+}
+
+.copy-btn:active {
+    transform: scale(0.9);
+}
+
+.copy-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.copy-icon.copied {
+    color: hsl(142 70% 45%);
 }
 </style>

@@ -114,6 +114,12 @@ async function handleSend(
     images: string[] = [],
     files: AttachedFile[] = [],
 ) {
+    // Guard: skip empty sends (should be caught by ChatInput, but defense-in-depth)
+    const hasMessageText = message && message.trim().length > 0;
+    const hasImages = images.length > 0;
+    const hasFiles = files.length > 0;
+    if (!hasMessageText && !hasImages && !hasFiles) return;
+
     const effectiveTemp =
         chatConfigModal.value?.temperature ?? temperature.value;
     const effectiveMaxTokens =

@@ -1449,15 +1449,67 @@ impl Agent {
         // Build the messages array with the system prompt as the first message
         let mut messages = Vec::new();
 
-        // Detect current operating system for shell command hints
+        // Detect current operating system and environment for accurate
+        // shell command generation and path handling.
+        let home_dir = dirs::home_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let username = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string());
+        let temp_dir = std::env::temp_dir().display().to_string();
+
         let os_info = if cfg!(target_os = "windows") {
-            "Operating System: Windows (Shell: PowerShell)"
+            format!(
+                "## System Information\n\
+                 Operating System: Windows\n\
+                 Default Shell: PowerShell\n\
+                 Home Directory: {home_dir}\n\
+                 Username: {username}\n\
+                 Temp Directory: {temp_dir}\n\
+                 Path Separator: \\ (backslash)\n\
+                 IMPORTANT: Use PowerShell syntax for shell commands.\n\
+                 PowerShell outputs may use UTF-8 encoding. Use backslashes \
+                 for file paths or PowerShell commands that auto-convert."
+            )
         } else if cfg!(target_os = "macos") {
-            "Operating System: macOS (Shell: bash)"
+            format!(
+                "## System Information\n\
+                 Operating System: macOS\n\
+                 Default Shell: bash (also available: zsh, sh)\n\
+                 Home Directory: {home_dir}\n\
+                 Username: {username}\n\
+                 Temp Directory: {temp_dir}\n\
+                 Path Separator: / (forward slash)\n\
+                 IMPORTANT: Use Unix/bash syntax for shell commands.\n\
+                 Tilde (~) is available as a shortcut for the home directory in\n\
+                 shell commands, but when using file tools (read_file,\n\
+                 write_file, etc.), always expand ~ to the full path."
+            )
         } else if cfg!(target_os = "linux") {
-            "Operating System: Linux (Shell: bash)"
+            format!(
+                "## System Information\n\
+                 Operating System: Linux\n\
+                 Default Shell: bash (also available: sh, zsh)\n\
+                 Home Directory: {home_dir}\n\
+                 Username: {username}\n\
+                 Temp Directory: {temp_dir}\n\
+                 Path Separator: / (forward slash)\n\
+                 IMPORTANT: Use Unix/bash syntax for shell commands.\n\
+                 Tilde (~) is available as a shortcut for the home directory in\n\
+                 shell commands, but when using file tools (read_file,\n\
+                 write_file, etc.), always expand ~ to the full path."
+            )
         } else {
-            "Operating System: Unknown (Shell: bash)"
+            format!(
+                "## System Information\n\
+                 Operating System: Unknown\n\
+                 Default Shell: bash\n\
+                 Home Directory: {home_dir}\n\
+                 Username: {username}\n\
+                 Temp Directory: {temp_dir}\n\
+                 Path Separator: / (forward slash)"
+            )
         };
 
         // Inject the persona as the sole system message

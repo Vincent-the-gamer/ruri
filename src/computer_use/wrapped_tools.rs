@@ -1,10 +1,10 @@
-use crate::agent::builtin_tools::validate_file_path;
+use crate::agent::builtin_tools::{expand_tilde, validate_file_path};
 use crate::agent::tool_executor::{Tool, ToolError};
 use crate::computer_use::tools::ComputerUseContext;
 use crate::types::{ParameterType, ToolDefinition};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
 
@@ -43,7 +43,7 @@ impl Tool for WrappedReadFileTool {
 
         validate_file_path(path_str)?;
 
-        let path = PathBuf::from(path_str);
+        let path = expand_tilde(path_str);
 
         // Check permissions
         self.context
@@ -124,7 +124,7 @@ impl Tool for WrappedWriteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'content' parameter".into()))?;
 
-        let path = PathBuf::from(path_str);
+        let path = expand_tilde(path_str);
 
         // Check permissions
         self.context
@@ -203,7 +203,7 @@ impl Tool for WrappedListDirectoryTool {
 
         validate_file_path(path_str)?;
 
-        let path = PathBuf::from(path_str);
+        let path = expand_tilde(path_str);
 
         // Check permissions
         self.context

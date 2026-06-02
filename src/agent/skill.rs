@@ -505,11 +505,16 @@ impl SkillPackageSkill {
         #[cfg(target_os = "windows")]
         let spawn_result = {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
+            // Prepend UTF-8 output encoding fix so PowerShell outputs valid
+            // UTF-8 instead of the system OEM code page (e.g., GBK).
+            let cmd_with_enc = format!(
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
+            );
             // Encode command as UTF-16LE and base64-encode it, so PowerShell
             // passes it through without interpreting special characters.
             let encoded = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
-                command
+                cmd_with_enc
                     .encode_utf16()
                     .flat_map(|c| c.to_le_bytes())
                     .collect::<Vec<u8>>(),

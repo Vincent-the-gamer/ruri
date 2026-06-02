@@ -47,6 +47,8 @@ export const useChatStore = defineStore('chat', () => {
   const _syncedWithDb = ref(false)
   /** Accumulated tool calls during the current streaming session */
   const _accumulatedToolCalls = ref<ToolCall[]>([])
+  /** Whether the stream received a 'done' event (normal completion) */
+  const _streamDoneReceived = ref(false)
 
   // Computed: true when the agent is actively processing a message
   const isThinking = computed(() => sending.value)
@@ -158,7 +160,13 @@ export const useChatStore = defineStore('chat', () => {
 
     contentParts.push({ type: 'text', text: req.message });
 
-    const hasMultiContent = (req.images && req.images.length > 0) || (req.files && req.files.length > 0)
+    // Guard: don't create an empty user message with no attachments
+    const hasMessageText = req.message && req.message.trim().length > 0;
+    const hasImages = req.images && req.images.length > 0;
+    const hasFiles = req.files && req.files.length > 0;
+    if (!hasMessageText && !hasImages && !hasFiles) return;
+
+    const hasMultiContent = hasImages || hasFiles
     const userMessage: ChatMessage = {
       role: 'user',
       content: hasMultiContent ? contentParts : req.message,
@@ -170,6 +178,7 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent.value = ''
     isStreaming.value = true
     _accumulatedToolCalls.value = []
+    _streamDoneReceived.value = false
 
     try {
       // Use streaming API
@@ -177,9 +186,10 @@ export const useChatStore = defineStore('chat', () => {
         handleStreamEvent(event)
       }
 
-      // If the stream ended without any content or error, something went wrong
-      // (e.g. the connection was closed silently or the agent panicked)
-      if (!streamingContent.value && !error.value) {
+      // If the stream ended without a done event, any content, or an error,
+      // something went wrong (e.g. the connection was closed silently or the agent panicked).
+      // A stream can legitimately have no text content if it was purely tool calls.
+      if (!_streamDoneReceived.value && !streamingContent.value && !error.value) {
         messages.value.push({
           role: 'assistant',
           content: '⚠️ No response received from the model. The stream ended unexpectedly.',
@@ -208,18 +218,18 @@ export const useChatStore = defineStore('chat', () => {
       sending.value = false
       isStreaming.value = false
       _accumulatedToolCalls.value = []
-      // Sync with database in the background, but do NOT replace local
-      // messages if an error occurred — the local state may contain error
-      // messages that haven't been persisted to DB. Replacing them would
-      // make errors invisible to the user.
-      api.getChatHistory().then((serverHistory) => {
-        if (serverHistory && serverHistory.length > 0 && !error.value) {
-          messages.value = serverHistory
-          saveMessagesToCache(messages.value)
-        }
-      }).catch(() => {
+      // Save current local messages to cache (they are the authoritative
+      // view after a successful stream). Do NOT replace local state with
+      // server history — the streaming response is the source of truth.
+      // Server sync via getChatHistory is deferred to the next page load
+      // or activation to avoid race conditions and content format mismatches.
+      if (!error.value) {
         saveMessagesToCache(messages.value)
-      })
+      } else {
+        // On error, keep local state (includes error messages).
+        // Still attempt to save for cache consistency.
+        saveMessagesToCache(messages.value)
+      }
     }
   }
 
@@ -298,19 +308,25 @@ export const useChatStore = defineStore('chat', () => {
         if (streamingContent.value) {
           finalizeStreamingMessage();
         }
-        messages.value.push({
-          role: 'tool',
-          content: event.content,
-          tool_call_id: event.tool_call_id,
-          tool_name: event.tool_name,
-        })
+        // Skip empty tool results — they would create empty dialog boxes
+        const resultContent = (event.content || '').trim();
+        if (resultContent) {
+          messages.value.push({
+            role: 'tool',
+            content: event.content,
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+          });
+        }
         break
       }
       case 'done': {
         // Stream completed — finalize any remaining streaming content
         // and attach accumulated tool_calls to the last assistant message
+        _streamDoneReceived.value = true
         finalizeStreamingMessage()
         attachToolCallsToLastAssistantMessage()
+        cleanupEmptyPlaceholders()
         break
       }
       case 'error': {
@@ -381,6 +397,26 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent.value = ''
   }
 
+  /** Remove empty placeholder assistant messages created by tool_call_start
+   *  that never got populated with content or tool_calls */
+  function cleanupEmptyPlaceholders() {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const msg = messages.value[i]
+      if (msg.role === 'assistant') {
+        const hasContent = typeof msg.content === 'string'
+          ? msg.content.length > 0
+          : (Array.isArray(msg.content) && msg.content.length > 0)
+        const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0
+        if (!hasContent && !hasToolCalls) {
+          messages.value.splice(i, 1)
+          continue
+        }
+        break
+      }
+      if (msg.role !== 'tool' && msg.role !== 'user') break
+    }
+  }
+
   // Auto-sync messages to localStorage cache on every change
   watch(messages, (newMessages) => {
     saveMessagesToCache(newMessages)
@@ -401,6 +437,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     // Attach any accumulated tool calls
     attachToolCallsToLastAssistantMessage()
+    cleanupEmptyPlaceholders()
     sending.value = false
     isStreaming.value = false
     _accumulatedToolCalls.value = []

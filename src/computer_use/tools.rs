@@ -285,9 +285,14 @@ fn run_shell_sync(
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
+    let command_with_encoding = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
+    );
+
     let encoded = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        command
+        command_with_encoding
             .encode_utf16()
             .flat_map(|c| c.to_le_bytes())
             .collect::<Vec<u8>>(),

@@ -217,12 +217,12 @@ function removeFile(index: number) {
 }
 
 function handleSend() {
+    if (props.disabled || props.sending) return;
     const text = inputText.value.trim();
     if (
-        (!text &&
-            attachedImages.value.length === 0 &&
-            attachedFiles.value.length === 0) ||
-        props.disabled
+        !text &&
+        attachedImages.value.length === 0 &&
+        attachedFiles.value.length === 0
     )
         return;
     emit("send", text, attachedImages.value, attachedFiles.value);
@@ -234,6 +234,7 @@ function handleSend() {
 function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !isComposing.value) {
         e.preventDefault();
+        if (props.disabled || props.sending) return;
         handleSend();
     }
 }

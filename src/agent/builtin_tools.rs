@@ -194,6 +194,32 @@ fn parse_args(args: &str) -> Result<Value, ToolError> {
     serde_json::from_str(args).map_err(|e| ToolError::InvalidArguments(e.to_string()))
 }
 
+/// Expand a leading `~` in a path to the user's home directory.
+///
+/// Uses the `dirs` crate for cross-platform resolution:
+/// - **Linux/macOS**: `~/Desktop` → `/home/user/Desktop` or `/Users/user/Desktop`
+/// - **Windows**: `~\Desktop` → `C:\Users\user\Desktop`
+///
+/// If the path does not start with `~`, it is returned unchanged.
+/// If the home directory cannot be determined, the path is returned unchanged.
+pub fn expand_tilde(path: &str) -> std::path::PathBuf {
+    if path.starts_with('~') {
+        if let Some(home) = dirs::home_dir() {
+            if path == "~" {
+                return home;
+            }
+            // Strip the leading "~/" or "~\"
+            let remainder = &path[1..];
+            let remainder = remainder.trim_start_matches('/').trim_start_matches('\\');
+            if remainder.is_empty() {
+                return home;
+            }
+            return home.join(remainder);
+        }
+    }
+    std::path::PathBuf::from(path)
+}
+
 /// Validate that the given path is not a Unix device path (e.g. `/dev/stdin`,
 /// `/dev/null`). On Windows these get resolved to `C:\dev\stdin` etc., which
 /// is almost certainly not what the caller intended.
@@ -246,9 +272,11 @@ impl Tool for ReadFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
-        let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        let content = tokio::fs::read_to_string(&expanded).await.map_err(|e| {
             ToolError::ExecutionError(format!("Failed to read file '{}': {}", path, e))
         })?;
 
@@ -321,10 +349,12 @@ impl Tool for WriteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'content' parameter".into()))?;
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
         // Create parent directories if needed
-        if let Some(parent) = Path::new(path).parent() {
+        if let Some(parent) = expanded.parent() {
             if !parent.as_os_str().is_empty() {
                 tokio::fs::create_dir_all(parent).await.map_err(|e| {
                     ToolError::ExecutionError(format!(
@@ -335,7 +365,7 @@ impl Tool for WriteFileTool {
             }
         }
 
-        tokio::fs::write(path, content).await.map_err(|e| {
+        tokio::fs::write(&expanded, content).await.map_err(|e| {
             ToolError::ExecutionError(format!("Failed to write file '{}': {}", path, e))
         })?;
 
@@ -375,10 +405,12 @@ impl Tool for CreateFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'content' parameter".into()))?;
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
         // Check if file already exists
-        if Path::new(path).exists() {
+        if expanded.exists() {
             return Err(ToolError::ExecutionError(format!(
                 "File '{}' already exists. Use write_file to overwrite.",
                 path
@@ -386,7 +418,7 @@ impl Tool for CreateFileTool {
         }
 
         // Create parent directories if needed
-        if let Some(parent) = Path::new(path).parent() {
+        if let Some(parent) = expanded.parent() {
             if !parent.as_os_str().is_empty() {
                 tokio::fs::create_dir_all(parent).await.map_err(|e| {
                     ToolError::ExecutionError(format!(
@@ -397,7 +429,7 @@ impl Tool for CreateFileTool {
             }
         }
 
-        tokio::fs::write(path, content).await.map_err(|e| {
+        tokio::fs::write(&expanded, content).await.map_err(|e| {
             ToolError::ExecutionError(format!("Failed to create file '{}': {}", path, e))
         })?;
 
@@ -439,10 +471,12 @@ impl Tool for EditFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'new_text' parameter".into()))?;
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
         // Read the file
-        let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        let content = tokio::fs::read_to_string(&expanded).await.map_err(|e| {
             ToolError::ExecutionError(format!("Failed to read file '{}': {}", path, e))
         })?;
 
@@ -465,9 +499,11 @@ impl Tool for EditFileTool {
         let new_content = content.replacen(old_text, new_text, 1);
 
         // Write back
-        tokio::fs::write(path, &new_content).await.map_err(|e| {
-            ToolError::ExecutionError(format!("Failed to write file '{}': {}", path, e))
-        })?;
+        tokio::fs::write(&expanded, &new_content)
+            .await
+            .map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to write file '{}': {}", path, e))
+            })?;
 
         Ok(format!(
             "Successfully edited {}: replaced 1 occurrence ({} chars -> {} chars)",
@@ -502,23 +538,24 @@ impl Tool for DeleteFileTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
-        let file_path = Path::new(path);
-        if !file_path.exists() {
+        if !expanded.exists() {
             return Err(ToolError::ExecutionError(format!(
                 "Path '{}' does not exist",
                 path
             )));
         }
 
-        if file_path.is_dir() {
-            tokio::fs::remove_dir_all(file_path).await.map_err(|e| {
+        if expanded.is_dir() {
+            tokio::fs::remove_dir_all(&expanded).await.map_err(|e| {
                 ToolError::ExecutionError(format!("Failed to delete directory '{}': {}", path, e))
             })?;
             Ok(format!("Successfully deleted directory {}", path))
         } else {
-            tokio::fs::remove_file(file_path).await.map_err(|e| {
+            tokio::fs::remove_file(&expanded).await.map_err(|e| {
                 ToolError::ExecutionError(format!("Failed to delete file '{}': {}", path, e))
             })?;
             Ok(format!("Successfully deleted file {}", path))
@@ -557,23 +594,24 @@ impl Tool for ListDirectoryTool {
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'path' parameter".into()))?;
         let recursive = parsed["recursive"].as_bool().unwrap_or(false);
 
-        validate_file_path(path)?;
+        let expanded = expand_tilde(path);
+        let expanded_str = expanded.display().to_string();
+        validate_file_path(&expanded_str)?;
 
-        let dir_path = Path::new(path);
-        if !dir_path.exists() {
+        if !expanded.exists() {
             return Err(ToolError::ExecutionError(format!(
                 "Path '{}' does not exist",
                 path
             )));
         }
-        if !dir_path.is_dir() {
+        if !expanded.is_dir() {
             return Err(ToolError::ExecutionError(format!(
                 "Path '{}' is not a directory",
                 path
             )));
         }
 
-        let entries = list_dir_recursive(dir_path, recursive)
+        let entries = list_dir_recursive(&expanded, recursive)
             .map_err(|e| ToolError::ExecutionError(e.to_string()))?;
 
         if entries.is_empty() {
@@ -704,7 +742,9 @@ impl Tool for SearchFilesTool {
         }
 
         let glob_pattern = pattern.unwrap_or("**/*");
-        let root_path = Path::new(root);
+        let root_path = expand_tilde(root);
+        let root_str = root_path.display().to_string();
+        validate_file_path(&root_str)?;
 
         if !root_path.exists() {
             return Err(ToolError::ExecutionError(format!(
@@ -724,7 +764,7 @@ impl Tool for SearchFilesTool {
 
         let mut results = Vec::new();
         search_files_inner(
-            root_path,
+            &root_path,
             glob_pattern,
             content_regex.as_ref(),
             max_results,
@@ -1035,11 +1075,18 @@ fn run_shell_command_sync(
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
+    // Without this, PowerShell defaults to the system's OEM code page (e.g.,
+    // GBK on Chinese Windows), causing garbled text for non-ASCII characters.
+    let command_with_encoding = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
+    );
+
     // Encode command as UTF-16LE and base64-encode it to avoid PowerShell
     // argument parsing quirks with special characters.
     let encoded = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        command
+        command_with_encoding
             .encode_utf16()
             .flat_map(|c| c.to_le_bytes())
             .collect::<Vec<u8>>(),
