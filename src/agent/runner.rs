@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 /// Maximum number of tool-call round-trips before forcing a stop.
 const MAX_TOOL_ROUNDS: u32 = 10;
@@ -142,6 +143,12 @@ pub struct Agent {
     /// conversation as user messages before the next turn. Shared with
     /// HandoffTool so background tasks can push results here.
     background_notifications: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Tracks the last executed tool name for repeat-call streak detection.
+    /// When the same tool is called consecutively with different (failing)
+    /// arguments, we inject a system notice to prevent infinite retry loops.
+    last_tool_name: std::sync::Mutex<Option<String>>,
+    /// Number of consecutive calls to the same tool.
+    same_tool_streak: AtomicU32,
 }
 
 /// An entry in the skill index, used for skill routing.
@@ -312,6 +319,8 @@ impl Agent {
             metrics: None,
             metrics_source: None,
             background_notifications: Arc::new(std::sync::Mutex::new(Vec::new())),
+            last_tool_name: std::sync::Mutex::new(None),
+            same_tool_streak: AtomicU32::new(0),
         }
     }
 
@@ -340,6 +349,8 @@ impl Agent {
             metrics: None,
             metrics_source: None,
             background_notifications: Arc::new(std::sync::Mutex::new(Vec::new())),
+            last_tool_name: std::sync::Mutex::new(None),
+            same_tool_streak: AtomicU32::new(0),
         }
     }
 
@@ -616,6 +627,63 @@ impl Agent {
     /// Override the `tool_choice` parameter for every request made by this agent.
     pub fn set_tool_choice(&mut self, choice: Option<crate::types::ToolChoice>) {
         self.config.tool_choice = choice;
+    }
+
+    /// Track consecutive calls to the same tool and return guidance if the
+    /// streak exceeds thresholds. This prevents infinite retry loops when
+    /// a tool keeps failing and the LLM tries it repeatedly with slightly
+    /// different arguments.
+    ///
+    /// Uses `Mutex` + `AtomicU32` so this can be called via `&self` even while
+    /// a stream borrows `self.transport`, and it's `Sync` for thread safety.
+    ///
+    /// Inspired by AstrBot's `_track_tool_call_streak` / `_build_repeated_tool_call_guidance`.
+    fn track_tool_streak(&self, tool_name: &str) -> Option<String> {
+        let mut prev = self.last_tool_name.lock().unwrap();
+        let was_same = prev.as_deref() == Some(tool_name);
+        *prev = Some(tool_name.to_string());
+        drop(prev);
+
+        let streak = if was_same {
+            self.same_tool_streak
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                + 1
+        } else {
+            self.same_tool_streak
+                .store(1, std::sync::atomic::Ordering::Relaxed);
+            1
+        };
+
+        if streak < 3 {
+            return None;
+        }
+
+        // Escalating guidance as the streak grows.
+        // L1 (3): gentle nudge. L2 (4): stronger warning. L3 (5+): directive.
+        let guidance = if streak >= 5 {
+            format!(
+                "\n\n[SYSTEM NOTICE] Important: you have called `{tool_name}` \
+                 {streak} times consecutively. Repetition is now very high. \
+                 Continue only if each call is clearly producing new information. \
+                 Otherwise, change strategy, explain the limitation to the user, \
+                 or ask the user for guidance."
+            )
+        } else if streak >= 4 {
+            format!(
+                "\n\n[SYSTEM NOTICE] Important: you have called `{tool_name}` \
+                 {streak} times consecutively. Unless this repetition is clearly \
+                 necessary, stop repeating the same action and either switch tools, \
+                 refine parameters, or summarize what is still missing."
+            )
+        } else {
+            format!(
+                "\n\n[SYSTEM NOTICE] By the way, you have called `{tool_name}` \
+                 {streak} times consecutively. Double-check whether another tool, \
+                 different arguments, or a summary would move the task forward better."
+            )
+        };
+
+        Some(guidance)
     }
 
     /// Override the `parallel_tool_calls` parameter for every request made by this agent.
@@ -1002,19 +1070,7 @@ impl Agent {
                         return Ok("stop".to_string());
                     }
 
-                    // Add a natural-language progress message to history so the user
-                    // sees what's happening and can correct if needed.
-                    let progress_msg = format!(
-                        "Let me use `{}` to help you with this...",
-                        call.function.name
-                    );
-                    self.history.push(ChatMessage::assistant(&progress_msg));
-                    // Also send it as a content delta for the user to see
-                    let _ = tx
-                        .send(Ok(StreamEvent::ContentDelta {
-                            delta: progress_msg,
-                        }))
-                        .await;
+                    // ── Execute the tool ──
 
                     let result = if !allowed {
                         ToolResult {
@@ -1042,11 +1098,21 @@ impl Agent {
                             .await
                     };
 
+                    // ── Track repeated tool calls to prevent infinite retry loops ──
+                    // When the same tool is called consecutively with failing results,
+                    // we inject escalating guidance to help the LLM break out of the loop.
+                    let streak_guidance = self.track_tool_streak(&call.function.name);
+                    let result_content = if let Some(ref guidance) = streak_guidance {
+                        format!("{}{}", result.content, guidance)
+                    } else {
+                        result.content.clone()
+                    };
+
                     // Notify skills
                     for skill in &self.skills {
                         if skill.is_active() {
                             skill
-                                .on_tool_result(&call.function.name, &result.content)
+                                .on_tool_result(&call.function.name, &result_content)
                                 .await;
                         }
                     }
@@ -1054,7 +1120,7 @@ impl Agent {
                     // Add tool result to history
                     self.history.push(ChatMessage::tool_result(
                         &result.tool_call_id,
-                        &result.content,
+                        &result_content,
                     ));
 
                     // Emit tool result event
@@ -1062,7 +1128,7 @@ impl Agent {
                         .send(Ok(StreamEvent::ToolResult {
                             tool_call_id: result.tool_call_id,
                             tool_name: call.function.name.clone(),
-                            content: result.content,
+                            content: result_content,
                         }))
                         .await
                         .is_err()
@@ -1328,11 +1394,19 @@ impl Agent {
                                 .await
                         };
 
+                        // ── Track repeated tool calls to prevent infinite retry loops ──
+                        let streak_guidance = self.track_tool_streak(&call.function.name);
+                        let result_content = if let Some(ref guidance) = streak_guidance {
+                            format!("{}{}", result.content, guidance)
+                        } else {
+                            result.content.clone()
+                        };
+
                         // Notify skills
                         for skill in &self.skills {
                             if skill.is_active() {
                                 skill
-                                    .on_tool_result(&call.function.name, &result.content)
+                                    .on_tool_result(&call.function.name, &result_content)
                                     .await;
                             }
                         }
@@ -1340,7 +1414,7 @@ impl Agent {
                         // Add tool result to history
                         self.history.push(ChatMessage::tool_result(
                             &result.tool_call_id,
-                            &result.content,
+                            &result_content,
                         ));
 
                         // Check cancellation after each individual tool call —
@@ -2166,11 +2240,19 @@ impl AgentStreamer {
                                 agent.tool_executor.execute_with_id(&call.id, &call.function).await
                             };
 
+                            // ── Track repeated tool calls to prevent infinite retry loops ──
+                            let streak_guidance = agent.track_tool_streak(&call.function.name);
+                            let result_content = if let Some(ref guidance) = streak_guidance {
+                                format!("{}{}", result.content, guidance)
+                            } else {
+                                result.content.clone()
+                            };
+
                             // Notify skills
                             for skill in &agent.skills {
                                 if skill.is_active() {
                                     skill
-                                        .on_tool_result(&call.function.name, &result.content)
+                                        .on_tool_result(&call.function.name, &result_content)
                                         .await;
                                 }
                             }
@@ -2178,7 +2260,7 @@ impl AgentStreamer {
                             // Add tool result to history
                             agent.history.push(ChatMessage::tool_result(
                                 &result.tool_call_id,
-                                &result.content,
+                                &result_content,
                             ));
 
                             // Emit tool result event to client
@@ -2186,7 +2268,7 @@ impl AgentStreamer {
                                 .send(Ok(StreamEvent::ToolResult {
                                     tool_call_id: result.tool_call_id,
                                     tool_name: call.function.name.clone(),
-                                    content: result.content,
+                                    content: result_content,
                                 }))
                                 .await
                                 .is_err()

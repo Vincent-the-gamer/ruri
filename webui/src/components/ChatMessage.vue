@@ -394,12 +394,51 @@ function renderMarkdown(
                         v-if="isCurrentlyStreaming"
                         class="streaming-cursor"
                     ></span>
+
+                    <!-- Tool result footnotes: shown inline below the message -->
+                    <div
+                        v-if="
+                            (message as any)._tool_results &&
+                            (message as any)._tool_results.length > 0
+                        "
+                        class="tool-results-footnote"
+                    >
+                        <details>
+                            <summary class="tool-results-summary">
+                                <span class="footnote-icon">📎</span>
+                                <span
+                                    >工具调用结果（{{
+                                        (message as any)._tool_results.length
+                                    }}）</span
+                                >
+                            </summary>
+                            <div
+                                v-for="(tr, trIdx) in (message as any)
+                                    ._tool_results"
+                                :key="trIdx"
+                                class="tool-result-item"
+                            >
+                                <div class="tool-result-header">
+                                    <span class="tool-badge-inline">{{
+                                        tr.tool_name
+                                    }}</span>
+                                </div>
+                                <pre class="tool-result-content">{{
+                                    tr.content
+                                }}</pre>
+                            </div>
+                        </details>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Tool Message -->
-        <div v-else-if="isTool" class="message message-tool">
+        <div
+            v-else-if="isTool"
+            class="message message-tool"
+            :data-inline="(message as any)._inline ? 'true' : undefined"
+        >
             <div class="message-avatar tool-avatar">
                 <svg class="avatar-icon" viewBox="0 0 24 24" fill="none">
                     <path
@@ -1133,5 +1172,83 @@ function renderMarkdown(
 
 .copy-icon.copied {
     color: hsl(142 70% 45%);
+}
+
+/* ── Tool result footnotes (inline in assistant messages) ────── */
+.tool-results-footnote {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed hsl(var(--border) / 0.6);
+}
+
+.tool-results-summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0;
+    user-select: none;
+    list-style: none;
+}
+
+.tool-results-summary::-webkit-details-marker {
+    display: none;
+}
+
+.tool-results-summary:hover {
+    color: hsl(var(--foreground) / 0.8);
+}
+
+.footnote-icon {
+    font-size: 0.75rem;
+}
+
+.tool-result-item {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: hsl(var(--background) / 0.5);
+    border-radius: 0.375rem;
+    border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.tool-result-item + .tool-result-item {
+    margin-top: 0.375rem;
+}
+
+.tool-result-header {
+    margin-bottom: 0.25rem;
+}
+
+.tool-badge-inline {
+    font-family: monospace;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.tool-result-content {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0.375rem;
+    background: hsl(var(--background));
+    border-radius: 0.25rem;
+    border: 1px solid hsl(var(--border));
+}
+
+/* Hide inline tool status markers */
+.message-tool[data-inline="true"],
+.message-wrapper:has(.message-tool[data-inline="true"]) {
+    display: none;
 }
 </style>

@@ -260,19 +260,38 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_executing': {
-        // Show tool execution progress to user
-        const statusMsg = `🔧 Calling \`${event.tool_name}\`...`;
-        // If we had a previous streaming message, finalize it
-        if (streamingContent.value) {
-          finalizeStreamingMessage();
+        // ── Natural-language tool progress ──
+        // Instead of creating a separate tool block that feels cold and
+        // disconnected, integrate the tool call notification into the
+        // assistant's message flow as inline text. This makes the agent
+        // feel like it's naturally telling the user what it's doing.
+        const toolDesc = event.tool_name.replace(/_/g, ' ');
+        const argsPreview = event.arguments_preview
+          ? ` with \`${event.arguments_preview.length > 80 ? event.arguments_preview.slice(0, 80) + '...' : event.arguments_preview}\``
+          : '';
+        const statusMsg = `\n\n> 🔧 正在使用 \`${toolDesc}\`${argsPreview}...\n\n`;
+
+        // Append the tool status inline to the current streaming content —
+        // don't finalize or create a separate message. The status is part
+        // of the assistant's natural response flow.
+        streamingContent.value += statusMsg;
+        updateOrAddStreamingMessage();
+
+        // Also add a lightweight status marker so we can clean it up later
+        // when tool_result arrives.
+        const existingExecutingIdx = messages.value.findIndex(
+          (m: any) => m._executing === true
+        );
+        if (existingExecutingIdx === -1) {
+          messages.value.push({
+            role: 'tool',
+            content: '',
+            tool_call_id: event.tool_call_id,
+            tool_name: event.tool_name,
+            _executing: true,
+            _inline: true,  // mark as inline (no separate display)
+          } as any);
         }
-        messages.value.push({
-          role: 'tool',
-          content: statusMsg,
-          tool_call_id: event.tool_call_id,
-          tool_name: event.tool_name,
-          _executing: true,  // mark as executing status
-        } as any);
         break;
       }
       case 'tool_call_delta': {
@@ -296,27 +315,60 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_result': {
-        // Remove the executing status message if it exists
+        // Remove the executing status marker(s) — both inline markers
+        // and any legacy separate tool messages.
         for (let i = messages.value.length - 1; i >= 0; i--) {
           const msg = messages.value[i] as any;
-          if (msg.role === 'tool' && msg.tool_call_id === event.tool_call_id && msg._executing) {
-            messages.value.splice(i, 1);
+          if (msg.role === 'tool' && msg.tool_call_id === event.tool_call_id) {
+            if (msg._executing) {
+              // If this was an inline status marker (no content), just remove it.
+              // If it had content (legacy style), remove the whole message.
+              messages.value.splice(i, 1);
+            }
             break;
           }
         }
-        // If we have streaming content, finalize it first
+
+        // Strip the inline tool status text from the assistant's streaming
+        // content so the user sees the final result cleanly.
+        if (streamingContent.value) {
+          const statusPattern = /\n*> 🔧 正在使用 `[^`]+`[^\n]*\.\.\.\n*\n*/g;
+          streamingContent.value = streamingContent.value.replace(statusPattern, '');
+        }
+
+        // If we have streaming content, finalize it
         if (streamingContent.value) {
           finalizeStreamingMessage();
         }
-        // Skip empty tool results — they would create empty dialog boxes
+
+        // Skip empty tool results — they would create empty dialog boxes.
+        // But if the tool result is non-empty, we append it as a footnote
+        // to the last assistant message rather than as a separate block,
+        // keeping the conversational flow natural.
         const resultContent = (event.content || '').trim();
         if (resultContent) {
-          messages.value.push({
-            role: 'tool',
-            content: event.content,
-            tool_call_id: event.tool_call_id,
-            tool_name: event.tool_name,
-          });
+          // Append tool result as a collapsible footnote to the last
+          // assistant message rather than a separate tool block.
+          const lastAssistant = findLastAssistantMessage();
+          if (lastAssistant) {
+            const preview = resultContent.length > 300
+              ? resultContent.slice(0, 300) + '...'
+              : resultContent;
+            (lastAssistant as any)._tool_results = (lastAssistant as any)._tool_results || [];
+            (lastAssistant as any)._tool_results.push({
+              tool_name: event.tool_name,
+              tool_call_id: event.tool_call_id,
+              content: resultContent,
+              preview,
+            });
+          } else {
+            messages.value.push({
+              role: 'tool',
+              content: event.content,
+              tool_call_id: event.tool_call_id,
+              tool_name: event.tool_name,
+            });
+          }
         }
         break
       }
@@ -397,6 +449,16 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent.value = ''
   }
 
+  /** Find the last assistant message in the list */
+  function findLastAssistantMessage(): ChatMessage | undefined {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i].role === 'assistant') {
+        return messages.value[i]
+      }
+    }
+    return undefined
+  }
+
   /** Remove empty placeholder assistant messages created by tool_call_start
    *  that never got populated with content or tool_calls */
   function cleanupEmptyPlaceholders() {
@@ -412,6 +474,11 @@ export const useChatStore = defineStore('chat', () => {
           continue
         }
         break
+      }
+      // Also clean up inline status markers
+      if (msg.role === 'tool' && (msg as any)._inline) {
+        messages.value.splice(i, 1)
+        continue
       }
       if (msg.role !== 'tool' && msg.role !== 'user') break
     }

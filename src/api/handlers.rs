@@ -5012,27 +5012,90 @@ async fn weixin_qr_login_status(
             }
 
             // If confirmed, save token and account_id to the platform config
+            // and restart the adapter so it picks up the new credentials.
             if status == "confirmed" {
                 if let (Some(token), Some(account_id)) =
                     (&status_resp.bot_token, &status_resp.ilink_bot_id)
                 {
-                    let mut configs = state.platform_configs.write().await;
-                    if let Some(cfg) = configs.iter_mut().find(|c| c.id == id) {
-                        if let Some(obj) = cfg.extra.as_object_mut() {
-                            obj.insert(
-                                "token".to_string(),
-                                serde_json::Value::String(token.clone()),
-                            );
-                            obj.insert(
-                                "account_id".to_string(),
-                                serde_json::Value::String(account_id.clone()),
-                            );
-                            // Clean up temporary redirect host
-                            obj.remove("_qr_redirect_host");
+                    // Save credentials to platforms.yaml
+                    {
+                        let mut configs = state.platform_configs.write().await;
+                        if let Some(cfg) = configs.iter_mut().find(|c| c.id == id) {
+                            if let Some(obj) = cfg.extra.as_object_mut() {
+                                obj.insert(
+                                    "token".to_string(),
+                                    serde_json::Value::String(token.clone()),
+                                );
+                                obj.insert(
+                                    "account_id".to_string(),
+                                    serde_json::Value::String(account_id.clone()),
+                                );
+                                // Clean up temporary redirect host
+                                obj.remove("_qr_redirect_host");
+                            }
                         }
                     }
-                    drop(configs);
                     state.save_platforms_config().await.ok();
+
+                    // Restart the running adapter so it picks up the new
+                    // credentials immediately (otherwise it keeps using the
+                    // expired token from its old session).
+                    let platform_config_to_restart = {
+                        let configs = state.platform_configs.read().await;
+                        configs.iter().find(|c| c.id == id).cloned()
+                    };
+                    if let Some(mut cfg) = platform_config_to_restart {
+                        if cfg.enable {
+                            // Inject proxy config (mirrors restart_platform handler)
+                            let proxy_config = {
+                                let profiles = state.config_profiles.read().await;
+                                profiles
+                                    .values()
+                                    .filter(|p| p.is_active && p.enable)
+                                    .find_map(|p| {
+                                        if p.proxy_config.is_configured() {
+                                            Some(p.proxy_config.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                            };
+                            if let Some(ref proxy) = proxy_config {
+                                let platform_host = match cfg.platform_type.as_str() {
+                                    "discord" => "discord.gg",
+                                    "dingtalk" => "dingtalk.com",
+                                    other => other,
+                                };
+                                if proxy.should_proxy(platform_host) {
+                                    if let Some(obj) = cfg.extra.as_object_mut() {
+                                        obj.insert(
+                                            "proxy_url".to_string(),
+                                            serde_json::Value::String(proxy.url.clone()),
+                                        );
+                                    }
+                                } else if let Some(obj) = cfg.extra.as_object_mut() {
+                                    obj.remove("proxy_url");
+                                }
+                            } else if let Some(obj) = cfg.extra.as_object_mut() {
+                                obj.remove("proxy_url");
+                            }
+
+                            let mut pm = state.platform_manager.write().await;
+                            if pm.is_running(&id) {
+                                tracing::info!(
+                                    platform_id = %id,
+                                    "QR login confirmed, restarting adapter to apply new credentials"
+                                );
+                                if let Err(e) = pm.restart_platform(cfg).await {
+                                    tracing::error!(
+                                        platform_id = %id,
+                                        error = %e,
+                                        "Failed to restart platform after QR login"
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
