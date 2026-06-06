@@ -140,6 +140,8 @@ export const useConfigStore = defineStore('config', () => {
   const webSearchEnabled = computed(() => activeConfigProfile.value?.web_search_enabled ?? false)
   const computerUseEnabled = computed(() => activeConfigProfile.value?.computer_use_enabled ?? false)
   const thinkingEnabled = computed(() => activeConfigProfile.value?.thinking_enabled ?? true)
+  const segmentedReplyEnabled = computed(() => activeConfigProfile.value?.segmented_reply_enabled ?? false)
+  const segmentedReplyIntervalMs = computed(() => activeConfigProfile.value?.segmented_reply_interval_ms ?? 500)
 
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
   const commandPrefix = computed(() => activeConfigProfile.value?.command_prefix ?? '/')
@@ -164,6 +166,8 @@ export const useConfigStore = defineStore('config', () => {
     webSearchEnabled,
     computerUseEnabled,
     thinkingEnabled,
+    segmentedReplyEnabled,
+    segmentedReplyIntervalMs,
     activeSkillNames,
     commandPrefix,
     enabledCommands,

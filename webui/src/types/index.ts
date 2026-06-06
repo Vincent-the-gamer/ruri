@@ -214,6 +214,7 @@ export interface StreamUsage {
 
 export type StreamEvent =
   | { type: 'content_delta'; delta: string }
+  | { type: 'segmented_content_delta'; segment_index: number; total_segments: number; delta: string }
   | { type: 'tool_executing'; tool_call_id: string; tool_name: string; arguments_preview: string }
   | { type: 'tool_call_start'; tool_call_id: string; function_name: string }
   | { type: 'tool_call_delta'; tool_call_id: string; arguments_delta: string }

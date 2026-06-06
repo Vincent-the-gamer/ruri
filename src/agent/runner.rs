@@ -860,8 +860,10 @@ impl Agent {
                             StreamEvent::Done { .. } => {
                                 // Metrics (traffic, tokens) are recorded by HttpTransport::send_stream.
                             }
-                            StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
-                                // Shouldn't happen from provider (synthesized by runner)
+                            StreamEvent::ToolResult { .. }
+                            | StreamEvent::ToolExecuting { .. }
+                            | StreamEvent::SegmentedContentDelta { .. } => {
+                                // Shouldn't happen from provider (synthesized by runner/SSE handler)
                             }
                             StreamEvent::Error { .. } => {
                                 // Forward errors
@@ -2013,7 +2015,7 @@ impl AgentStreamer {
                                     StreamEvent::Done { .. } => {
                                         // Metrics (traffic, tokens) are recorded by HttpTransport::send_stream.
                                     }
-                                    StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } => {
+                                    StreamEvent::ToolResult { .. } | StreamEvent::ToolExecuting { .. } | StreamEvent::SegmentedContentDelta { .. } => {
                                         // Shouldn't happen from provider, but forward anyway
                                     }
                                     StreamEvent::Error { .. } => {

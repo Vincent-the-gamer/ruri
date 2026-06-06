@@ -886,6 +886,7 @@ defineExpose({
                             <router-link
                                 to="/knowledge-base"
                                 class="learn-more-link"
+                                @click="close"
                             >
                                 {{ t("chatConfig.goToKb") }}
                             </router-link>
@@ -971,7 +972,11 @@ defineExpose({
 
                         <div v-else class="empty-state">
                             <p>{{ t("chatConfig.noSkills") }}</p>
-                            <router-link to="/skills" class="learn-more-link">
+                            <router-link
+                                to="/skills"
+                                class="learn-more-link"
+                                @click="close"
+                            >
                                 {{ t("chatConfig.goToSkills") }}
                             </router-link>
                         </div>

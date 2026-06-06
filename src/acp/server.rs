@@ -1258,6 +1258,15 @@ async fn handle_session_prompt(
                         // Stream complete — we'll send PromptResponse after this
                         None
                     }
+                    crate::types::StreamEvent::SegmentedContentDelta { delta, .. } => {
+                        // Segmented content is synthesized by the SSE handler for WebUI;
+                        // in the ACP context we forward as a regular content delta.
+                        let text_content =
+                            agent_client_protocol::schema::TextContent::new(delta.clone());
+                        let content_block = ContentBlock::Text(text_content);
+                        let content_chunk = ContentChunk::new(content_block);
+                        Some(SessionUpdate::AgentMessageChunk(content_chunk))
+                    }
                 };
 
                 if let Some(update) = update {

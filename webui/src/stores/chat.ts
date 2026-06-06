@@ -2,6 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { ChatMessage, ChatRequest, ContentPart, StreamEvent, ToolCall } from '../types'
 import * as api from '../api'
+import { useDebugSessionStore } from './debugSession'
+import { usePersonaStore } from './persona'
+import { getToolProgressMessageWithArgs, type ToolMessageStyle } from '../composables/useToolMessages'
 
 // ── localStorage cache helpers (persists across page navigations & tab refreshes) ──────
 const CHAT_CACHE_KEY = 'ruri_chat_messages_cache'
@@ -52,6 +55,38 @@ export const useChatStore = defineStore('chat', () => {
 
   // Computed: true when the agent is actively processing a message
   const isThinking = computed(() => sending.value)
+
+  /**
+   * Resolve the active persona's tool_response_style for natural-language
+   * tool progress messages. Falls back to 'friendly' if no persona is active
+   * or no style is configured.
+   */
+  function getActiveToolMessageStyle(): ToolMessageStyle {
+    try {
+      const debugStore = useDebugSessionStore()
+      const personaStore = usePersonaStore()
+      const personaId = debugStore.personaId
+      if (!personaId) return 'friendly'
+      const persona = personaStore.personas.find(p => p.id === personaId)
+      if (!persona?.tool_response_style) return 'friendly'
+      // Validate that the style is one of our known styles
+      const validStyles: ToolMessageStyle[] = ['friendly', 'casual', 'professional', 'cute', 'minimal']
+      return validStyles.includes(persona.tool_response_style as ToolMessageStyle)
+        ? (persona.tool_response_style as ToolMessageStyle)
+        : 'friendly'
+    } catch {
+      return 'friendly'
+    }
+  }
+
+  /** Get the current locale for i18n-aware tool messages */
+  function getCurrentLocale(): string {
+    try {
+      return localStorage.getItem('ruri-locale') || 'zh-CN'
+    } catch {
+      return 'zh-CN'
+    }
+  }
 
   /**
    * Initial load: cache-first strategy.
@@ -242,6 +277,24 @@ export const useChatStore = defineStore('chat', () => {
         updateOrAddStreamingMessage()
         break
       }
+      case 'segmented_content_delta': {
+        // Segmented reply mode: each segment becomes its own assistant message.
+        // First segment: finalize any existing streaming message, then create new one.
+        // Subsequent segments: create a new message for each.
+        if (event.segment_index === 0) {
+          // First segment — finalize any in-progress streaming message first
+          if (streamingContent.value) {
+            finalizeStreamingMessage()
+          }
+          streamingContent.value = ''
+        }
+        // Create a new assistant message for this segment
+        messages.value.push({
+          role: 'assistant',
+          content: event.delta,
+        })
+        break
+      }
       case 'tool_call_start': {
         // Tool call is starting — ensure there's an assistant message to attach
         // tool_calls to, even if no text content has been streamed yet.
@@ -261,15 +314,20 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'tool_executing': {
         // ── Natural-language tool progress ──
-        // Instead of creating a separate tool block that feels cold and
-        // disconnected, integrate the tool call notification into the
-        // assistant's message flow as inline text. This makes the agent
-        // feel like it's naturally telling the user what it's doing.
-        const toolDesc = event.tool_name.replace(/_/g, ' ');
-        const argsPreview = event.arguments_preview
-          ? ` with \`${event.arguments_preview.length > 80 ? event.arguments_preview.slice(0, 80) + '...' : event.arguments_preview}\``
-          : '';
-        const statusMsg = `\n\n> 🔧 正在使用 \`${toolDesc}\`${argsPreview}...\n\n`;
+        // Generate a warm, human-like message that makes the assistant
+        // feel like it's naturally telling the user what it's doing,
+        // rather than a cold tool status. The persona's tool_response_style
+        // controls the tone (friendly/casual/professional/cute/minimal).
+        const style = getActiveToolMessageStyle()
+        const locale = getCurrentLocale()
+        const argsPreview = event.arguments_preview || ''
+        const friendlyMsg = getToolProgressMessageWithArgs(
+          event.tool_name,
+          argsPreview,
+          locale,
+          style,
+        )
+        const statusMsg = `\n\n> ${friendlyMsg}\n\n`;
 
         // Append the tool status inline to the current streaming content —
         // don't finalize or create a separate message. The status is part
@@ -329,17 +387,12 @@ export const useChatStore = defineStore('chat', () => {
           }
         }
 
-        // Strip the inline tool status text from the assistant's streaming
-        // content so the user sees the final result cleanly.
-        if (streamingContent.value) {
-          const statusPattern = /\n*> 🔧 正在使用 `[^`]+`[^\n]*\.\.\.\n*\n*/g;
-          streamingContent.value = streamingContent.value.replace(statusPattern, '');
-        }
-
-        // If we have streaming content, finalize it
-        if (streamingContent.value) {
-          finalizeStreamingMessage();
-        }
+        // NOTE: We intentionally do NOT strip the inline tool status text
+        // from streamingContent anymore. The friendly status messages
+        // (e.g. "让我看看这个文件里有什么... 📖") are now kept as part of
+        // the assistant's natural conversation flow, making the interaction
+        // feel more human-like. Multiple tool cycles produce a visible
+        // workflow that shows the assistant's thinking process.
 
         // Skip empty tool results — they would create empty dialog boxes.
         // But if the tool result is non-empty, we append it as a footnote

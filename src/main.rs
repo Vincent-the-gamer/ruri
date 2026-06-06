@@ -61,6 +61,32 @@ struct Args {
 #[folder = "src/web_dist/"]
 struct Assets;
 
+/// Generate a friendly, human-like progress message for a tool being executed.
+/// These messages make the assistant feel like it's naturally telling the user
+/// what it's doing, rather than a cold "🔨 正在调用工具 xxx" message.
+fn friendly_tool_message(tool_name: &str) -> String {
+    match tool_name {
+        "read_file" => "让我看看这个文件里有什么... 📖".to_string(),
+        "write_file" => "正在帮你写入文件... ✍️".to_string(),
+        "edit_file" => "正在帮你修改文件... ✏️".to_string(),
+        "create_file" => "正在帮你创建新文件... 📄".to_string(),
+        "delete_file" => "正在帮你清理文件... 🗑️".to_string(),
+        "list_directory" => "让我看看这个目录里有什么... 📂".to_string(),
+        "search_files" => "正在帮你搜索文件... 🔍".to_string(),
+        "grep" => "正在搜索代码... 🔎".to_string(),
+        "find_path" => "正在查找文件路径... 🔍".to_string(),
+        "bash" => "正在执行命令，稍等一下... ⚙️".to_string(),
+        "web_search" => "正在帮你搜索相关资料... 🌐".to_string(),
+        "web_fetch" => "正在获取网页内容... 🌍".to_string(),
+        "invoke_skill" => "正在调用技能... 🎯".to_string(),
+        "fetch" => "正在获取内容... 📥".to_string(),
+        "copy_path" => "正在复制文件... 📋".to_string(),
+        "move_path" => "正在移动文件... 📦".to_string(),
+        "create_directory" => "正在创建目录... 📁".to_string(),
+        _ => format!("正在处理，请稍候... 💭"),
+    }
+}
+
 /// Handler for serving embedded static files.
 /// Falls back to index.html for SPA routing.
 async fn static_handler(req: Request) -> Response {
@@ -456,10 +482,7 @@ async fn main() -> anyhow::Result<()> {
                                     loop {
                                         tokio::select! {
                                             Some((tool_name, _args_preview)) = tool_notify_rx.recv() => {
-                                                let status_msg = format!(
-                                                    "🔨 正在调用工具 `{}`...",
-                                                    tool_name
-                                                );
+                                                let status_msg = friendly_tool_message(&tool_name);
                                                 let pm = pm_notify.read().await;
                                                 let _ = pm
                                                     .send_text_to_platform(

@@ -366,14 +366,29 @@ function truncatePrompt(prompt: string, maxLen: number = 100): string {
                             <label class="form-label">{{
                                 t("personas.toolResponseStyle")
                             }}</label>
-                            <textarea
+                            <select
                                 v-model="formData.tool_response_style"
-                                class="form-textarea"
-                                rows="3"
-                                :placeholder="
-                                    t('personas.toolResponseStylePlaceholder')
-                                "
-                            ></textarea>
+                                class="form-input"
+                            >
+                                <option value="">
+                                    {{ t("personas.styleDefault") }}
+                                </option>
+                                <option value="friendly">
+                                    {{ t("personas.styleFriendly") }}
+                                </option>
+                                <option value="casual">
+                                    {{ t("personas.styleCasual") }}
+                                </option>
+                                <option value="professional">
+                                    {{ t("personas.styleProfessional") }}
+                                </option>
+                                <option value="cute">
+                                    {{ t("personas.styleCute") }}
+                                </option>
+                                <option value="minimal">
+                                    {{ t("personas.styleMinimal") }}
+                                </option>
+                            </select>
                             <p class="form-hint">
                                 {{ t("personas.toolResponseStyleHint") }}
                             </p>

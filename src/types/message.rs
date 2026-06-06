@@ -461,6 +461,19 @@ pub enum StreamEvent {
         tool_name: String,
         content: String,
     },
+    /// A segment of content for segmented (multi-message) reply mode.
+    /// When segmented reply is enabled, the full reply is split into
+    /// multiple segments, each sent as a separate event so the frontend
+    /// can create a new message bubble for each one.
+    #[serde(rename = "segmented_content_delta")]
+    SegmentedContentDelta {
+        /// Index of this segment (0-based).
+        segment_index: usize,
+        /// Total number of segments in the reply.
+        total_segments: usize,
+        /// The text content of this segment.
+        delta: String,
+    },
     /// The stream has completed.
     #[serde(rename = "done")]
     Done {
