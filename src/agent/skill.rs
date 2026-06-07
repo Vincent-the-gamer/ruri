@@ -4,9 +4,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[cfg(target_os = "windows")]
-use base64;
-
 /// A Skill is a modular capability that can be attached to an Agent.
 ///
 /// Skills can:
@@ -517,13 +514,12 @@ impl SkillPackageSkill {
     }
 
     /// Execute a shell command on Windows using `std::process::Command`
-    /// with non-inheritable pipes inside `spawn_blocking`.
+    /// with pipes inside `spawn_blocking`.
     ///
-    /// Non-inheritable pipes prevent grandchild processes (e.g., a browser
-    /// spawned by Playwright CLI) from inheriting the stdout/stderr pipe
-    /// write handles. Without this, `read_to_end()` would block indefinitely
-    /// because those grandchild processes hold the write end open even
-    /// after PowerShell has exited.
+    /// Uses `cmd.exe /c` (the native Windows system terminal) to match the
+    /// behavior of real terminal execution. Child processes inherit the parent
+    /// environment (PATH, etc.) so tools like `playwright-cli`, `npm`, and `npx`
+    /// can be found.
     ///
     /// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so
     /// that GUI applications (browsers, editors, etc.) can open their own
@@ -533,7 +529,6 @@ impl SkillPackageSkill {
         command: &str,
         timeout_secs: u64,
     ) -> Result<std::process::Output, String> {
-        use std::io::Read;
         use std::os::windows::process::CommandExt;
         use std::process::Command as StdCommand;
 
@@ -554,38 +549,13 @@ impl SkillPackageSkill {
         let gh = guard_holder.clone();
 
         let blocking_task = tokio::task::spawn_blocking(move || {
-            // Prepend UTF-8 output encoding fix so PowerShell outputs valid
-            // UTF-8 instead of the system OEM code page (e.g., GBK).
-            let cmd_with_enc = format!(
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
-            );
-            // Encode command as UTF-16LE and base64-encode it, so PowerShell
-            // passes it through without interpreting special characters.
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                cmd_with_enc
-                    .encode_utf16()
-                    .flat_map(|c| c.to_le_bytes())
-                    .collect::<Vec<u8>>(),
-            );
-
-            // Create non-inheritable pipes for stdout and stderr.
-            // This ensures that child processes spawned by PowerShell
-            // (e.g., browsers from Playwright CLI) do NOT inherit the
-            // pipe write handles, so read_to_end() returns as soon as
-            // PowerShell itself exits.
-            let (mut stdout_reader, stdout_writer) =
-                crate::agent::builtin_tools::create_noninheritable_pipe()
-                    .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-            let (mut stderr_reader, stderr_writer) =
-                crate::agent::builtin_tools::create_noninheritable_pipe()
-                    .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
-
-            let mut child = StdCommand::new("powershell")
-                .args(["-NoProfile", "-EncodedCommand", &encoded])
+            let mut child = StdCommand::new("cmd.exe")
+                .arg("/d")
+                .arg("/s")
+                .raw_arg(&format!("/c {command}"))
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::from(stdout_writer))
-                .stderr(std::process::Stdio::from(stderr_writer))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
                 .creation_flags(CREATE_NEW_PROCESS_GROUP)
                 .spawn()
                 .map_err(|e| {
@@ -606,7 +576,7 @@ impl SkillPackageSkill {
             // Wait for the process to exit. If the timeout fires in the
             // async layer, guard.kill() will terminate the job, causing
             // this wait() to return.
-            let status = child.wait().map_err(|e| {
+            let output = child.wait_with_output().map_err(|e| {
                 format!(
                     "Failed to execute shell command: {}. \
                      Please check the command syntax and try again, or use \
@@ -615,28 +585,12 @@ impl SkillPackageSkill {
                 )
             })?;
 
-            // Now read the pipes. Since the pipe handles are non-inheritable,
-            // child processes of PowerShell cannot hold the write end open.
-            // read_to_end() will return as soon as PowerShell exits.
-            let mut stdout = Vec::new();
-            stdout_reader
-                .read_to_end(&mut stdout)
-                .map_err(|e| format!("Failed to read stdout: {}", e))?;
-            let mut stderr = Vec::new();
-            stderr_reader
-                .read_to_end(&mut stderr)
-                .map_err(|e| format!("Failed to read stderr: {}", e))?;
-
             // Normal completion — disarm the guard so Drop doesn't double-kill.
             if let Some(ref mut guard) = *gh.lock().unwrap() {
                 guard.disarm();
             }
 
-            Ok(std::process::Output {
-                status,
-                stdout,
-                stderr,
-            })
+            Ok(output)
         });
 
         match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)

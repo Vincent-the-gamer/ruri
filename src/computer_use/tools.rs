@@ -9,9 +9,6 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::info;
 
-#[cfg(target_os = "windows")]
-use base64;
-
 /// Context for tool execution with permission and workspace information
 #[derive(Clone)]
 pub struct ComputerUseContext {
@@ -47,8 +44,10 @@ impl Tool for ShellTool {
             .description(
                 "Execute a shell command in the workspace directory. \
                  This tool is only available to admin users by default. \
-                 On Linux/macOS, uses bash. On Windows, uses PowerShell. \
-                 The command will run with the workspace as the working directory.",
+                 On Linux/macOS, uses bash. On Windows, uses cmd.exe (native system terminal). \
+                 The command will run with the workspace as the working directory. \
+                 Set background=true for commands that launch persistent GUI applications \
+                 (e.g., `playwright-cli open`, `code .`) so they don't block the agent.",
             )
             .parameter_with_description(
                 "command",
@@ -67,6 +66,12 @@ impl Tool for ShellTool {
                 ParameterType::Boolean,
                 false,
                 Some("Set to true to confirm execution of the command. Required in chat mode when the command is potentially dangerous; set to true after the user has approved."),
+            )
+            .parameter_with_description(
+                "background",
+                ParameterType::Boolean,
+                false,
+                Some("Set to true to run the command in the background. Use for GUI apps that launch persistent processes. Default: false."),
             )
             .build()
     }
@@ -113,6 +118,7 @@ impl Tool for ShellTool {
         }
 
         let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
+        let background = parsed["background"].as_bool().unwrap_or(false);
 
         // Get working directory (workspace for this session)
         let working_dir = self
@@ -128,15 +134,17 @@ impl Tool for ShellTool {
             .map_err(|e| ToolError::ExecutionError(e.to_string()))?;
 
         info!(
-            "Executing shell command for user '{}' in session '{}': {}",
-            self.context.user_id, self.context.session_id, command
+            "Executing shell command for user '{}' in session '{}': {} (background={})",
+            self.context.user_id, self.context.session_id, command, background
         );
 
         // Execute the shell command in a blocking thread with timeout.
         // Uses std::process::Command to avoid the Windows overlapped I/O hang
         // where tokio::process::Command::wait_with_output() waits for all
         // pipe handles to close even after the process has exited.
-        let output = execute_shell_sync_with_timeout(command, &working_dir, timeout_secs).await?;
+        let output =
+            execute_shell_sync_with_timeout(command, &working_dir, timeout_secs, background)
+                .await?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -287,8 +295,8 @@ fn run_shell_sync(
     command: &str,
     working_dir: &std::path::Path,
     guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
+    background: bool,
 ) -> Result<std::process::Output, String> {
-    use std::io::Read;
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
@@ -299,65 +307,40 @@ fn run_shell_sync(
     // own windows.
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
-    // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
-    let command_with_encoding = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
-    );
+    // Build the command string for cmd.exe.
+    // When background=true, use `start ""` so cmd.exe exits immediately.
+    let cmd_args = if background {
+        format!("/c start \"\" {command}")
+    } else {
+        format!("/c {command}")
+    };
 
-    let encoded = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        command_with_encoding
-            .encode_utf16()
-            .flat_map(|c| c.to_le_bytes())
-            .collect::<Vec<u8>>(),
-    );
-
-    let (mut stdout_reader, stdout_writer) =
-        crate::agent::builtin_tools::create_noninheritable_pipe()
-            .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-    let (mut stderr_reader, stderr_writer) =
-        crate::agent::builtin_tools::create_noninheritable_pipe()
-            .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
-
-    let mut child = Command::new("powershell")
-        .args(["-NoProfile", "-EncodedCommand", &encoded])
+    let mut child = Command::new("cmd.exe")
+        .arg("/d")
+        .arg("/s")
+        .raw_arg(&cmd_args)
         .current_dir(working_dir)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::from(stdout_writer))
-        .stderr(std::process::Stdio::from(stderr_writer))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .creation_flags(CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
     // Create a guard that creates a Job Object and assigns this process to it.
-    // When killed via `guard.kill()`, TerminateJobObject atomically terminates
-    // the entire process tree — including any grandchildren spawned by PowerShell.
     let guard = ProcessGroupGuard::new(child.id());
     *guard_holder.lock().unwrap() = Some(guard);
 
-    let status = child
-        .wait()
+    let output = child
+        .wait_with_output()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
-
-    let mut stdout = Vec::new();
-    stdout_reader
-        .read_to_end(&mut stdout)
-        .map_err(|e| format!("Failed to read stdout: {}", e))?;
-    let mut stderr = Vec::new();
-    stderr_reader
-        .read_to_end(&mut stderr)
-        .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
     // Normal completion — disarm the guard so Drop doesn't double-kill.
     if let Some(ref mut guard) = *guard_holder.lock().unwrap() {
         guard.disarm();
     }
 
-    Ok(std::process::Output {
-        status,
-        stdout,
-        stderr,
-    })
+    Ok(output)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -365,6 +348,7 @@ fn run_shell_sync(
     command: &str,
     working_dir: &std::path::Path,
     _guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
+    _background: bool,
 ) -> Result<std::process::Output, String> {
     use std::process::Command;
 
@@ -391,6 +375,7 @@ async fn execute_shell_sync_with_timeout(
     command: &str,
     working_dir: &std::path::Path,
     timeout_secs: u64,
+    background: bool,
 ) -> Result<std::process::Output, ToolError> {
     let command = command.to_string();
     let working_dir = working_dir.to_path_buf();
@@ -400,8 +385,9 @@ async fn execute_shell_sync_with_timeout(
     let guard_holder = std::sync::Arc::new(std::sync::Mutex::new(None::<ProcessGroupGuard>));
     let gh = guard_holder.clone();
 
-    let blocking_task =
-        tokio::task::spawn_blocking(move || run_shell_sync(&command, &working_dir, &gh));
+    let blocking_task = tokio::task::spawn_blocking(move || {
+        run_shell_sync(&command, &working_dir, &gh, background)
+    });
 
     match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task).await {
         Ok(join_result) => join_result

@@ -7,9 +7,6 @@ use serde_json::Value;
 use std::ffi::OsStr;
 use std::path::Path;
 
-#[cfg(target_os = "windows")]
-use base64;
-
 // ─── Process Group Guard ────────────────────────────────────────────
 
 /// A wrapper that ensures process trees are killed on drop.
@@ -987,22 +984,29 @@ impl Tool for BashTool {
         ToolDefinition::function("bash")
             .description(
                 "Execute a shell command and return the output (cross-platform support). \
-                 On Linux/macOS, uses bash. On Windows, uses PowerShell. \
+                 On Linux/macOS, uses bash. On Windows, uses cmd.exe (native system terminal). \
                  Use this tool to run shell commands like curl, git, npm, etc. \
                  Returns both stdout and stderr. \
-                 Be careful with commands that may take a long time or require user input.",
+                 Set background=true for commands that launch persistent GUI applications \
+                 (e.g., `playwright-cli open`, `code .`) so they don't block the agent.",
             )
             .parameter_with_description(
                 "command",
                 ParameterType::String,
                 true,
-                Some("The bash command to execute (e.g., 'curl https://example.com', 'ls -la')."),
+                Some("The shell command to execute (e.g., 'curl https://example.com', 'ls -la')."),
             )
             .parameter_with_description(
                 "timeout",
                 ParameterType::Integer,
                 false,
                 Some("Optional timeout in seconds (default: 30)."),
+            )
+            .parameter_with_description(
+                "background",
+                ParameterType::Boolean,
+                false,
+                Some("Set to true to run the command in the background. Use for GUI apps that launch persistent processes. Default: false."),
             )
             .build()
     }
@@ -1024,14 +1028,16 @@ impl Tool for BashTool {
         }
 
         let timeout_secs = parsed["timeout"].as_u64().unwrap_or(30);
+        let background = parsed["background"].as_bool().unwrap_or(false);
 
         // Execute the shell command in a blocking thread with timeout.
-        // Uses std::process::Command to avoid the Windows overlapped I/O hang
-        // where tokio::process::Command::wait_with_output() waits for all
-        // pipe handles to close even after the process has exited.
-        let output =
-            execute_shell_with_timeout(command, &self.shell_command_blacklist, timeout_secs)
-                .await?;
+        let output = execute_shell_with_timeout(
+            command,
+            &self.shell_command_blacklist,
+            timeout_secs,
+            background,
+        )
+        .await?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -1059,22 +1065,25 @@ impl Tool for BashTool {
 /// the Windows overlapped I/O hang where `wait_with_output()` waits for all
 /// pipe handles to close even after the process has exited.
 ///
-/// On Windows, we create stdout/stderr pipes with non-inheritable handles.
-/// This prevents child processes spawned by PowerShell from inheriting the
-/// pipe write ends, which would cause `read_to_end()` to block indefinitely.
-/// With non-inheritable pipes, when PowerShell exits, the write end is
-/// closed and `read_to_end()` returns immediately.
+/// On Windows, uses `cmd.exe /c` (the native system terminal) to match the
+/// behavior of real terminal execution. Child processes inherit the parent
+/// environment (PATH, etc.) so tools like `playwright-cli`, `npm`, and `git`
+/// can be found.
 ///
-/// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so that
-/// GUI applications (browsers, editors, etc.) can open their own windows
-/// while still isolating Ctrl+C / Ctrl+Break signal propagation.
+/// `CREATE_NEW_PROCESS_GROUP` is used so GUI applications (browsers, editors,
+/// etc.) can open their own windows while still isolating Ctrl+C signal propagation.
+///
+/// When `background` is true on Windows, the command is launched via
+/// `cmd.exe /c start "" <command>` so it runs detached from the agent process
+/// and does not block. This is essential for commands like `playwright-cli open`
+/// that launch persistent GUI processes.
 #[cfg(target_os = "windows")]
 fn run_shell_command_sync(
     command: &str,
     _blacklist: &[String],
     guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
+    background: bool,
 ) -> Result<std::process::Output, String> {
-    use std::io::Read;
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
@@ -1085,75 +1094,47 @@ fn run_shell_command_sync(
     // own windows.
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
-    // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
-    // Without this, PowerShell defaults to the system's OEM code page (e.g.,
-    // GBK on Chinese Windows), causing garbled text for non-ASCII characters.
-    let command_with_encoding = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
-    );
+    // Build the command string for cmd.exe.
+    // When background=true, use `start ""` so cmd.exe exits immediately after
+    // launching the process in a visible window.
+    let cmd_args = if background {
+        format!("/c start \"\" {command}")
+    } else {
+        format!("/c {command}")
+    };
 
-    // Encode command as UTF-16LE and base64-encode it to avoid PowerShell
-    // argument parsing quirks with special characters.
-    let encoded = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        command_with_encoding
-            .encode_utf16()
-            .flat_map(|c| c.to_le_bytes())
-            .collect::<Vec<u8>>(),
-    );
-
-    // Create non-inheritable pipes for stdout and stderr.
-    // This ensures that when PowerShell spawns child processes (curl, git,
-    // npm, etc.), they do NOT inherit the pipe write handles, so
-    // `read_to_end()` returns as soon as PowerShell itself exits.
-    let (mut stdout_reader, stdout_writer) =
-        create_noninheritable_pipe().map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
-    let (mut stderr_reader, stderr_writer) =
-        create_noninheritable_pipe().map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
-
-    let mut child = Command::new("powershell")
-        .args(["-NoProfile", "-EncodedCommand", &encoded])
+    // Use standard pipes (inheritable) for stdout/stderr.
+    // This behaves like Python's subprocess.run(shell=True, capture_output=True).
+    let mut child = Command::new("cmd.exe")
+        .arg("/d") // Disable AutoRun commands from registry
+        .arg("/s") // Strip surrounding quotes from /c argument
+        .raw_arg(&cmd_args)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::from(stdout_writer))
-        .stderr(std::process::Stdio::from(stderr_writer))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .creation_flags(CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
     // Create a guard that creates a Job Object and assigns this process to it.
     // When killed via `guard.kill()`, TerminateJobObject atomically terminates
-    // the entire process tree — including any grandchildren spawned by PowerShell.
+    // the entire process tree — including any grandchildren spawned by cmd.exe.
     let guard = ProcessGroupGuard::new(child.id());
     *guard_holder.lock().unwrap() = Some(guard);
 
     // Wait for the process to exit. If the timeout fires in the async layer,
     // `guard.kill()` will terminate the job, causing this `wait()` to return.
-    let status = child
-        .wait()
+    // When background=true, cmd.exe with `start` exits immediately.
+    let output = child
+        .wait_with_output()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
-
-    // Now read the pipes. Since the pipe handles are non-inheritable,
-    // child processes of PowerShell cannot hold the write end open.
-    // `read_to_end()` will return as soon as PowerShell exits.
-    let mut stdout = Vec::new();
-    stdout_reader
-        .read_to_end(&mut stdout)
-        .map_err(|e| format!("Failed to read stdout: {}", e))?;
-    let mut stderr = Vec::new();
-    stderr_reader
-        .read_to_end(&mut stderr)
-        .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
     // Normal completion — disarm the guard so Drop doesn't double-kill.
     if let Some(ref mut guard) = *guard_holder.lock().unwrap() {
         guard.disarm();
     }
 
-    Ok(std::process::Output {
-        status,
-        stdout,
-        stderr,
-    })
+    Ok(output)
 }
 
 /// Create a pipe (reader, writer) where both ends have the inheritable
@@ -1210,6 +1191,7 @@ fn run_shell_command_sync(
     command: &str,
     _blacklist: &[String],
     guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
+    _background: bool,
 ) -> Result<std::process::Output, String> {
     use std::os::unix::process::CommandExt;
     use std::process::Command;
@@ -1262,6 +1244,7 @@ async fn execute_shell_with_timeout(
     command: &str,
     blacklist: &[String],
     timeout_secs: u64,
+    background: bool,
 ) -> Result<std::process::Output, ToolError> {
     let blacklist = blacklist.to_vec();
     let command = command.to_string();
@@ -1271,8 +1254,9 @@ async fn execute_shell_with_timeout(
     let guard_holder = std::sync::Arc::new(std::sync::Mutex::new(None::<ProcessGroupGuard>));
     let gh = guard_holder.clone();
 
-    let blocking_task =
-        tokio::task::spawn_blocking(move || run_shell_command_sync(&command, &blacklist, &gh));
+    let blocking_task = tokio::task::spawn_blocking(move || {
+        run_shell_command_sync(&command, &blacklist, &gh, background)
+    });
 
     match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task).await {
         Ok(join_result) => join_result
