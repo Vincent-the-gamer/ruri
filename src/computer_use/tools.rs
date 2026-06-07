@@ -274,6 +274,10 @@ impl Tool for PythonTool {
 /// On Windows, we create stdout/stderr pipes with non-inheritable handles to
 /// prevent child processes from holding the pipe write ends open after
 /// PowerShell exits. See `builtin_tools::create_noninheritable_pipe`.
+///
+/// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so that
+/// GUI applications (browsers, editors, etc.) can open their own windows
+/// while still isolating Ctrl+C / Ctrl+Break signal propagation.
 #[cfg(target_os = "windows")]
 fn run_shell_sync(
     command: &str,
@@ -283,7 +287,12 @@ fn run_shell_sync(
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    // CREATE_NEW_PROCESS_GROUP: creates a new process group so that
+    // Ctrl+C / Ctrl+Break events don't propagate to the Ruri server.
+    // Unlike CREATE_NO_WINDOW, this does NOT prevent GUI applications
+    // (e.g., browsers launched by Playwright CLI) from opening their
+    // own windows.
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
     // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
     let command_with_encoding = format!(
@@ -311,7 +320,7 @@ fn run_shell_sync(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(stdout_writer))
         .stderr(std::process::Stdio::from(stderr_writer))
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 

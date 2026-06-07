@@ -1189,8 +1189,21 @@ impl Agent {
 
                 // Loop back for next round
             } else {
-                // No tool calls — add the assistant message to history
-                self.history.push(ChatMessage::assistant(&content_text));
+                // No tool calls — add the assistant message to history.
+                // If the model returned empty content after tool execution,
+                // provide a fallback so the user sees a confirmation.
+                let final_content = if content_text.is_empty() && round > 0 {
+                    let fallback = "Task completed.".to_string();
+                    let _ = tx
+                        .send(Ok(StreamEvent::ContentDelta {
+                            delta: fallback.clone(),
+                        }))
+                        .await;
+                    fallback
+                } else {
+                    content_text
+                };
+                self.history.push(ChatMessage::assistant(&final_content));
                 break;
             }
         }
@@ -1463,8 +1476,23 @@ impl Agent {
                     // Loop back to get the model's next response
                 }
                 _ => {
-                    // No tool calls — add to history and return
-                    self.history.push(choice.message.clone());
+                    // No tool calls — add to history and return.
+                    // If the model returned empty content after tool execution,
+                    // inject a fallback message so the caller has something to send.
+                    let is_content_empty = choice
+                        .message
+                        .content
+                        .as_ref()
+                        .map(|c| c.as_text_full().unwrap_or_default().is_empty())
+                        .unwrap_or(true);
+                    if is_content_empty && round > 0 {
+                        let fallback = "Task completed.".to_string();
+                        let fallback_msg = ChatMessage::assistant(&fallback);
+                        self.history.push(fallback_msg.clone());
+                        response.choices[0].message = fallback_msg;
+                    } else {
+                        self.history.push(choice.message.clone());
+                    }
                     break 'agent_loop response;
                 }
             }
@@ -2324,8 +2352,21 @@ impl AgentStreamer {
 
                         // Loop back for next round
                     } else {
-                        // No tool calls — add the assistant message to history
-                        agent.history.push(ChatMessage::assistant(&content_text));
+                        // No tool calls — add the assistant message to history.
+                        // If the model returned empty content after tool execution,
+                        // provide a fallback so the user sees a confirmation.
+                        let final_content = if content_text.is_empty() && round > 0 {
+                            let fallback = "Task completed.".to_string();
+                            let _ = tx
+                                .send(Ok(StreamEvent::ContentDelta {
+                                    delta: fallback.clone(),
+                                }))
+                                .await;
+                            fallback
+                        } else {
+                            content_text
+                        };
+                        agent.history.push(ChatMessage::assistant(&final_content));
                         break;
                     }
                 }

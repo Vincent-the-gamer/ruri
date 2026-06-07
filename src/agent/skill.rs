@@ -519,12 +519,15 @@ impl SkillPackageSkill {
     /// Execute a shell command on Windows using `std::process::Command`
     /// with non-inheritable pipes inside `spawn_blocking`.
     ///
-    /// Using `std::process::Command` with non-inheritable pipes prevents
-    /// grandchild processes (e.g., a browser spawned by Playwright CLI)
-    /// from inheriting the stdout/stderr pipe write handles. Without this,
-    /// `wait_with_output()` / `read_to_end()` would block indefinitely
+    /// Non-inheritable pipes prevent grandchild processes (e.g., a browser
+    /// spawned by Playwright CLI) from inheriting the stdout/stderr pipe
+    /// write handles. Without this, `read_to_end()` would block indefinitely
     /// because those grandchild processes hold the write end open even
     /// after PowerShell has exited.
+    ///
+    /// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so
+    /// that GUI applications (browsers, editors, etc.) can open their own
+    /// windows while still isolating Ctrl+C / Ctrl+Break signal propagation.
     #[cfg(target_os = "windows")]
     async fn run_shell_command_windows(
         command: &str,
@@ -534,7 +537,12 @@ impl SkillPackageSkill {
         use std::os::windows::process::CommandExt;
         use std::process::Command as StdCommand;
 
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // CREATE_NEW_PROCESS_GROUP: creates a new process group so that
+        // Ctrl+C / Ctrl+Break events don't propagate to the Ruri server.
+        // Unlike CREATE_NO_WINDOW, this does NOT prevent GUI applications
+        // (e.g., browsers launched by Playwright CLI) from opening their
+        // own windows.
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
         let command = command.to_string();
 
@@ -578,7 +586,7 @@ impl SkillPackageSkill {
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::from(stdout_writer))
                 .stderr(std::process::Stdio::from(stderr_writer))
-                .creation_flags(CREATE_NO_WINDOW)
+                .creation_flags(CREATE_NEW_PROCESS_GROUP)
                 .spawn()
                 .map_err(|e| {
                     format!(

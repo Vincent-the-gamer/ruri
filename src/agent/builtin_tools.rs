@@ -1037,7 +1037,9 @@ impl Tool for BashTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
-            if stderr.is_empty() {
+            if stdout.is_empty() && stderr.is_empty() {
+                Ok("Command executed successfully (no output).".to_string())
+            } else if stderr.is_empty() {
                 Ok(stdout)
             } else {
                 Ok(format!("{}\n[stderr]\n{}", stdout, stderr))
@@ -1063,6 +1065,10 @@ impl Tool for BashTool {
 /// pipe write ends, which would cause `read_to_end()` to block indefinitely.
 /// With non-inheritable pipes, when PowerShell exits, the write end is
 /// closed and `read_to_end()` returns immediately.
+///
+/// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so that
+/// GUI applications (browsers, editors, etc.) can open their own windows
+/// while still isolating Ctrl+C / Ctrl+Break signal propagation.
 #[cfg(target_os = "windows")]
 fn run_shell_command_sync(
     command: &str,
@@ -1073,7 +1079,12 @@ fn run_shell_command_sync(
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    // CREATE_NEW_PROCESS_GROUP: creates a new process group so that
+    // Ctrl+C / Ctrl+Break events don't propagate to the Ruri server.
+    // Unlike CREATE_NO_WINDOW, this does NOT prevent GUI applications
+    // (e.g., browsers launched by Playwright CLI) from opening their
+    // own windows.
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
     // Prepend UTF-8 output encoding fix so PowerShell outputs valid UTF-8.
     // Without this, PowerShell defaults to the system's OEM code page (e.g.,
@@ -1106,7 +1117,7 @@ fn run_shell_command_sync(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(stdout_writer))
         .stderr(std::process::Stdio::from(stderr_writer))
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(CREATE_NEW_PROCESS_GROUP)
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
