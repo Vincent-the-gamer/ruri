@@ -1,3 +1,4 @@
+use crate::agent::builtin_tools::ProcessGroupGuard;
 use crate::agent::tool_executor::{Tool, ToolError};
 use crate::computer_use::permissions::PermissionChecker;
 use crate::computer_use::workspace::WorkspaceManager;
@@ -278,10 +279,14 @@ impl Tool for PythonTool {
 /// `CREATE_NEW_PROCESS_GROUP` is used instead of `CREATE_NO_WINDOW` so that
 /// GUI applications (browsers, editors, etc.) can open their own windows
 /// while still isolating Ctrl+C / Ctrl+Break signal propagation.
+///
+/// The `guard_holder` is used to store a `ProcessGroupGuard` so that the
+/// async timeout handler can kill the process tree if the command times out.
 #[cfg(target_os = "windows")]
 fn run_shell_sync(
     command: &str,
     working_dir: &std::path::Path,
+    guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
 ) -> Result<std::process::Output, String> {
     use std::io::Read;
     use std::os::windows::process::CommandExt;
@@ -324,6 +329,12 @@ fn run_shell_sync(
         .spawn()
         .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
+    // Create a guard that creates a Job Object and assigns this process to it.
+    // When killed via `guard.kill()`, TerminateJobObject atomically terminates
+    // the entire process tree — including any grandchildren spawned by PowerShell.
+    let guard = ProcessGroupGuard::new(child.id());
+    *guard_holder.lock().unwrap() = Some(guard);
+
     let status = child
         .wait()
         .map_err(|e| format!("Failed to wait for command: {}", e))?;
@@ -337,6 +348,11 @@ fn run_shell_sync(
         .read_to_end(&mut stderr)
         .map_err(|e| format!("Failed to read stderr: {}", e))?;
 
+    // Normal completion — disarm the guard so Drop doesn't double-kill.
+    if let Some(ref mut guard) = *guard_holder.lock().unwrap() {
+        guard.disarm();
+    }
+
     Ok(std::process::Output {
         status,
         stdout,
@@ -348,6 +364,7 @@ fn run_shell_sync(
 fn run_shell_sync(
     command: &str,
     working_dir: &std::path::Path,
+    _guard_holder: &std::sync::Arc<std::sync::Mutex<Option<ProcessGroupGuard>>>,
 ) -> Result<std::process::Output, String> {
     use std::process::Command;
 
@@ -360,6 +377,16 @@ fn run_shell_sync(
 }
 
 /// Async wrapper that runs `run_shell_sync` in a blocking thread with timeout.
+///
+/// On timeout, the process tree is killed via `ProcessGroupGuard::kill()`:
+/// - Unix: `kill(-pgid, SIGKILL)` kills the process group created by `setsid()`.
+/// - Windows: `TerminateJobObject` atomically terminates the Job Object.
+///
+/// This is critical on Windows where `tokio::spawn_blocking` cannot be
+/// preempted — merely cancelling the `JoinHandle` future does NOT stop
+/// the blocking thread or the OS process. The guard ensures the OS process
+/// tree is actually terminated, which causes `child.wait()` to return and
+/// the blocking thread to be released back to the pool.
 async fn execute_shell_sync_with_timeout(
     command: &str,
     working_dir: &std::path::Path,
@@ -368,15 +395,36 @@ async fn execute_shell_sync_with_timeout(
     let command = command.to_string();
     let working_dir = working_dir.to_path_buf();
 
-    let blocking_task = tokio::task::spawn_blocking(move || run_shell_sync(&command, &working_dir));
+    // Shared guard holder: the blocking thread writes the guard after
+    // spawning the child, and the async timeout handler reads it to kill.
+    let guard_holder = std::sync::Arc::new(std::sync::Mutex::new(None::<ProcessGroupGuard>));
+    let gh = guard_holder.clone();
 
-    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
-        .await
-        .map_err(|_| {
-            ToolError::ExecutionError(format!("Command timed out after {} seconds", timeout_secs))
-        })?
-        .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
-        .map_err(|e| ToolError::ExecutionError(e))
+    let blocking_task =
+        tokio::task::spawn_blocking(move || run_shell_sync(&command, &working_dir, &gh));
+
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task).await {
+        Ok(join_result) => join_result
+            .map_err(|e| ToolError::ExecutionError(format!("Blocking task panicked: {}", e)))?
+            .map_err(|e| ToolError::ExecutionError(e)),
+        Err(_elapsed) => {
+            // Timeout — kill the entire process tree.
+            // This causes `child.wait()` in the blocking thread to return,
+            // releasing the thread back to the spawn_blocking pool.
+            let mut lock = guard_holder.lock().unwrap();
+            if let Some(ref guard) = *lock {
+                guard.kill();
+            }
+            // Disarm to prevent Drop from double-killing.
+            if let Some(ref mut guard) = *lock {
+                guard.disarm();
+            }
+            Err(ToolError::ExecutionError(format!(
+                "Command timed out after {} seconds",
+                timeout_secs
+            )))
+        }
+    }
 }
 
 /// Execute a Python script synchronously with `std::process::Command`.

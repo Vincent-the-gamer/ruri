@@ -16,6 +16,10 @@ use base64;
 ///
 /// On Unix: uses process groups (SIGTERM/SIGKILL to the PGID).
 /// On Windows: uses Job Objects to track and terminate the entire process tree.
+/// KILL_ON_JOB_CLOSE is intentionally NOT set — long-running child processes
+/// (e.g., browsers opened via Start-Process) survive normal cleanup.
+/// TerminateJobObject is used only on timeout or when Drop runs without
+/// a prior `disarm()` call.
 ///
 /// Used by shell tools to prevent orphan processes from holding ports
 /// when the server is stopped or the tool is cancelled.
@@ -42,17 +46,19 @@ impl ProcessGroupGuard {
 
     #[cfg(windows)]
     pub fn new(pid: u32) -> Self {
-        // On Windows, create a Job Object that kills all member processes
-        // when the handle is closed (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE).
+        // On Windows, create a Job Object to track the process tree.
         // All children spawned by the assigned process automatically join
-        // the job, giving us full process-tree cleanup.
+        // the job, so TerminateJobObject kills the entire tree atomically.
+        //
+        // We intentionally do NOT set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        // because that would kill long-running child processes (e.g.,
+        // browsers opened by Start-Process) when the job handle is closed
+        // — even on a normal cleanup path after PowerShell exits.
+        // Instead, we rely on TerminateJobObject in kill() for timeout
+        // cleanup, and on CloseHandle alone in disarm() for normal teardown.
         unsafe {
             use windows_sys::Win32::Foundation::CloseHandle;
-            use windows_sys::Win32::System::JobObjects::{
-                AssignProcessToJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-                SetInformationJobObject,
-            };
+            use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
             use windows_sys::Win32::System::Threading::{
                 OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
             };
@@ -68,24 +74,6 @@ impl ProcessGroupGuard {
 
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() {
-                return Self {
-                    job_handle: std::ptr::null_mut(),
-                };
-            }
-
-            // Set KILL_ON_JOB_CLOSE: all processes in this job are
-            // terminated when the last job handle is closed.
-            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            let size = std::mem::size_of_val(&info);
-            let ret = SetInformationJobObject(
-                job,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const std::ffi::c_void,
-                size as u32,
-            );
-            if ret == 0 {
-                CloseHandle(job);
                 return Self {
                     job_handle: std::ptr::null_mut(),
                 };
@@ -147,6 +135,11 @@ impl ProcessGroupGuard {
     ///
     /// Call this when the process has exited normally to avoid a
     /// redundant kill attempt during cleanup.
+    ///
+    /// On Windows, this closes the Job Object handle. Since
+    /// KILL_ON_JOB_CLOSE is NOT set, any long-running child processes
+    /// (e.g., a browser opened via Start-Process) continue running
+    /// independently after the handle is closed.
     pub fn disarm(&mut self) {
         #[cfg(unix)]
         {
@@ -154,7 +147,13 @@ impl ProcessGroupGuard {
         }
         #[cfg(windows)]
         {
-            self.job_handle = std::ptr::null_mut();
+            if !self.job_handle.is_null() {
+                unsafe {
+                    use windows_sys::Win32::Foundation::CloseHandle;
+                    CloseHandle(self.job_handle);
+                }
+                self.job_handle = std::ptr::null_mut();
+            }
         }
     }
 }
@@ -169,14 +168,14 @@ impl Drop for ProcessGroupGuard {
 
     #[cfg(windows)]
     fn drop(&mut self) {
+        // If disarm() was not called (e.g., due to a panic or early
+        // return before the normal cleanup path), kill the entire
+        // process tree and close the handle.
         if !self.job_handle.is_null() {
-            // TerminateJobObject kills all processes in the job.
-            // Closing the handle (with KILL_ON_JOB_CLOSE set) also
-            // terminates them, but we call TerminateJobObject explicitly
-            // for immediate effect before the handle is closed.
             unsafe {
                 use windows_sys::Win32::Foundation::CloseHandle;
                 use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+                // TerminateJobObject atomically kills all processes in the job.
                 TerminateJobObject(self.job_handle, 1);
                 CloseHandle(self.job_handle);
             }
@@ -1192,8 +1191,12 @@ pub(crate) fn create_noninheritable_pipe() -> Result<(std::fs::File, std::fs::Fi
         // Clear the inheritable flag on both ends. The write end is passed
         // to the child explicitly via STARTUPINFO, so it does not need to
         // be inheritable.
-        SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(write_handle, HANDLE_FLAG_INHERIT, 0);
+        if SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if SetHandleInformation(write_handle, HANDLE_FLAG_INHERIT, 0) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
 
         let read_file = std::fs::File::from_raw_handle(read_handle as _);
         let write_file = std::fs::File::from_raw_handle(write_handle as _);

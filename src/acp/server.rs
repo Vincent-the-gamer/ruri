@@ -1165,6 +1165,7 @@ async fn handle_session_prompt(
                         tool_call_id,
                         tool_name,
                         content: result_content,
+                        ..
                     } => {
                         // Look up stored arguments for this tool call
                         let args = tool_call_info

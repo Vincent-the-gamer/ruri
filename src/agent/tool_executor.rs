@@ -107,6 +107,7 @@ impl ToolExecutor {
                 Ok(ToolResult {
                     tool_call_id: String::new(), // Will be filled by the caller
                     content,
+                    ok: true,
                 })
             }
             Err(e) => {
@@ -122,6 +123,7 @@ impl ToolExecutor {
                 Ok(ToolResult {
                     tool_call_id: String::new(),
                     content,
+                    ok: false,
                 })
             }
         }
@@ -141,6 +143,7 @@ impl ToolExecutor {
             Err(e) => ToolResult {
                 tool_call_id: tool_call_id.into(),
                 content: format!("Error: {}", e),
+                ok: false,
             },
         }
     }

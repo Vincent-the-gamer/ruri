@@ -4,7 +4,7 @@ import type { ChatMessage, ChatRequest, ContentPart, StreamEvent, ToolCall } fro
 import * as api from '../api'
 import { useDebugSessionStore } from './debugSession'
 import { usePersonaStore } from './persona'
-import { getToolProgressMessageWithArgs, type ToolMessageStyle } from '../composables/useToolMessages'
+import { getToolProgressMessageWithArgs, getToolCompletionMessage, type ToolMessageStyle } from '../composables/useToolMessages'
 
 // ── localStorage cache helpers (persists across page navigations & tab refreshes) ──────
 const CHAT_CACHE_KEY = 'ruri_chat_messages_cache'
@@ -386,6 +386,17 @@ export const useChatStore = defineStore('chat', () => {
             break;
           }
         }
+
+        // ── Append tool completion status ──
+        // Show a clear success ✅ or failure ❌ message so the user
+        // knows what happened, rather than just leaving the "working..."
+        // progress message hanging.
+        const locale = getCurrentLocale()
+        const ok = event.ok !== false // default to true for backward compat
+        const completionMsg = getToolCompletionMessage(event.tool_name, ok, locale)
+        const statusLine = `\n\n> ${ok ? '✅' : '❌'} ${completionMsg}\n\n`
+        streamingContent.value += statusLine
+        updateOrAddStreamingMessage()
 
         // NOTE: We intentionally do NOT strip the inline tool status text
         // from streamingContent anymore. The friendly status messages

@@ -1988,7 +1988,7 @@ async fn stream_chat_message(
                                         arguments: arguments.clone(),
                                     });
                                 }
-                                crate::types::StreamEvent::ToolResult { tool_call_id, tool_name, content } => {
+                                crate::types::StreamEvent::ToolResult { tool_call_id, tool_name, content, .. } => {
                                     accumulated_tool_results.push(AccumulatedToolResult {
                                         tool_call_id: tool_call_id.clone(),
                                         tool_name: tool_name.clone(),

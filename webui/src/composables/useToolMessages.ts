@@ -25,6 +25,10 @@ interface ToolMessageTemplates {
   professional: string[]
   /** Cute style — extra expressive, anime */
   cute: string[]
+  /** Completion messages — shown after tool finishes successfully */
+  done: string[]
+  /** Failure messages — shown after tool fails */
+  failed: string[]
 }
 
 // ── Tool name → message templates ──────────────────────────────────
@@ -54,6 +58,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '正在认真读取中... (´• ω •`)',
       '等下哦～让我看看写了什么～♪',
     ],
+    done: [
+      '文件读取完成 ✅',
+      '已读取文件内容 📖',
+      '看完了～',
+    ],
+    failed: [
+      '读取文件失败 ❌',
+      '文件读取出错了 😞',
+      '没能读到文件内容...',
+    ],
   },
   write_file: {
     label: '写入文件',
@@ -73,6 +87,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '好的！我来帮你写好它～ ✍️✨',
       '正在认真写字中... (｀・ω・´)',
+    ],
+    done: [
+      '文件写入完成 ✅',
+      '已写好文件 ✍️',
+      '写好了～',
+    ],
+    failed: [
+      '文件写入失败 ❌',
+      '写入出错了 😞',
+      '没能写入文件...',
     ],
   },
   edit_file: {
@@ -94,6 +118,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '让我帮你改改～ ✏️💫',
       '正在小心修改中... (・ω・)',
     ],
+    done: [
+      '文件编辑完成 ✅',
+      '已修改文件 ✏️',
+      '改好了～',
+    ],
+    failed: [
+      '编辑文件失败 ❌',
+      '修改出错了 😞',
+      '没能修改文件...',
+    ],
   },
   create_file: {
     label: '创建文件',
@@ -114,6 +148,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '好哒！新建一个文件～ 📄✨',
       '正在创建新文件呢～♪',
     ],
+    done: [
+      '文件创建完成 ✅',
+      '已创建文件 📄',
+      '建好了～',
+    ],
+    failed: [
+      '创建文件失败 ❌',
+      '创建出错了 😞',
+      '没能创建文件...',
+    ],
   },
   delete_file: {
     label: '删除文件',
@@ -132,6 +176,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '好的，清理一下～ 🗑️✨',
       '正在打扫中... (◕‿◕)',
+    ],
+    done: [
+      '文件已删除 ✅',
+      '清理完成 🗑️',
+      '删好了～',
+    ],
+    failed: [
+      '删除文件失败 ❌',
+      '删除出错了 😞',
+      '没能删除文件...',
     ],
   },
   list_directory: {
@@ -153,6 +207,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '让我康康目录里有啥！📂✨',
       '正在探索目录中... (´▽`)',
     ],
+    done: [
+      '目录浏览完成 ✅',
+      '已列出目录内容 📂',
+      '看完了～',
+    ],
+    failed: [
+      '目录浏览失败 ❌',
+      '列出目录出错了 😞',
+      '没能浏览目录...',
+    ],
   },
   search_files: {
     label: '搜索文件',
@@ -172,6 +236,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '让我帮你找找！🔍✨',
       '搜索中～看看能不能找到～♪',
+    ],
+    done: [
+      '搜索完成 ✅',
+      '已找到匹配文件 🔍',
+      '找好了～',
+    ],
+    failed: [
+      '搜索失败 ❌',
+      '搜索出错了 😞',
+      '没能搜索到结果...',
     ],
   },
   grep: {
@@ -193,6 +267,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '正在代码里寻宝！🔎✨',
       '翻翻代码～看看有什么～♪',
     ],
+    done: [
+      '代码搜索完成 ✅',
+      '已搜索代码库 🔎',
+      '找好了～',
+    ],
+    failed: [
+      '代码搜索失败 ❌',
+      '搜索出错了 😞',
+      '没能搜索到匹配...',
+    ],
   },
   find_path: {
     label: '查找路径',
@@ -208,6 +292,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     ],
     cute: [
       '让我找找文件藏在哪里！🔍✨',
+    ],
+    done: [
+      '路径查找完成 ✅',
+      '已找到文件路径 🔍',
+      '找到了～',
+    ],
+    failed: [
+      '路径查找失败 ❌',
+      '查找出错了 😞',
+      '没能找到文件...',
     ],
   },
   bash: {
@@ -229,6 +323,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '好的！正在努力工作中... ⚙️💪',
       '等一下下哦～正在执行命令～♪',
     ],
+    done: [
+      '命令执行完成 ✅',
+      '已执行完毕 ⚙️',
+      '运行好了～',
+    ],
+    failed: [
+      '命令执行失败 ❌',
+      '执行出错了 😞',
+      '命令没能成功运行...',
+    ],
   },
   web_search: {
     label: '搜索网络',
@@ -248,6 +352,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '正在网上帮你找资料！🌐✨',
       '搜索中～看看能找到什么～♪',
+    ],
+    done: [
+      '网络搜索完成 ✅',
+      '已找到相关资料 🌐',
+      '搜好了～',
+    ],
+    failed: [
+      '网络搜索失败 ❌',
+      '搜索出错了 😞',
+      '没能搜到结果...',
     ],
   },
   web_fetch: {
@@ -269,6 +383,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '正在打开网页看看！🌍✨',
       '让我看看网页上有什么～♪',
     ],
+    done: [
+      '网页获取完成 ✅',
+      '已获取网页内容 🌍',
+      '看好了～',
+    ],
+    failed: [
+      '网页获取失败 ❌',
+      '获取网页出错了 😞',
+      '没能获取到网页...',
+    ],
   },
   invoke_skill: {
     label: '调用技能',
@@ -286,6 +410,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
       '发动技能！🎯✨',
       '正在使用技能中～ (｀・ω・´)',
     ],
+    done: [
+      '技能执行完成 ✅',
+      '技能已执行 🎯',
+      '好了～',
+    ],
+    failed: [
+      '技能执行失败 ❌',
+      '技能出错了 😞',
+      '技能没能成功执行...',
+    ],
   },
   fetch: {
     label: '获取内容',
@@ -301,6 +435,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     ],
     cute: [
       '去拿一下数据～ 📥✨',
+    ],
+    done: [
+      '内容获取完成 ✅',
+      '已获取内容 📥',
+      '拿到了～',
+    ],
+    failed: [
+      '内容获取失败 ❌',
+      '获取出错了 😞',
+      '没能获取到内容...',
     ],
   },
   copy_path: {
@@ -318,6 +462,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '复制一份～ 📋✨',
     ],
+    done: [
+      '文件复制完成 ✅',
+      '已复制文件 📋',
+      '复制好了～',
+    ],
+    failed: [
+      '文件复制失败 ❌',
+      '复制出错了 😞',
+      '没能复制文件...',
+    ],
   },
   move_path: {
     label: '移动文件',
@@ -334,6 +488,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     cute: [
       '搬家中～ 📦✨',
     ],
+    done: [
+      '文件移动完成 ✅',
+      '已移动文件 📦',
+      '搬好了～',
+    ],
+    failed: [
+      '文件移动失败 ❌',
+      '移动出错了 😞',
+      '没能移动文件...',
+    ],
   },
   create_directory: {
     label: '创建目录',
@@ -349,6 +513,16 @@ const zhToolMessages: Record<string, ToolMessageTemplates> = {
     ],
     cute: [
       '新建一个文件夹！📁✨',
+    ],
+    done: [
+      '目录创建完成 ✅',
+      '已创建目录 📁',
+      '建好了～',
+    ],
+    failed: [
+      '目录创建失败 ❌',
+      '创建出错了 😞',
+      '没能创建目录...',
     ],
   },
 }
@@ -373,6 +547,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
       "Let me see what's in here! 📖✨",
       "Reading carefully... (´• ω •`)",
     ],
+    done: [
+      'Done reading the file ✅',
+      'File read complete 📖',
+      'Got it!',
+    ],
+    failed: [
+      'Failed to read the file ❌',
+      'File read error 😞',
+      "Couldn't read the file...",
+    ],
   },
   write_file: {
     label: 'Writing file',
@@ -383,6 +567,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Writing it... ✍️'],
     professional: ['Writing file...'],
     cute: ['Writing it nicely for you! ✍️✨'],
+    done: [
+      'File written ✅',
+      'Done writing ✍️',
+      'Written!',
+    ],
+    failed: [
+      'Failed to write file ❌',
+      'Write error 😞',
+      "Couldn't write the file...",
+    ],
   },
   edit_file: {
     label: 'Editing file',
@@ -393,6 +587,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Editing... ✏️'],
     professional: ['Editing file...'],
     cute: ['Making edits carefully~ ✏️💫'],
+    done: [
+      'File edited ✅',
+      'Edits applied ✏️',
+      'Done editing!',
+    ],
+    failed: [
+      'Failed to edit file ❌',
+      'Edit error 😞',
+      "Couldn't edit the file...",
+    ],
   },
   create_file: {
     label: 'Creating file',
@@ -403,6 +607,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['New file coming up... 📄'],
     professional: ['Creating file...'],
     cute: ['Creating a fresh new file! 📄✨'],
+    done: [
+      'File created ✅',
+      'New file ready 📄',
+      'Created!',
+    ],
+    failed: [
+      'Failed to create file ❌',
+      'Create error 😞',
+      "Couldn't create the file...",
+    ],
   },
   delete_file: {
     label: 'Deleting file',
@@ -413,6 +627,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Deleting... 🗑️'],
     professional: ['Deleting file...'],
     cute: ['Tidying up~ 🗑️✨'],
+    done: [
+      'File deleted ✅',
+      'Cleaned up 🗑️',
+      'Gone!',
+    ],
+    failed: [
+      'Failed to delete file ❌',
+      'Delete error 😞',
+      "Couldn't delete the file...",
+    ],
   },
   list_directory: {
     label: 'Listing directory',
@@ -423,6 +647,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ["What's in here... 📂"],
     professional: ['Listing directory contents...'],
     cute: ["Exploring the directory! 📂✨"],
+    done: [
+      'Directory listed ✅',
+      'Contents ready 📂',
+      'Done!',
+    ],
+    failed: [
+      'Failed to list directory ❌',
+      'List error 😞',
+      "Couldn't browse the directory...",
+    ],
   },
   search_files: {
     label: 'Searching files',
@@ -433,6 +667,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Looking for it... 🔍'],
     professional: ['Searching files...'],
     cute: ['Hunting for files! 🔍✨'],
+    done: [
+      'Search complete ✅',
+      'Found matching files 🔍',
+      'Found them!',
+    ],
+    failed: [
+      'Search failed ❌',
+      'Search error 😞',
+      "Couldn't find anything...",
+    ],
   },
   grep: {
     label: 'Searching code',
@@ -443,6 +687,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Searching code... 🔎'],
     professional: ['Searching codebase...'],
     cute: ['Code treasure hunting! 🔎✨'],
+    done: [
+      'Code search complete ✅',
+      'Searched the codebase 🔎',
+      'Found!',
+    ],
+    failed: [
+      'Code search failed ❌',
+      'Search error 😞',
+      "Couldn't find matches...",
+    ],
   },
   find_path: {
     label: 'Finding path',
@@ -453,6 +707,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Where is it... 🔍'],
     professional: ['Finding file path...'],
     cute: ["Where's that file hiding? 🔍✨"],
+    done: [
+      'Path found ✅',
+      'Located the file 🔍',
+      'Found it!',
+    ],
+    failed: [
+      'Failed to find path ❌',
+      'Path lookup error 😞',
+      "Couldn't locate the file...",
+    ],
   },
   bash: {
     label: 'Running command',
@@ -463,6 +727,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Running it... ⚙️'],
     professional: ['Executing command...'],
     cute: ['Working hard! ⚙️💪'],
+    done: [
+      'Command finished ✅',
+      'Execution complete ⚙️',
+      'Done running!',
+    ],
+    failed: [
+      'Command failed ❌',
+      'Execution error 😞',
+      "The command didn't succeed...",
+    ],
   },
   web_search: {
     label: 'Searching web',
@@ -473,6 +747,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Googling... 🌐'],
     professional: ['Searching web...'],
     cute: ['Searching the internet! 🌐✨'],
+    done: [
+      'Web search complete ✅',
+      'Found results 🌐',
+      'Got the results!',
+    ],
+    failed: [
+      'Web search failed ❌',
+      'Search error 😞',
+      "Couldn't find results...",
+    ],
   },
   web_fetch: {
     label: 'Fetching page',
@@ -483,6 +767,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Getting the page... 🌍'],
     professional: ['Fetching webpage...'],
     cute: ['Opening the webpage! 🌍✨'],
+    done: [
+      'Page fetched ✅',
+      'Webpage ready 🌍',
+      'Got the page!',
+    ],
+    failed: [
+      'Failed to fetch page ❌',
+      'Fetch error 😞',
+      "Couldn't get the page...",
+    ],
   },
   invoke_skill: {
     label: 'Invoking skill',
@@ -493,6 +787,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Using a skill... 🎯'],
     professional: ['Invoking skill...'],
     cute: ['Activating skill! 🎯✨'],
+    done: [
+      'Skill executed ✅',
+      'Skill complete 🎯',
+      'Done!',
+    ],
+    failed: [
+      'Skill failed ❌',
+      'Skill error 😞',
+      "The skill didn't complete...",
+    ],
   },
   fetch: {
     label: 'Fetching',
@@ -503,6 +807,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Getting data... 📥'],
     professional: ['Fetching remote content...'],
     cute: ['Fetching data~ 📥✨'],
+    done: [
+      'Content fetched ✅',
+      'Data ready 📥',
+      'Got it!',
+    ],
+    failed: [
+      'Failed to fetch ❌',
+      'Fetch error 😞',
+      "Couldn't get the data...",
+    ],
   },
   copy_path: {
     label: 'Copying file',
@@ -513,6 +827,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Copying... 📋'],
     professional: ['Copying file...'],
     cute: ['Making a copy! 📋✨'],
+    done: [
+      'File copied ✅',
+      'Copy ready 📋',
+      'Copied!',
+    ],
+    failed: [
+      'Failed to copy file ❌',
+      'Copy error 😞',
+      "Couldn't copy the file...",
+    ],
   },
   move_path: {
     label: 'Moving file',
@@ -523,6 +847,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Moving it... 📦'],
     professional: ['Moving file...'],
     cute: ['Moving things around~ 📦✨'],
+    done: [
+      'File moved ✅',
+      'Relocated 📦',
+      'Moved!',
+    ],
+    failed: [
+      'Failed to move file ❌',
+      'Move error 😞',
+      "Couldn't move the file...",
+    ],
   },
   create_directory: {
     label: 'Creating directory',
@@ -533,6 +867,16 @@ const enToolMessages: Record<string, ToolMessageTemplates> = {
     casual: ['Making a folder... 📁'],
     professional: ['Creating directory...'],
     cute: ['Making a new folder! 📁✨'],
+    done: [
+      'Directory created ✅',
+      'Folder ready 📁',
+      'Created!',
+    ],
+    failed: [
+      'Failed to create directory ❌',
+      'Create error 😞',
+      "Couldn't create the directory...",
+    ],
   },
 }
 
@@ -615,4 +959,30 @@ export function getToolProgressMessageWithArgs(
   // For human-like styles, don't append raw args — the message is already
   // natural enough. The args are visible in the collapsible tool details.
   return base
+}
+
+/**
+ * Generate a completion message when a tool finishes executing.
+ * Shows success ✅ or failure ❌ so the user knows the result.
+ */
+export function getToolCompletionMessage(
+  toolName: string,
+  ok: boolean,
+  locale: string,
+): string {
+  const messages = locale === 'zh-CN' ? zhToolMessages : enToolMessages
+  const tmpl = messages[toolName]
+  if (!tmpl) {
+    // Unknown tool — use generic completion messages
+    return ok
+      ? (locale === 'zh-CN' ? '处理完成 ✅' : 'Done ✅')
+      : (locale === 'zh-CN' ? '处理失败 ❌' : 'Failed ❌')
+  }
+  const variants = ok ? tmpl.done : tmpl.failed
+  if (!variants || variants.length === 0) {
+    return ok
+      ? (locale === 'zh-CN' ? '处理完成 ✅' : 'Done ✅')
+      : (locale === 'zh-CN' ? '处理失败 ❌' : 'Failed ❌')
+  }
+  return pickRandom(variants)
 }

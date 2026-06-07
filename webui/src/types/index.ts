@@ -219,7 +219,7 @@ export type StreamEvent =
   | { type: 'tool_call_start'; tool_call_id: string; function_name: string }
   | { type: 'tool_call_delta'; tool_call_id: string; arguments_delta: string }
   | { type: 'tool_call_end'; tool_call_id: string; function_name: string; arguments: string }
-  | { type: 'tool_result'; tool_call_id: string; tool_name: string; content: string }
+  | { type: 'tool_result'; tool_call_id: string; tool_name: string; content: string; ok: boolean }
   | { type: 'done'; usage: StreamUsage | null }
   | { type: 'error'; error: string }
 

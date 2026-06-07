@@ -1019,6 +1019,7 @@ impl Agent {
                                 tool_call_id: call.id.clone(),
                                 tool_name: call.function.name.clone(),
                                 content: skip_msg,
+                                ok: false,
                             }))
                             .await;
                         continue;
@@ -1078,6 +1079,7 @@ impl Agent {
                         ToolResult {
                             tool_call_id: call.id.clone(),
                             content: "Permission denied by user".to_string(),
+                            ok: false,
                         }
                     } else if let Some(ref token) = self.cancel_token {
                         tokio::select! {
@@ -1091,6 +1093,7 @@ impl Agent {
                                 ToolResult {
                                     tool_call_id: call.id.clone(),
                                     content: "⏹ 任务已停止。".to_string(),
+                                    ok: false,
                                 }
                             }
                         }
@@ -1131,6 +1134,7 @@ impl Agent {
                             tool_call_id: result.tool_call_id,
                             tool_name: call.function.name.clone(),
                             content: result_content,
+                            ok: result.ok,
                         }))
                         .await
                         .is_err()
@@ -1400,6 +1404,7 @@ impl Agent {
                                     ToolResult {
                                         tool_call_id: call.id.clone(),
                                         content: "⏹ 任务已停止。".to_string(),
+                                        ok: false,
                                     }
                                 }
                             }
@@ -2211,6 +2216,7 @@ impl AgentStreamer {
                                         tool_call_id: call.id.clone(),
                                         tool_name: call.function.name.clone(),
                                         content: skip_msg,
+                                        ok: false,
                                     }))
                                     .await;
                                 // Check cancellation after skip too
@@ -2263,6 +2269,7 @@ impl AgentStreamer {
                                         ToolResult {
                                             tool_call_id: call.id.clone(),
                                             content: "⏹ 任务已停止。".to_string(),
+                                            ok: false,
                                         }
                                     }
                                 }
@@ -2299,6 +2306,7 @@ impl AgentStreamer {
                                     tool_call_id: result.tool_call_id,
                                     tool_name: call.function.name.clone(),
                                     content: result_content,
+                                    ok: result.ok,
                                 }))
                                 .await
                                 .is_err()

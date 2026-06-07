@@ -109,6 +109,8 @@ pub struct FunctionCall {
 pub struct ToolResult {
     pub tool_call_id: String,
     pub content: String,
+    /// Whether the tool execution succeeded.
+    pub ok: bool,
 }
 
 // ─── Chat Request / Response ────────────────────────────────────────
@@ -460,6 +462,8 @@ pub enum StreamEvent {
         tool_call_id: String,
         tool_name: String,
         content: String,
+        /// Whether the tool execution succeeded.
+        ok: bool,
     },
     /// A segment of content for segmented (multi-message) reply mode.
     /// When segmented reply is enabled, the full reply is split into
