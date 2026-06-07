@@ -1880,139 +1880,6 @@ async fn stream_chat_message(
         )
     };
 
-    /// Split text into segments for segmented reply.
-    ///
-    /// Strategy (in priority order):
-    /// 1. Preserve fenced code blocks (``` ... ```) — never split inside them.
-    /// 2. Split on paragraph boundaries (double newlines) first.
-    /// 3. If a paragraph is still too long, split on sentence boundaries.
-    /// 4. Keep markdown headings together with their following content.
-    fn split_text_into_segments(text: &str) -> Vec<String> {
-        /// Maximum characters per segment before we try harder to split.
-        const MAX_SEGMENT_LEN: usize = 1500;
-
-        // Step 1: Extract code blocks so we never split inside them.
-        // Replace code blocks with placeholders, then restore after splitting.
-        let mut code_blocks: Vec<String> = Vec::new();
-        let mut processed = String::with_capacity(text.len());
-        let mut in_code_block = false;
-        let mut code_buf = String::new();
-
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("```") {
-                if in_code_block {
-                    // End of code block
-                    code_buf.push_str(line);
-                    code_buf.push('\n');
-                    let placeholder = format!("\n<!--CODEBLOCK{}-->\n", code_blocks.len());
-                    code_blocks.push(code_buf.clone());
-                    processed.push_str(&placeholder);
-                    code_buf.clear();
-                    in_code_block = false;
-                } else {
-                    // Start of code block
-                    in_code_block = true;
-                    code_buf.push_str(line);
-                    code_buf.push('\n');
-                }
-            } else if in_code_block {
-                code_buf.push_str(line);
-                code_buf.push('\n');
-            } else {
-                processed.push_str(line);
-                processed.push('\n');
-            }
-        }
-        // If we ended while still in a code block (malformed), treat the rest as code
-        if in_code_block && !code_buf.is_empty() {
-            let placeholder = format!("\n<!--CODEBLOCK{}-->\n", code_blocks.len());
-            code_blocks.push(code_buf);
-            processed.push_str(&placeholder);
-        }
-
-        // Step 2: Split by paragraph boundaries (one or more blank lines)
-        let paragraphs: Vec<&str> = processed
-            .split("\n\n")
-            .map(|p| p.trim())
-            .filter(|p| !p.is_empty())
-            .collect();
-
-        // Step 3: Build segments, merging short paragraphs and splitting long ones
-        let mut segments: Vec<String> = Vec::new();
-        let mut current = String::new();
-
-        for para in paragraphs {
-            let para_len = para.chars().count();
-
-            if current.is_empty() {
-                current = para.to_string();
-            } else if current.chars().count() + para_len < MAX_SEGMENT_LEN {
-                // Merge with current segment
-                current.push_str("\n\n");
-                current.push_str(para);
-            } else {
-                // Current segment is full — push it and start a new one
-                segments.push(current);
-                current = para.to_string();
-            }
-
-            // If a single paragraph is still too long, split it by sentences
-            if current.chars().count() > MAX_SEGMENT_LEN {
-                let mut parts: Vec<String> = Vec::new();
-                let mut part = String::new();
-                for ch in current.chars() {
-                    part.push(ch);
-                    if matches!(ch, '。' | '！' | '？' | '!' | '?' | '\n')
-                        && part.chars().count() >= 300
-                    {
-                        let trimmed = part.trim().to_string();
-                        if !trimmed.is_empty() {
-                            parts.push(trimmed);
-                        }
-                        part.clear();
-                    }
-                }
-                let trimmed = part.trim().to_string();
-                if !trimmed.is_empty() {
-                    parts.push(trimmed);
-                }
-                if parts.len() > 1 {
-                    // Push all but the last, keep last as current
-                    if let Some(last) = parts.pop() {
-                        for p in parts {
-                            segments.push(p);
-                        }
-                        current = last;
-                    }
-                }
-            }
-        }
-        if !current.is_empty() {
-            segments.push(current);
-        }
-
-        // If no segments were produced, return the original
-        if segments.is_empty() {
-            return vec![text.to_string()];
-        }
-
-        // If only one segment, no need to restore code blocks — return as-is
-        if segments.len() <= 1 && code_blocks.is_empty() {
-            return segments;
-        }
-
-        // Step 4: Restore code blocks in each segment
-        for segment in &mut segments {
-            for (i, code) in code_blocks.iter().enumerate() {
-                let placeholder = format!("\n<!--CODEBLOCK{}-->\n", i);
-                *segment = segment.replace(&placeholder, code);
-            }
-        }
-
-        segments
-    }
-
     // Convert StreamEvents to SSE Events, and persist messages to DB on completion
     let sse_stream = async_stream::stream! {
         let mut full_content = String::new();
@@ -2138,7 +2005,7 @@ async fn stream_chat_message(
 
                                 // If segmented reply is enabled and we have content, split and send
                                 if segmented_reply_enabled && !full_content.is_empty() && accumulated_tool_calls.is_empty() {
-                                    let segments = split_text_into_segments(&full_content);
+                                    let segments = crate::types::split_text_into_segments(&full_content);
                                     let total = segments.len();
                                     let interval = std::time::Duration::from_millis(segmented_reply_interval_ms);
                                     for (i, segment) in segments.into_iter().enumerate() {

@@ -3299,8 +3299,8 @@ impl AppState {
                 crate::metrics::TokenSource::Profile(ctx.source.clone())
             }
         });
-        if let Some(source) = metrics_source {
-            agent.set_metrics_source(source);
+        if let Some(ref source) = metrics_source {
+            agent.set_metrics_source(source.clone());
         }
 
         // ── Sub-Agent Orchestrator integration ──────────────────────
@@ -3327,6 +3327,8 @@ impl AppState {
                         &agent.base_config(),
                         Arc::new(agent.tool_executor_clone()),
                         background_notify,
+                        Some(self.metrics.clone()),
+                        metrics_source.clone(),
                     );
                     for tool in handoff_tools {
                         let name = tool.agent_name().to_string();

@@ -142,6 +142,24 @@ impl HttpTransport {
                                 usage.completion_tokens.unwrap_or(0),
                                 self.metrics_source.clone(),
                             );
+                        } else if res_size > 0 {
+                            // Fallback: estimate tokens from response size when
+                            // provider doesn't return usage. Rough estimate:
+                            // ~4 bytes per token for UTF-8 JSON response.
+                            let estimated = res_size / 4;
+                            m.write().await.record_tokens_with_source(
+                                self.provider.name(),
+                                response.model.as_deref(),
+                                0,
+                                estimated,
+                                self.metrics_source.clone(),
+                            );
+                            tracing::debug!(
+                                provider = %self.provider.name(),
+                                res_size = res_size,
+                                estimated_tokens = estimated,
+                                "metrics: recording estimated tokens from response (provider did not return usage)"
+                            );
                         }
                     }
                     return Ok(response);
@@ -295,6 +313,7 @@ impl HttpTransport {
         let metrics_clone = self.metrics.clone();
         let provider_name = self.provider.name().to_string();
         let metrics_source = self.metrics_source.clone();
+        let default_model = self.provider.default_model().to_string();
 
         // Helper to wrap a stream with response-side metrics recording.
         // Uses a macro-style inline approach to avoid lifetime issues.
@@ -304,6 +323,7 @@ impl HttpTransport {
                 let m = metrics_clone.clone();
                 let pn = provider_name.clone();
                 let ms = metrics_source.clone();
+                let model = default_model.clone();
                 async_stream::stream! {
                     let mut response_bytes: u64 = 0;
                     let mut stream = s;
@@ -323,12 +343,37 @@ impl HttpTransport {
                                     if let Some(ref metrics) = m {
                                         metrics.write().await.record_tokens_with_source(
                                             &pn,
-                                            None,
+                                            Some(&model),
                                             token_usage.prompt_tokens,
                                             token_usage.completion_tokens,
                                             ms.clone(),
                                         );
                                     }
+                                } else if response_bytes > 0 {
+                                    // Fallback: estimate tokens from response bytes when
+                                    // provider doesn't return usage in streaming mode.
+                                    // Rough estimate: ~4 bytes per token for UTF-8 text.
+                                    let estimated_tokens = response_bytes / 4;
+                                    if let Some(ref metrics) = m {
+                                        metrics.write().await.record_tokens_with_source(
+                                            &pn,
+                                            Some(&model),
+                                            0, // prompt_tokens not estimable from stream
+                                            estimated_tokens,
+                                            ms.clone(),
+                                        );
+                                        tracing::debug!(
+                                            provider = %pn,
+                                            response_bytes = response_bytes,
+                                            estimated_tokens = estimated_tokens,
+                                            "metrics: recording estimated tokens from stream (provider did not return usage)"
+                                        );
+                                    }
+                                } else if m.is_some() {
+                                    tracing::debug!(
+                                        provider = %pn,
+                                        "metrics: skipping token record (zero response bytes)"
+                                    );
                                 }
                             }
                             _ => {}

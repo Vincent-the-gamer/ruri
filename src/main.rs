@@ -614,20 +614,73 @@ async fn main() -> anyhow::Result<()> {
                                                     }
                                                 }
 
-                                                let pm = pm_clone.read().await;
-                                                if let Err(e) = pm
-                                                    .send_text_to_platform(
-                                                        &msg_clone.platform_id,
-                                                        msg_clone.message_type,
-                                                        &msg_clone.session_id,
-                                                        &text,
-                                                    )
-                                                    .await
-                                                {
-                                                    tracing::error!(
-                                                        error = %e,
-                                                        "Failed to send reply to platform"
+                                                // ── Segmented Reply ────────────────────────
+                                                // Check the config profile for this platform
+                                                let (seg_enabled, seg_interval) = {
+                                                    let profiles =
+                                                        state_clone.config_profiles.read().await;
+                                                    profiles
+                                                        .values()
+                                                        .filter(|p| {
+                                                            p.is_active
+                                                                && p.enable
+                                                                && p.platform_ids.contains(
+                                                                    &msg_clone.platform_id,
+                                                                )
+                                                        })
+                                                        .next()
+                                                        .map(|p| {
+                                                            (
+                                                                p.segmented_reply_enabled,
+                                                                p.segmented_reply_interval_ms,
+                                                            )
+                                                        })
+                                                        .unwrap_or((false, 500))
+                                                };
+
+                                                if seg_enabled {
+                                                    let segments =
+                                                        crate::types::split_text_into_segments(
+                                                            &text,
+                                                        );
+                                                    let interval = std::time::Duration::from_millis(
+                                                        seg_interval,
                                                     );
+                                                    for segment in segments {
+                                                        let pm = pm_clone.read().await;
+                                                        if let Err(e) = pm
+                                                            .send_text_to_platform(
+                                                                &msg_clone.platform_id,
+                                                                msg_clone.message_type,
+                                                                &msg_clone.session_id,
+                                                                &segment,
+                                                            )
+                                                            .await
+                                                        {
+                                                            tracing::error!(
+                                                                error = %e,
+                                                                "Failed to send segmented reply to platform"
+                                                            );
+                                                        }
+                                                        drop(pm);
+                                                        tokio::time::sleep(interval).await;
+                                                    }
+                                                } else {
+                                                    let pm = pm_clone.read().await;
+                                                    if let Err(e) = pm
+                                                        .send_text_to_platform(
+                                                            &msg_clone.platform_id,
+                                                            msg_clone.message_type,
+                                                            &msg_clone.session_id,
+                                                            &text,
+                                                        )
+                                                        .await
+                                                    {
+                                                        tracing::error!(
+                                                            error = %e,
+                                                            "Failed to send reply to platform"
+                                                        );
+                                                    }
                                                 }
                                             } else {
                                                 tracing::warn!(

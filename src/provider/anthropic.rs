@@ -338,9 +338,15 @@ impl AnthropicProvider {
             .map(String::from);
 
         let usage = response.get("usage").map(|u| Usage {
-            prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()),
-            completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()),
-            total_tokens: None,
+            prompt_tokens: u
+                .get("prompt_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| u.get("input_tokens").and_then(|v| v.as_u64())),
+            completion_tokens: u
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| u.get("output_tokens").and_then(|v| v.as_u64())),
+            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()),
         });
 
         // Parse content blocks

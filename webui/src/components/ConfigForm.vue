@@ -54,6 +54,8 @@ const formData = ref<{
     web_search_enabled: boolean;
     computer_use_enabled: boolean;
     thinking_enabled: boolean;
+    segmented_reply_enabled: boolean;
+    segmented_reply_interval_ms: number;
     active_skill_names: string[];
     active_knowledge_base_ids: string[];
     platform_ids: string[];
@@ -81,6 +83,8 @@ const formData = ref<{
     web_search_enabled: false,
     computer_use_enabled: false,
     thinking_enabled: true,
+    segmented_reply_enabled: false,
+    segmented_reply_interval_ms: 500,
     active_skill_names: [],
     active_knowledge_base_ids: [],
     platform_ids: [],
@@ -116,6 +120,10 @@ watch(
                 web_search_enabled: newConfig.web_search_enabled ?? false,
                 computer_use_enabled: newConfig.computer_use_enabled ?? false,
                 thinking_enabled: newConfig.thinking_enabled ?? true,
+                segmented_reply_enabled:
+                    newConfig.segmented_reply_enabled ?? false,
+                segmented_reply_interval_ms:
+                    newConfig.segmented_reply_interval_ms ?? 500,
                 active_skill_names: [...(newConfig.active_skill_names || [])],
                 active_knowledge_base_ids: [
                     ...(newConfig.active_knowledge_base_ids || []),
@@ -152,6 +160,8 @@ watch(
                 web_search_enabled: false,
                 computer_use_enabled: false,
                 thinking_enabled: true,
+                segmented_reply_enabled: false,
+                segmented_reply_interval_ms: 500,
                 active_skill_names: [],
                 active_knowledge_base_ids: [],
                 platform_ids: [],
@@ -702,6 +712,59 @@ function handleSubmit() {
                                 }"
                             ></span>
                         </button>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="toggle-info">
+                            <span class="toggle-text">分段回复</span>
+                            <span class="toggle-description">{{
+                                formData.segmented_reply_enabled
+                                    ? "回复会自动分段发送"
+                                    : "完整回复一次性发送"
+                            }}</span>
+                        </div>
+                        <button
+                            type="button"
+                            class="toggle-switch"
+                            :class="{
+                                'toggle-switch-active':
+                                    formData.segmented_reply_enabled,
+                            }"
+                            @click="
+                                formData.segmented_reply_enabled =
+                                    !formData.segmented_reply_enabled
+                            "
+                        >
+                            <span
+                                class="toggle-thumb"
+                                :class="{
+                                    'toggle-thumb-active':
+                                        formData.segmented_reply_enabled,
+                                }"
+                            ></span>
+                        </button>
+                    </div>
+                </div>
+                <div
+                    v-if="formData.segmented_reply_enabled"
+                    class="form-grid"
+                    style="margin-top: 0.75rem"
+                >
+                    <div class="form-group">
+                        <label class="form-label">发送间隔 (毫秒)</label>
+                        <input
+                            v-model.number="
+                                formData.segmented_reply_interval_ms
+                            "
+                            type="number"
+                            min="100"
+                            max="5000"
+                            step="100"
+                            class="form-input"
+                        />
+                        <p class="form-hint">
+                            每条消息之间的延迟时间，推荐 300-800ms
+                        </p>
                     </div>
                 </div>
             </div>

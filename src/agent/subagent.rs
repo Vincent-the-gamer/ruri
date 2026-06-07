@@ -89,6 +89,10 @@ pub struct HandoffTool {
     /// Shared notification channel for pushing background sub-agent results
     /// back into the main agent's conversation history.
     background_notify: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+    /// Shared metrics collector for tracking token usage across sub-agents.
+    metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
+    /// Metrics source for labeling token usage.
+    metrics_source: Option<crate::metrics::TokenSource>,
 }
 
 impl HandoffTool {
@@ -98,6 +102,8 @@ impl HandoffTool {
         base_config: AgentConfig,
         tool_executor: Arc<ToolExecutor>,
         background_notify: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+        metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
+        metrics_source: Option<crate::metrics::TokenSource>,
     ) -> Self {
         Self {
             definition,
@@ -105,6 +111,8 @@ impl HandoffTool {
             base_config,
             tool_executor,
             background_notify,
+            metrics,
+            metrics_source,
         }
     }
 
@@ -186,6 +194,8 @@ impl Tool for HandoffTool {
             let filtered_names = self.filtered_tool_names();
 
             let task_id_clone = task_id.clone();
+            let metrics_clone = self.metrics.clone();
+            let source_clone = self.metrics_source.clone();
             tokio::spawn(async move {
                 tracing::info!(
                     subagent = %name,
@@ -198,6 +208,13 @@ impl Tool for HandoffTool {
                 sub_config.max_tool_rounds = max_rounds;
 
                 let mut sub_agent = Agent::with_config_via_arc(provider.clone(), sub_config);
+
+                if let Some(ref m) = metrics_clone {
+                    sub_agent.set_metrics(m.clone());
+                }
+                if let Some(ref ms) = source_clone {
+                    sub_agent.set_metrics_source(ms.clone());
+                }
 
                 if !definition.system_prompt.is_empty() {
                     sub_agent.set_system_prompt(&definition.system_prompt);
@@ -280,6 +297,13 @@ impl Tool for HandoffTool {
             sub_config.max_tool_rounds = max_rounds;
 
             let mut sub_agent = Agent::with_config_via_arc(self.provider.clone(), sub_config);
+
+            if let Some(ref m) = self.metrics {
+                sub_agent.set_metrics(m.clone());
+            }
+            if let Some(ref ms) = self.metrics_source {
+                sub_agent.set_metrics_source(ms.clone());
+            }
 
             if !self.definition.system_prompt.is_empty() {
                 sub_agent.set_system_prompt(&self.definition.system_prompt);
@@ -389,6 +413,8 @@ impl SubAgentOrchestrator {
         base_config: &AgentConfig,
         tool_executor: Arc<ToolExecutor>,
         background_notify: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+        metrics: Option<std::sync::Arc<tokio::sync::RwLock<crate::metrics::MetricsCollector>>>,
+        metrics_source: Option<crate::metrics::TokenSource>,
     ) -> Vec<HandoffTool> {
         if !self.is_enabled() {
             return Vec::new();
@@ -404,6 +430,8 @@ impl SubAgentOrchestrator {
                     base_config.clone(),
                     tool_executor.clone(),
                     background_notify.clone(),
+                    metrics.clone(),
+                    metrics_source.clone(),
                 )
             })
             .collect()

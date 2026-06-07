@@ -487,124 +487,14 @@ impl SkillPackageSkill {
 
         tracing::info!(command = %command, timeout_secs = timeout_secs, "Skill executing shell command");
 
-        // On Windows, use PowerShell for consistency with ShellTool and BashTool.
-        // On Unix, use sh (avoiding bash-specific extensions for portability).
-        //
-        // We use spawn() + wait_with_output() instead of output() because
-        // output() can cause the second consecutive process to deadlock on
-        // Windows. The explicit two-step pattern (with ProcessGroupGuard)
-        // matches the proven BashTool implementation.
-        //
-        // NOTE: On Windows, we intentionally do NOT use kill_on_drop(true).
-        // Process termination is handled exclusively by the ProcessGroupGuard
-        // (Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE). Using
-        // both kill_on_drop and a Job Object causes a double-kill race on
-        // timeout that can corrupt tokio's internal pipe state on Windows,
-        // causing subsequent spawn()/wait_with_output() calls to hang
-        // indefinitely (the "second consecutive call timeout" bug).
+        // ── Platform-specific execution ─────────────────────────
         #[cfg(target_os = "windows")]
-        let spawn_result = {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            // Prepend UTF-8 output encoding fix so PowerShell outputs valid
-            // UTF-8 instead of the system OEM code page (e.g., GBK).
-            let cmd_with_enc = format!(
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
-            );
-            // Encode command as UTF-16LE and base64-encode it, so PowerShell
-            // passes it through without interpreting special characters.
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                cmd_with_enc
-                    .encode_utf16()
-                    .flat_map(|c| c.to_le_bytes())
-                    .collect::<Vec<u8>>(),
-            );
-            tokio::process::Command::new("powershell")
-                .args(["-NoProfile", "-EncodedCommand", &encoded])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-        };
+        let output_result = Self::run_shell_command_windows(command, timeout_secs).await;
 
         #[cfg(not(target_os = "windows"))]
-        let spawn_result = tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .process_group(0)
-            .kill_on_drop(true)
-            .spawn();
+        let output_result = Self::run_shell_command_unix(command, timeout_secs).await;
 
-        let child = spawn_result.map_err(|e| {
-            format!(
-                "Failed to spawn shell command: {}. \
-                 Please check the command syntax and try again, or use \
-                 a different approach.",
-                e
-            )
-        })?;
-
-        let child_pid = child.id();
-
-        // Wrap child in Option so each select! branch can take ownership
-        // independently. This ensures wait_with_output() always completes,
-        // which is critical on Windows: dropping a pending wait_with_output()
-        // corrupts tokio's internal pipe state, causing subsequent spawn()
-        // calls to hang indefinitely.
-        let mut child = Some(child);
-
-        // Use a scoped block so the ProcessGroupGuard drops immediately
-        // after output is collected. This prevents the guard's Drop
-        // (which calls TerminateJobObject on Windows) from interfering
-        // with tokio's pipe cleanup.
-        //
-        // ProcessGroupGuard::new() performs blocking Windows FFI calls
-        // (CreateJobObjectW, AssignProcessToJobObject, etc.). Running it on
-        // the async runtime thread would starve the event loop and prevent
-        // tokio::select! from polling the timeout timer — so we offload it
-        // to a blocking thread.
-        let output: std::process::Output = {
-            let _guard = tokio::task::spawn_blocking(move || {
-                crate::agent::builtin_tools::ProcessGroupGuard::new(child_pid.unwrap_or(0))
-            })
-            .await
-            .unwrap_or_else(|_| {
-                // If the blocking task was cancelled (shouldn't happen),
-                // create a no-op guard. kill_on_drop(true) on the command
-                // above still provides a fallback.
-                crate::agent::builtin_tools::ProcessGroupGuard::new(0)
-            });
-
-            tokio::select! {
-                result = child.take().unwrap().wait_with_output() => {
-                    result.map_err(|e| {
-                        format!(
-                            "Failed to execute shell command: {}. \
-                             Please check the command syntax and try again, or use \
-                             a different approach.",
-                            e
-                        )
-                    })
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)) => {
-                    // Timeout: kill the entire process tree, then wait for
-                    // the child to actually exit so tokio can clean up its
-                    // internal pipe state.
-                    _guard.kill();
-                    let _ = child.take().unwrap().wait_with_output().await;
-                    return Err(format!(
-                        "Shell command timed out after {} seconds. \
-                         Consider using a different approach with a shorter \
-                         execution time, or try breaking the task into \
-                         smaller steps.",
-                        timeout_secs
-                    ));
-                }
-            }
-        }?;
+        let output = output_result?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -623,6 +513,210 @@ impl SkillPackageSkill {
                 output.status.code().unwrap_or(-1),
                 stderr
             ))
+        }
+    }
+
+    /// Execute a shell command on Windows using `std::process::Command`
+    /// with non-inheritable pipes inside `spawn_blocking`.
+    ///
+    /// Using `std::process::Command` with non-inheritable pipes prevents
+    /// grandchild processes (e.g., a browser spawned by Playwright CLI)
+    /// from inheriting the stdout/stderr pipe write handles. Without this,
+    /// `wait_with_output()` / `read_to_end()` would block indefinitely
+    /// because those grandchild processes hold the write end open even
+    /// after PowerShell has exited.
+    #[cfg(target_os = "windows")]
+    async fn run_shell_command_windows(
+        command: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::Output, String> {
+        use std::io::Read;
+        use std::os::windows::process::CommandExt;
+        use std::process::Command as StdCommand;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let command = command.to_string();
+
+        // Shared guard holder: the blocking thread writes the guard after
+        // spawning the child, and the async timeout handler reads it to kill.
+        let guard_holder = std::sync::Arc::new(std::sync::Mutex::new(
+            None::<crate::agent::builtin_tools::ProcessGroupGuard>,
+        ));
+        let gh = guard_holder.clone();
+
+        let blocking_task = tokio::task::spawn_blocking(move || {
+            // Prepend UTF-8 output encoding fix so PowerShell outputs valid
+            // UTF-8 instead of the system OEM code page (e.g., GBK).
+            let cmd_with_enc = format!(
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
+            );
+            // Encode command as UTF-16LE and base64-encode it, so PowerShell
+            // passes it through without interpreting special characters.
+            let encoded = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                cmd_with_enc
+                    .encode_utf16()
+                    .flat_map(|c| c.to_le_bytes())
+                    .collect::<Vec<u8>>(),
+            );
+
+            // Create non-inheritable pipes for stdout and stderr.
+            // This ensures that child processes spawned by PowerShell
+            // (e.g., browsers from Playwright CLI) do NOT inherit the
+            // pipe write handles, so read_to_end() returns as soon as
+            // PowerShell itself exits.
+            let (mut stdout_reader, stdout_writer) =
+                crate::agent::builtin_tools::create_noninheritable_pipe()
+                    .map_err(|e| format!("Failed to create stdout pipe: {}", e))?;
+            let (mut stderr_reader, stderr_writer) =
+                crate::agent::builtin_tools::create_noninheritable_pipe()
+                    .map_err(|e| format!("Failed to create stderr pipe: {}", e))?;
+
+            let mut child = StdCommand::new("powershell")
+                .args(["-NoProfile", "-EncodedCommand", &encoded])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::from(stdout_writer))
+                .stderr(std::process::Stdio::from(stderr_writer))
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| {
+                    format!(
+                        "Failed to spawn shell command: {}. \
+                         Please check the command syntax and try again, or use \
+                         a different approach.",
+                        e
+                    )
+                })?;
+
+            // Create a Job Object guard that kills the entire process tree
+            // on timeout. The guard is stored in the shared holder so the
+            // async timeout path can trigger TerminateJobObject.
+            let guard = crate::agent::builtin_tools::ProcessGroupGuard::new(child.id());
+            *gh.lock().unwrap() = Some(guard);
+
+            // Wait for the process to exit. If the timeout fires in the
+            // async layer, guard.kill() will terminate the job, causing
+            // this wait() to return.
+            let status = child.wait().map_err(|e| {
+                format!(
+                    "Failed to execute shell command: {}. \
+                     Please check the command syntax and try again, or use \
+                     a different approach.",
+                    e
+                )
+            })?;
+
+            // Now read the pipes. Since the pipe handles are non-inheritable,
+            // child processes of PowerShell cannot hold the write end open.
+            // read_to_end() will return as soon as PowerShell exits.
+            let mut stdout = Vec::new();
+            stdout_reader
+                .read_to_end(&mut stdout)
+                .map_err(|e| format!("Failed to read stdout: {}", e))?;
+            let mut stderr = Vec::new();
+            stderr_reader
+                .read_to_end(&mut stderr)
+                .map_err(|e| format!("Failed to read stderr: {}", e))?;
+
+            // Normal completion — disarm the guard so Drop doesn't double-kill.
+            if let Some(ref mut guard) = *gh.lock().unwrap() {
+                guard.disarm();
+            }
+
+            Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            })
+        });
+
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), blocking_task)
+            .await
+        {
+            Ok(join_result) => join_result.map_err(|e| format!("Blocking task panicked: {}", e))?,
+            Err(_elapsed) => {
+                // Timeout — kill the entire process tree.
+                // This causes child.wait() in the blocking thread to return,
+                // releasing the thread back to the spawn_blocking pool.
+                let mut lock = guard_holder.lock().unwrap();
+                if let Some(ref guard) = *lock {
+                    guard.kill();
+                }
+                // Disarm to prevent Drop from double-killing.
+                if let Some(ref mut guard) = *lock {
+                    guard.disarm();
+                }
+                Err(format!(
+                    "Shell command timed out after {} seconds. \
+                     Consider using a different approach with a shorter \
+                     execution time, or try breaking the task into \
+                     smaller steps.",
+                    timeout_secs
+                ))
+            }
+        }
+    }
+
+    /// Execute a shell command on Unix (Linux/macOS) using tokio's
+    /// async process management with process group support.
+    #[cfg(not(target_os = "windows"))]
+    async fn run_shell_command_unix(
+        command: &str,
+        timeout_secs: u64,
+    ) -> Result<std::process::Output, String> {
+        // Use spawn() + wait_with_output() instead of output() because
+        // output() can cause deadlock issues with piped stdio.
+        let child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                format!(
+                    "Failed to spawn shell command: {}. \
+                     Please check the command syntax and try again, or use \
+                     a different approach.",
+                    e
+                )
+            })?;
+
+        let child_pid = child.id();
+        let mut child = Some(child);
+
+        // ProcessGroupGuard for timeout cleanup.
+        let _guard = tokio::task::spawn_blocking(move || {
+            crate::agent::builtin_tools::ProcessGroupGuard::new(child_pid.unwrap_or(0))
+        })
+        .await
+        .unwrap_or_else(|_| crate::agent::builtin_tools::ProcessGroupGuard::new(0));
+
+        tokio::select! {
+            result = child.take().unwrap().wait_with_output() => {
+                result.map_err(|e| {
+                    format!(
+                        "Failed to execute shell command: {}. \
+                         Please check the command syntax and try again, or use \
+                         a different approach.",
+                        e
+                    )
+                })
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)) => {
+                // Timeout: kill the process group, then wait for cleanup.
+                _guard.kill();
+                let _ = child.take().unwrap().wait_with_output().await;
+                Err(format!(
+                    "Shell command timed out after {} seconds. \
+                     Consider using a different approach with a shorter \
+                     execution time, or try breaking the task into \
+                     smaller steps.",
+                    timeout_secs
+                ))
+            }
         }
     }
 

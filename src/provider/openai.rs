@@ -502,9 +502,13 @@ impl Provider for OpenAIProvider {
 
                         // If this is the final chunk (finish_reason is set), emit end events and Done.
                         if is_final_chunk {
-                            let usage = event.get("usage").map(|u| StreamUsage {
-                                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                            // Prefer final_usage (captured from earlier usage-only chunk)
+                            // and fall back to the current chunk's usage field.
+                            let usage = final_usage.or_else(|| {
+                                event.get("usage").map(|u| StreamUsage {
+                                    prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                                    completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                                })
                             });
                             for tc in &tool_calls {
                                 yield Ok(StreamEvent::ToolCallEnd {
