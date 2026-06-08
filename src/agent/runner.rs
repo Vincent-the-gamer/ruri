@@ -61,10 +61,16 @@ impl AgentConfig {
         self
     }
 
-    /// Returns the message to display when the maximum tool rounds limit is reached.
-    pub fn max_rounds_reached_message(&self) -> String {
+    /// Returns a system notice to inject into the conversation when the
+    /// maximum tool rounds limit is reached. This notice instructs the LLM
+    /// to naturally summarize progress and suggest next steps, rather than
+    /// showing a fixed warning message to the user.
+    pub fn max_rounds_reached_notice(&self) -> String {
         format!(
-            "⚠️ Maximum tool call rounds ({}) reached, stopping.",
+            "[System Notice] You have reached the maximum number of tool call rounds ({}). \
+             Please summarize what has been completed so far, explain any limitations \
+             encountered, and provide the user with clear suggestions for next steps. \
+             Do NOT call any more tools — respond with text only.",
             self.max_tool_rounds
         )
     }
@@ -968,6 +974,23 @@ impl Agent {
 
             // Handle what happened in this round
             if has_tool_calls && self.config.auto_execute_tools {
+                // If we've already hit max rounds, suppress tool execution and
+                // let the LLM's final text-only response come through instead.
+                if round >= max_rounds {
+                    tracing::info!(
+                        round = round,
+                        "Final round: suppressing tool calls, breaking loop"
+                    );
+                    // The LLM ignored the notice — inject it again as a stronger
+                    // nudge and break to prevent infinite loops.
+                    let notice = "[System Notice] Tool calls are now disabled. Please provide your final response.";
+                    self.history.push(ChatMessage::user(notice));
+                    // We intentionally break without adding the assistant's tool-call
+                    // message to history, so the LLM can produce a fresh text response
+                    // next time the user sends a message.
+                    break;
+                }
+
                 // Build assistant message with tool calls for history
                 let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
                     .iter()
@@ -1162,17 +1185,18 @@ impl Agent {
 
                 round += 1;
                 if round >= max_rounds {
-                    tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
-                    let warning = self.config.max_rounds_reached_message();
-                    self.history.push(ChatMessage::assistant(&warning));
-                    if tx
-                        .send(Ok(StreamEvent::ContentDelta { delta: warning }))
-                        .await
-                        .is_err()
-                    {
-                        return Ok("length".to_string());
-                    }
-                    return Ok("length".to_string());
+                    tracing::warn!(
+                        rounds = round,
+                        "Maximum tool rounds reached, injecting final notice"
+                    );
+                    // Instead of a fixed warning message, inject a system notice
+                    // so the LLM can produce a natural summary with suggestions.
+                    let notice = self.config.max_rounds_reached_notice();
+                    self.history.push(ChatMessage::user(&notice));
+                    // Continue the loop for ONE final round — the LLM will see
+                    // the tool results + notice and respond naturally.
+                    // After this, suppress further tool execution.
+                    continue;
                 }
 
                 // Check cancellation between rounds
@@ -1194,20 +1218,7 @@ impl Agent {
                 // Loop back for next round
             } else {
                 // No tool calls — add the assistant message to history.
-                // If the model returned empty content after tool execution,
-                // provide a fallback so the user sees a confirmation.
-                let final_content = if content_text.is_empty() && round > 0 {
-                    let fallback = "Task completed.".to_string();
-                    let _ = tx
-                        .send(Ok(StreamEvent::ContentDelta {
-                            delta: fallback.clone(),
-                        }))
-                        .await;
-                    fallback
-                } else {
-                    content_text
-                };
-                self.history.push(ChatMessage::assistant(&final_content));
+                self.history.push(ChatMessage::assistant(&content_text));
                 break;
             }
         }
@@ -1329,6 +1340,20 @@ impl Agent {
 
             match tool_calls {
                 Some(calls) if self.config.auto_execute_tools && !calls.is_empty() => {
+                    // If we've already hit max rounds, suppress tool execution and
+                    // break — the LLM should produce a text-only final response.
+                    if round >= self.config.max_tool_rounds {
+                        tracing::info!(
+                            round = round,
+                            "Final round: suppressing tool calls, breaking loop"
+                        );
+                        // Inject a stronger notice and break.
+                        let notice = "[System Notice] Tool calls are now disabled. Please provide your final response.";
+                        self.history.push(ChatMessage::user(notice));
+                        response.choices[0].message = ChatMessage::assistant("");
+                        break 'agent_loop response;
+                    }
+
                     // Add assistant's tool-call message to history
                     let assistant_msg = choice.message.clone();
                     self.history.push(assistant_msg);
@@ -1467,37 +1492,23 @@ impl Agent {
 
                     round += 1;
                     if round >= self.config.max_tool_rounds {
-                        tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
-                        // Instead of returning a blank response (the last API response
-                        // only contained tool calls), inject a meaningful message so the
-                        // user isn't left with empty content.
-                        let warning = self.config.max_rounds_reached_message();
-                        let assistant_msg = ChatMessage::assistant(&warning);
-                        self.history.push(assistant_msg.clone());
-                        // Patch the response so the caller sees the warning text.
-                        response.choices[0].message = assistant_msg;
-                        break 'agent_loop response;
+                        tracing::warn!(
+                            rounds = round,
+                            "Maximum tool rounds reached, injecting final notice"
+                        );
+                        // Instead of a fixed warning message, inject a system notice
+                        // so the LLM can produce a natural summary with suggestions.
+                        let notice = self.config.max_rounds_reached_notice();
+                        self.history.push(ChatMessage::user(&notice));
+                        // Continue for one final round — the LLM will see the
+                        // tool results + notice and respond naturally.
+                        continue;
                     }
                     // Loop back to get the model's next response
                 }
                 _ => {
                     // No tool calls — add to history and return.
-                    // If the model returned empty content after tool execution,
-                    // inject a fallback message so the caller has something to send.
-                    let is_content_empty = choice
-                        .message
-                        .content
-                        .as_ref()
-                        .map(|c| c.as_text_full().unwrap_or_default().is_empty())
-                        .unwrap_or(true);
-                    if is_content_empty && round > 0 {
-                        let fallback = "Task completed.".to_string();
-                        let fallback_msg = ChatMessage::assistant(&fallback);
-                        self.history.push(fallback_msg.clone());
-                        response.choices[0].message = fallback_msg;
-                    } else {
-                        self.history.push(choice.message.clone());
-                    }
+                    self.history.push(choice.message.clone());
                     break 'agent_loop response;
                 }
             }
@@ -2161,6 +2172,18 @@ impl AgentStreamer {
 
                     // Now handle what happened in this round
                     if has_tool_calls && agent.config.auto_execute_tools {
+                        // If we've already hit max rounds, suppress tool execution and
+                        // let the LLM's final text-only response come through instead.
+                        if round >= max_rounds {
+                            tracing::info!(
+                                round = round,
+                                "Final round: suppressing tool calls, breaking loop"
+                            );
+                            let notice = "[System Notice] Tool calls are now disabled. Please provide your final response.";
+                            agent.history.push(ChatMessage::user(notice));
+                            break;
+                        }
+
                         // Build assistant message with tool calls for history
                         let tool_calls_for_history: Vec<ToolCall> = tool_calls_accum
                             .iter()
@@ -2333,17 +2356,17 @@ impl AgentStreamer {
 
                         round += 1;
                         if round >= max_rounds {
-                            tracing::warn!(rounds = round, "Maximum tool rounds reached, stopping");
-                            let warning = agent.config.max_rounds_reached_message();
-                            agent.history.push(ChatMessage::assistant(&warning));
-                            if tx
-                                .send(Ok(StreamEvent::ContentDelta { delta: warning }))
-                                .await
-                                .is_err()
-                            {
-                                return;
-                            }
-                            break;
+                            tracing::warn!(
+                                rounds = round,
+                                "Maximum tool rounds reached, injecting final notice"
+                            );
+                            // Instead of a fixed warning message, inject a system notice
+                            // so the LLM can produce a natural summary with suggestions.
+                            let notice = agent.config.max_rounds_reached_notice();
+                            agent.history.push(ChatMessage::user(&notice));
+                            // Continue for one final round — the LLM will see the
+                            // tool results + notice and respond naturally.
+                            continue;
                         }
 
                         // Check cancellation after the round (belt-and-suspenders;
@@ -2361,20 +2384,7 @@ impl AgentStreamer {
                         // Loop back for next round
                     } else {
                         // No tool calls — add the assistant message to history.
-                        // If the model returned empty content after tool execution,
-                        // provide a fallback so the user sees a confirmation.
-                        let final_content = if content_text.is_empty() && round > 0 {
-                            let fallback = "Task completed.".to_string();
-                            let _ = tx
-                                .send(Ok(StreamEvent::ContentDelta {
-                                    delta: fallback.clone(),
-                                }))
-                                .await;
-                            fallback
-                        } else {
-                            content_text
-                        };
-                        agent.history.push(ChatMessage::assistant(&final_content));
+                        agent.history.push(ChatMessage::assistant(&content_text));
                         break;
                     }
                 }

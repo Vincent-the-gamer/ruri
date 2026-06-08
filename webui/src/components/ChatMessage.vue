@@ -55,11 +55,6 @@ const isSystem = computed(() => props.message.role === "system");
 const hasToolCalls =
     props.message.tool_calls && props.message.tool_calls.length > 0;
 
-const isToolExecuting = computed(() => {
-    if (!isTool.value) return false;
-    return (props.message as any)._executing === true;
-});
-
 /** Whether this assistant message is currently being streamed */
 const isCurrentlyStreaming = computed(
     () =>
@@ -105,12 +100,7 @@ function renderMarkdown(
 
 <template>
     <div
-        v-if="
-            hasContent ||
-            hasToolCalls ||
-            isToolExecuting ||
-            isCurrentlyStreaming
-        "
+        v-if="hasContent || hasToolCalls || isCurrentlyStreaming"
         class="message-wrapper"
         :class="{
             'message-wrapper-user': isUser,
@@ -498,15 +488,8 @@ function renderMarkdown(
                         </svg>
                     </button>
                 </div>
-                <div
-                    class="message-content tool-content"
-                    :class="{ 'tool-executing': isToolExecuting }"
-                >
-                    <template v-if="isToolExecuting">
-                        <span class="tool-spinner"></span>
-                        <span v-html="renderMarkdown(message.content)"></span>
-                    </template>
-                    <div v-else v-html="renderMarkdown(message.content)"></div>
+                <div class="message-content tool-content">
+                    <div v-html="renderMarkdown(message.content)"></div>
                 </div>
             </div>
         </div>

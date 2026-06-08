@@ -2,9 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { ChatMessage, ChatRequest, ContentPart, StreamEvent, ToolCall } from '../types'
 import * as api from '../api'
-import { useDebugSessionStore } from './debugSession'
-import { usePersonaStore } from './persona'
-import { getToolProgressMessageWithArgs, getToolCompletionMessage, type ToolMessageStyle } from '../composables/useToolMessages'
+
 
 // ── localStorage cache helpers (persists across page navigations & tab refreshes) ──────
 const CHAT_CACHE_KEY = 'ruri_chat_messages_cache'
@@ -55,38 +53,6 @@ export const useChatStore = defineStore('chat', () => {
 
   // Computed: true when the agent is actively processing a message
   const isThinking = computed(() => sending.value)
-
-  /**
-   * Resolve the active persona's tool_response_style for natural-language
-   * tool progress messages. Falls back to 'friendly' if no persona is active
-   * or no style is configured.
-   */
-  function getActiveToolMessageStyle(): ToolMessageStyle {
-    try {
-      const debugStore = useDebugSessionStore()
-      const personaStore = usePersonaStore()
-      const personaId = debugStore.personaId
-      if (!personaId) return 'friendly'
-      const persona = personaStore.personas.find(p => p.id === personaId)
-      if (!persona?.tool_response_style) return 'friendly'
-      // Validate that the style is one of our known styles
-      const validStyles: ToolMessageStyle[] = ['friendly', 'casual', 'professional', 'cute', 'minimal']
-      return validStyles.includes(persona.tool_response_style as ToolMessageStyle)
-        ? (persona.tool_response_style as ToolMessageStyle)
-        : 'friendly'
-    } catch {
-      return 'friendly'
-    }
-  }
-
-  /** Get the current locale for i18n-aware tool messages */
-  function getCurrentLocale(): string {
-    try {
-      return localStorage.getItem('ruri-locale') || 'zh-CN'
-    } catch {
-      return 'zh-CN'
-    }
-  }
 
   /**
    * Initial load: cache-first strategy.
@@ -312,44 +278,12 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+
       case 'tool_executing': {
-        // ── Natural-language tool progress ──
-        // Generate a warm, human-like message that makes the assistant
-        // feel like it's naturally telling the user what it's doing,
-        // rather than a cold tool status. The persona's tool_response_style
-        // controls the tone (friendly/casual/professional/cute/minimal).
-        const style = getActiveToolMessageStyle()
-        const locale = getCurrentLocale()
-        const argsPreview = event.arguments_preview || ''
-        const friendlyMsg = getToolProgressMessageWithArgs(
-          event.tool_name,
-          argsPreview,
-          locale,
-          style,
-        )
-        const statusMsg = `\n\n> ${friendlyMsg}\n\n`;
-
-        // Append the tool status inline to the current streaming content —
-        // don't finalize or create a separate message. The status is part
-        // of the assistant's natural response flow.
-        streamingContent.value += statusMsg;
-        updateOrAddStreamingMessage();
-
-        // Also add a lightweight status marker so we can clean it up later
-        // when tool_result arrives.
-        const existingExecutingIdx = messages.value.findIndex(
-          (m: any) => m._executing === true
-        );
-        if (existingExecutingIdx === -1) {
-          messages.value.push({
-            role: 'tool',
-            content: '',
-            tool_call_id: event.tool_call_id,
-            tool_name: event.tool_name,
-            _executing: true,
-            _inline: true,  // mark as inline (no separate display)
-          } as any);
-        }
+        // Tool execution is handled silently — the LLM will naturally
+        // respond after seeing the tool results in the conversation history.
+        // No fixed messages are injected here to keep the interaction
+        // feeling natural and human-like.
         break;
       }
       case 'tool_call_delta': {
@@ -373,46 +307,13 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_result': {
-        // Remove the executing status marker(s) — both inline markers
-        // and any legacy separate tool messages.
-        for (let i = messages.value.length - 1; i >= 0; i--) {
-          const msg = messages.value[i] as any;
-          if (msg.role === 'tool' && msg.tool_call_id === event.tool_call_id) {
-            if (msg._executing) {
-              // If this was an inline status marker (no content), just remove it.
-              // If it had content (legacy style), remove the whole message.
-              messages.value.splice(i, 1);
-            }
-            break;
-          }
-        }
-
-        // ── Append tool completion status ──
-        // Show a clear success ✅ or failure ❌ message so the user
-        // knows what happened, rather than just leaving the "working..."
-        // progress message hanging.
-        const locale = getCurrentLocale()
-        const ok = event.ok !== false // default to true for backward compat
-        const completionMsg = getToolCompletionMessage(event.tool_name, ok, locale)
-        const statusLine = `\n\n> ${ok ? '✅' : '❌'} ${completionMsg}\n\n`
-        streamingContent.value += statusLine
-        updateOrAddStreamingMessage()
-
-        // NOTE: We intentionally do NOT strip the inline tool status text
-        // from streamingContent anymore. The friendly status messages
-        // (e.g. "让我看看这个文件里有什么... 📖") are now kept as part of
-        // the assistant's natural conversation flow, making the interaction
-        // feel more human-like. Multiple tool cycles produce a visible
-        // workflow that shows the assistant's thinking process.
-
-        // Skip empty tool results — they would create empty dialog boxes.
-        // But if the tool result is non-empty, we append it as a footnote
-        // to the last assistant message rather than as a separate block,
-        // keeping the conversational flow natural.
+        // Tool execution completed — the LLM will naturally respond based
+        // on the result in the next round. We don't inject fixed completion
+        // messages; instead we attach the result as a collapsible footnote
+        // so the user can inspect it if needed, without disrupting the
+        // natural conversation flow.
         const resultContent = (event.content || '').trim();
         if (resultContent) {
-          // Append tool result as a collapsible footnote to the last
-          // assistant message rather than a separate tool block.
           const lastAssistant = findLastAssistantMessage();
           if (lastAssistant) {
             const preview = resultContent.length > 300
@@ -538,11 +439,6 @@ export const useChatStore = defineStore('chat', () => {
           continue
         }
         break
-      }
-      // Also clean up inline status markers
-      if (msg.role === 'tool' && (msg as any)._inline) {
-        messages.value.splice(i, 1)
-        continue
       }
       if (msg.role !== 'tool' && msg.role !== 'user') break
     }
