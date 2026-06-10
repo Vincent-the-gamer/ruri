@@ -125,6 +125,10 @@ fn default_segmented_reply_interval_ms() -> u64 {
     500
 }
 
+fn default_segmented_reply_max_length() -> usize {
+    1500
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderDto {
     pub id: String,
@@ -275,6 +279,10 @@ pub struct ChatRequestDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResponseDto {
     pub message: ChatMessageDto,
+    /// When segmented reply is enabled, this contains the split messages.
+    /// The `message` field above contains the full original response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segmented_messages: Option<Vec<ChatMessageDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_results: Option<Vec<ToolResultDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -657,6 +665,9 @@ pub struct ConfigProfileDto {
     /// Interval in milliseconds between segmented reply messages.
     #[serde(default = "default_segmented_reply_interval_ms")]
     pub segmented_reply_interval_ms: u64,
+    /// Maximum character length per segment before splitting.
+    #[serde(default = "default_segmented_reply_max_length")]
+    pub segmented_reply_max_length: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -698,6 +709,8 @@ pub struct CreateConfigProfileRequest {
     pub segmented_reply_enabled: bool,
     #[serde(default = "default_segmented_reply_interval_ms")]
     pub segmented_reply_interval_ms: u64,
+    #[serde(default = "default_segmented_reply_max_length")]
+    pub segmented_reply_max_length: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -754,6 +767,8 @@ pub struct UpdateConfigProfileRequest {
     pub segmented_reply_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segmented_reply_interval_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_max_length: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1164,6 +1179,7 @@ pub struct DebugSessionDto {
     pub custom_error_message: Option<String>,
     pub segmented_reply_enabled: bool,
     pub segmented_reply_interval_ms: u64,
+    pub segmented_reply_max_length: usize,
 }
 
 /// Request DTO for updating debug session configuration
@@ -1232,6 +1248,8 @@ pub struct UpdateDebugSessionRequest {
     pub segmented_reply_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segmented_reply_interval_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmented_reply_max_length: Option<usize>,
 }
 
 impl From<&crate::api::state::EmbeddedProvider> for EmbeddedProviderDto {

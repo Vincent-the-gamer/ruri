@@ -503,10 +503,7 @@ pub struct StreamUsage {
 /// 2. Split on paragraph boundaries (double newlines) first.
 /// 3. If a paragraph is still too long, split on sentence boundaries.
 /// 4. Keep markdown headings together with their following content.
-pub fn split_text_into_segments(text: &str) -> Vec<String> {
-    // Maximum characters per segment before we try harder to split.
-    const MAX_SEGMENT_LEN: usize = 1500;
-
+pub fn split_text_into_segments(text: &str, max_length: usize) -> Vec<String> {
     // Step 1: Extract code blocks so we never split inside them.
     // Replace code blocks with placeholders, then restore after splitting.
     let mut code_blocks: Vec<String> = Vec::new();
@@ -563,7 +560,7 @@ pub fn split_text_into_segments(text: &str) -> Vec<String> {
 
         if current.is_empty() {
             current = para.to_string();
-        } else if current.chars().count() + para_len < MAX_SEGMENT_LEN {
+        } else if current.chars().count() + para_len < max_length {
             // Merge with current segment
             current.push_str("\n\n");
             current.push_str(para);
@@ -574,7 +571,7 @@ pub fn split_text_into_segments(text: &str) -> Vec<String> {
         }
 
         // If a single paragraph is still too long, split it by sentences
-        if current.chars().count() > MAX_SEGMENT_LEN {
+        if current.chars().count() > max_length {
             let mut parts: Vec<String> = Vec::new();
             let mut part = String::new();
             for ch in current.chars() {

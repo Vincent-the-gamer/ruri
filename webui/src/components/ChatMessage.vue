@@ -10,7 +10,6 @@ const props = defineProps<{
 }>();
 
 const chatStore = useChatStore();
-const showToolCalls = ref(false);
 const copied = ref(false);
 
 function getMessageText(content: string | ContentPart[]): string {
@@ -52,9 +51,6 @@ const isAssistant = computed(() => props.message.role === "assistant");
 const isTool = computed(() => props.message.role === "tool");
 const isSystem = computed(() => props.message.role === "system");
 
-const hasToolCalls =
-    props.message.tool_calls && props.message.tool_calls.length > 0;
-
 /** Whether this assistant message is currently being streamed */
 const isCurrentlyStreaming = computed(
     () =>
@@ -71,14 +67,6 @@ const hasContent = computed(() => {
     if (Array.isArray(c)) return c.length > 0;
     return false;
 });
-
-function formatArgs(args: string): string {
-    try {
-        return JSON.stringify(JSON.parse(args), null, 2);
-    } catch {
-        return args;
-    }
-}
 
 function renderMarkdown(
     content: string | import("../types").ContentPart[],
@@ -100,7 +88,7 @@ function renderMarkdown(
 
 <template>
     <div
-        v-if="hasContent || hasToolCalls || isCurrentlyStreaming"
+        v-if="hasContent || isCurrentlyStreaming"
         class="message-wrapper"
         :class="{
             'message-wrapper-user': isUser,
@@ -320,45 +308,7 @@ function renderMarkdown(
                         </svg>
                     </button>
                 </div>
-                <!-- Tool calls (process) — shown before the response text (result) -->
-                <div v-if="hasToolCalls" class="tool-calls">
-                    <div
-                        @click="showToolCalls = !showToolCalls"
-                        class="tool-toggle"
-                        :class="{ expanded: showToolCalls }"
-                    >
-                        <svg
-                            class="toggle-icon"
-                            :class="{ expanded: showToolCalls }"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                        <span
-                            >Tool calls ({{ message.tool_calls!.length }})</span
-                        >
-                    </div>
-                    <div v-if="showToolCalls" class="tool-list">
-                        <div
-                            v-for="tc in message.tool_calls"
-                            :key="tc.id"
-                            class="tool-item"
-                        >
-                            <div class="tool-header">
-                                <span class="tool-badge">{{
-                                    tc.function.name
-                                }}</span>
-                            </div>
-                            <pre class="tool-args">{{
-                                formatArgs(tc.function.arguments)
-                            }}</pre>
-                        </div>
-                    </div>
-                </div>
-                <!-- Response text (result) — shown after the tool calls (process) -->
+                <!-- LLM's natural response text -->
                 <div class="message-content assistant-content">
                     <template v-if="Array.isArray(message.content)">
                         <template
@@ -384,41 +334,6 @@ function renderMarkdown(
                         v-if="isCurrentlyStreaming"
                         class="streaming-cursor"
                     ></span>
-
-                    <!-- Tool result footnotes: shown inline below the message -->
-                    <div
-                        v-if="
-                            (message as any)._tool_results &&
-                            (message as any)._tool_results.length > 0
-                        "
-                        class="tool-results-footnote"
-                    >
-                        <details>
-                            <summary class="tool-results-summary">
-                                <span class="footnote-icon">📎</span>
-                                <span
-                                    >工具调用结果（{{
-                                        (message as any)._tool_results.length
-                                    }}）</span
-                                >
-                            </summary>
-                            <div
-                                v-for="(tr, trIdx) in (message as any)
-                                    ._tool_results"
-                                :key="trIdx"
-                                class="tool-result-item"
-                            >
-                                <div class="tool-result-header">
-                                    <span class="tool-badge-inline">{{
-                                        tr.tool_name
-                                    }}</span>
-                                </div>
-                                <pre class="tool-result-content">{{
-                                    tr.content
-                                }}</pre>
-                            </div>
-                        </details>
-                    </div>
                 </div>
             </div>
         </div>

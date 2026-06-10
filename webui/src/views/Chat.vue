@@ -89,7 +89,7 @@ onActivated(async () => {
 });
 
 const messages = computed(() =>
-    chatStore.messages.filter((m) => m.role !== "system"),
+    chatStore.messages.filter((m) => m.role !== "system" && m.role !== "tool"),
 );
 
 function scrollToBottom() {

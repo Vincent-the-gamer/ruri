@@ -110,6 +110,10 @@ fn default_segmented_reply_interval_ms() -> u64 {
     500
 }
 
+fn default_segmented_reply_max_length() -> usize {
+    1500
+}
+
 /// Config profile persisted to disk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedConfigProfile {
@@ -181,6 +185,10 @@ pub struct PersistedConfigProfile {
     /// Interval in milliseconds between segmented reply messages.
     #[serde(default = "default_segmented_reply_interval_ms")]
     pub segmented_reply_interval_ms: u64,
+    /// Maximum character length per segment before splitting.
+    /// Responses longer than this will be split into multiple segments.
+    #[serde(default = "default_segmented_reply_max_length")]
+    pub segmented_reply_max_length: usize,
 }
 
 /// ACP-specific configuration stored alongside the main config.
@@ -299,6 +307,10 @@ pub struct DebugSessionConfig {
     /// Interval in milliseconds between segmented reply messages.
     #[serde(default = "default_segmented_reply_interval_ms")]
     pub segmented_reply_interval_ms: u64,
+    /// Maximum character length per segment before splitting.
+    /// Responses longer than this will be split into multiple segments.
+    #[serde(default = "default_segmented_reply_max_length")]
+    pub segmented_reply_max_length: usize,
     /// Embedded provider configurations for debug sessions
     #[serde(default)]
     pub providers: Vec<EmbeddedProvider>,
@@ -406,6 +418,7 @@ pub struct StoredConfigProfile {
     pub updated_at: DateTime<Utc>,
     pub segmented_reply_enabled: bool,
     pub segmented_reply_interval_ms: u64,
+    pub segmented_reply_max_length: usize,
     /// Legacy field: references a global provider by ID
     pub provider_id: Option<String>,
     /// Persona ID reference to the persona library.
@@ -1030,6 +1043,7 @@ impl AppState {
                                 platform_ids: p.platform_ids.clone(),
                                 segmented_reply_enabled: p.segmented_reply_enabled,
                                 segmented_reply_interval_ms: p.segmented_reply_interval_ms,
+                                segmented_reply_max_length: p.segmented_reply_max_length,
                             },
                         )
                     })
@@ -1610,6 +1624,7 @@ impl AppState {
                         platform_ids: p.platform_ids.clone(),
                         segmented_reply_enabled: p.segmented_reply_enabled,
                         segmented_reply_interval_ms: p.segmented_reply_interval_ms,
+                        segmented_reply_max_length: p.segmented_reply_max_length,
                     },
                 )
             })
@@ -2245,6 +2260,7 @@ impl AppState {
                         platform_ids: p.platform_ids.clone(),
                         segmented_reply_enabled: p.segmented_reply_enabled,
                         segmented_reply_interval_ms: p.segmented_reply_interval_ms,
+                        segmented_reply_max_length: p.segmented_reply_max_length,
                     },
                 )
             })
@@ -3370,11 +3386,10 @@ pub(crate) fn build_persona_system_prompt(
     base_prompt: &str,
     tool_response_style: Option<&str>,
 ) -> String {
-    let default_style = "\n\n---\n\n## 回复风格指引\n\
-当你使用工具获取结果后，请务必保持你的人设风格向用户呈现信息。\n\
-不要机械地罗列数据或结果，而是要用符合你角色设定的语气、情感和表达方式\n\
-来进行叙述。保持角色的一致性和生动性，让用户感受到你的个性魅力。";
-
-    let style = tool_response_style.unwrap_or(default_style);
-    format!("{}\n\n{}", base_prompt, style)
+    if let Some(style) = tool_response_style {
+        if !style.trim().is_empty() {
+            return format!("{}\n\n{}", base_prompt, style);
+        }
+    }
+    base_prompt.to_string()
 }

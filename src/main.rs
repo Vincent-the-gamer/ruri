@@ -616,7 +616,7 @@ async fn main() -> anyhow::Result<()> {
 
                                                 // ── Segmented Reply ────────────────────────
                                                 // Check the config profile for this platform
-                                                let (seg_enabled, seg_interval) = {
+                                                let (seg_enabled, seg_interval, seg_max_length) = {
                                                     let profiles =
                                                         state_clone.config_profiles.read().await;
                                                     profiles
@@ -633,15 +633,17 @@ async fn main() -> anyhow::Result<()> {
                                                             (
                                                                 p.segmented_reply_enabled,
                                                                 p.segmented_reply_interval_ms,
+                                                                p.segmented_reply_max_length,
                                                             )
                                                         })
-                                                        .unwrap_or((false, 500))
+                                                        .unwrap_or((false, 500, 1500))
                                                 };
 
                                                 if seg_enabled {
                                                     let segments =
                                                         crate::types::split_text_into_segments(
                                                             &text,
+                                                            seg_max_length,
                                                         );
                                                     let interval = std::time::Duration::from_millis(
                                                         seg_interval,

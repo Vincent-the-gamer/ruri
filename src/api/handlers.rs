@@ -1269,6 +1269,7 @@ async fn send_chat_message(
             };
             return Ok(Json(ChatResponseDto {
                 message: message_dto,
+                segmented_messages: None,
                 tool_results: None,
                 usage: None,
             }));
@@ -1493,6 +1494,7 @@ async fn send_chat_message(
         .as_ref()
         .and_then(|c| c.as_text_full())
         .unwrap_or_default();
+    let assistant_text_for_seg = assistant_content.clone();
 
     // Build the assistant DB content, embedding tool_calls as structured JSON if present
     let has_tool_calls = choice
@@ -1634,8 +1636,55 @@ async fn send_chat_message(
         completion_tokens: u.completion_tokens.unwrap_or(0),
     });
 
+    // ── Segmented Reply ─────────────────────────────────────────
+    let segmented_messages = {
+        let (seg_enabled, seg_max_len) = {
+            let debug = state.debug_session.read().await;
+            if debug.segmented_reply_enabled {
+                (true, debug.segmented_reply_max_length)
+            } else {
+                let profiles = state.config_profiles.read().await;
+                let profile_config = profiles
+                    .values()
+                    .filter(|p| p.is_active && p.enable && p.segmented_reply_enabled)
+                    .map(|p| p.segmented_reply_max_length)
+                    .next();
+                if let Some(max_len) = profile_config {
+                    (true, max_len)
+                } else {
+                    (false, 1500)
+                }
+            }
+        };
+        if seg_enabled
+            && !assistant_text_for_seg.is_empty()
+            && !has_tool_calls
+        {
+            let segments =
+                crate::types::split_text_into_segments(&assistant_text_for_seg, seg_max_len);
+            if segments.len() > 1 {
+                let seg_dtos: Vec<ChatMessageDto> = segments
+                    .into_iter()
+                    .map(|seg| ChatMessageDto {
+                        role: "assistant".to_string(),
+                        content: serde_json::Value::String(seg),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        tool_name: None,
+                    })
+                    .collect();
+                Some(seg_dtos)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
     Ok(Json(ChatResponseDto {
         message: message_dto,
+        segmented_messages,
         tool_results: tool_results_dto,
         usage: usage_dto,
     }))
@@ -1872,12 +1921,29 @@ async fn stream_chat_message(
     let event_stream = streamer.into_stream();
 
     // ── Segmented Reply Config ───────────────────────────────────
-    let (segmented_reply_enabled, segmented_reply_interval_ms) = {
+    // Read from debug session first; if not enabled there, check active config profile.
+    let (segmented_reply_enabled, segmented_reply_interval_ms, segmented_reply_max_length) = {
         let debug = state.debug_session.read().await;
-        (
-            debug.segmented_reply_enabled,
-            debug.segmented_reply_interval_ms,
-        )
+        if debug.segmented_reply_enabled {
+            (
+                true,
+                debug.segmented_reply_interval_ms,
+                debug.segmented_reply_max_length,
+            )
+        } else {
+            // Check active config profiles
+            let profiles = state.config_profiles.read().await;
+            let profile_config = profiles
+                .values()
+                .filter(|p| p.is_active && p.enable && p.segmented_reply_enabled)
+                .map(|p| (p.segmented_reply_interval_ms, p.segmented_reply_max_length))
+                .next();
+            if let Some((interval, max_len)) = profile_config {
+                (true, interval, max_len)
+            } else {
+                (false, debug.segmented_reply_interval_ms, debug.segmented_reply_max_length)
+            }
+        }
     };
 
     // Convert StreamEvents to SSE Events, and persist messages to DB on completion
@@ -2005,7 +2071,7 @@ async fn stream_chat_message(
 
                                 // If segmented reply is enabled and we have content, split and send
                                 if segmented_reply_enabled && !full_content.is_empty() && accumulated_tool_calls.is_empty() {
-                                    let segments = crate::types::split_text_into_segments(&full_content);
+                                    let segments = crate::types::split_text_into_segments(&full_content, segmented_reply_max_length);
                                     let total = segments.len();
                                     let interval = std::time::Duration::from_millis(segmented_reply_interval_ms);
                                     for (i, segment) in segments.into_iter().enumerate() {
@@ -2906,6 +2972,7 @@ async fn list_config_profiles(State(state): State<Arc<AppState>>) -> Json<Vec<Co
             platform_ids: p.platform_ids.clone(),
             segmented_reply_enabled: p.segmented_reply_enabled,
             segmented_reply_interval_ms: p.segmented_reply_interval_ms,
+            segmented_reply_max_length: p.segmented_reply_max_length,
         })
         .collect();
     Json(dtos)
@@ -2941,6 +3008,7 @@ async fn get_config_profile(
             platform_ids: p.platform_ids.clone(),
             segmented_reply_enabled: p.segmented_reply_enabled,
             segmented_reply_interval_ms: p.segmented_reply_interval_ms,
+            segmented_reply_max_length: p.segmented_reply_max_length,
         };
         Ok(Json(dto))
     } else {
@@ -2988,6 +3056,7 @@ async fn create_config_profile(
         platform_ids: req.platform_ids.clone().unwrap_or_default(),
         segmented_reply_enabled: req.segmented_reply_enabled,
         segmented_reply_interval_ms: req.segmented_reply_interval_ms,
+        segmented_reply_max_length: req.segmented_reply_max_length,
     };
 
     // Validate platform_ids: only one platform per profile allowed
@@ -3058,6 +3127,7 @@ async fn create_config_profile(
         platform_ids: req.platform_ids.unwrap_or_default(),
         segmented_reply_enabled: req.segmented_reply_enabled,
         segmented_reply_interval_ms: req.segmented_reply_interval_ms,
+        segmented_reply_max_length: req.segmented_reply_max_length,
     };
 
     state.auto_save().await;
@@ -3179,6 +3249,9 @@ async fn update_config_profile(
         if let Some(segmented_reply_interval_ms) = req.segmented_reply_interval_ms {
             profile.segmented_reply_interval_ms = segmented_reply_interval_ms;
         }
+        if let Some(segmented_reply_max_length) = req.segmented_reply_max_length {
+            profile.segmented_reply_max_length = segmented_reply_max_length;
+        }
         if let Some(platform_ids) = req.platform_ids {
             // Validation was already done above before acquiring mutable borrow
             profile.platform_ids = platform_ids;
@@ -3208,6 +3281,7 @@ async fn update_config_profile(
             platform_ids: profile.platform_ids.clone(),
             segmented_reply_enabled: profile.segmented_reply_enabled,
             segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
+            segmented_reply_max_length: profile.segmented_reply_max_length,
         };
 
         let is_active = dto.is_active;
@@ -3344,6 +3418,7 @@ async fn activate_config_profile(
             platform_ids: profile.platform_ids.clone(),
             segmented_reply_enabled: profile.segmented_reply_enabled,
             segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
+            segmented_reply_max_length: profile.segmented_reply_max_length,
         };
 
         drop(profiles);
@@ -3432,6 +3507,7 @@ async fn deactivate_config_profile(
             platform_ids: profile.platform_ids.clone(),
             segmented_reply_enabled: profile.segmented_reply_enabled,
             segmented_reply_interval_ms: profile.segmented_reply_interval_ms,
+            segmented_reply_max_length: profile.segmented_reply_max_length,
         };
 
         drop(profiles);
@@ -5918,6 +5994,7 @@ async fn get_debug_session(State(state): State<Arc<AppState>>) -> Json<DebugSess
         custom_error_message: session.custom_error_message.clone(),
         segmented_reply_enabled: session.segmented_reply_enabled,
         segmented_reply_interval_ms: session.segmented_reply_interval_ms,
+        segmented_reply_max_length: session.segmented_reply_max_length,
     };
 
     Json(dto)
@@ -5995,6 +6072,9 @@ async fn update_debug_session(
         if let Some(segmented_reply_interval_ms) = req.segmented_reply_interval_ms {
             session.segmented_reply_interval_ms = segmented_reply_interval_ms;
         }
+        if let Some(segmented_reply_max_length) = req.segmented_reply_max_length {
+            session.segmented_reply_max_length = segmented_reply_max_length;
+        }
 
         // Build DTO while still holding the lock, then drop the lock
         let dto = DebugSessionDto {
@@ -6025,6 +6105,7 @@ async fn update_debug_session(
             custom_error_message: session.custom_error_message.clone(),
             segmented_reply_enabled: session.segmented_reply_enabled,
             segmented_reply_interval_ms: session.segmented_reply_interval_ms,
+            segmented_reply_max_length: session.segmented_reply_max_length,
         };
 
         dto

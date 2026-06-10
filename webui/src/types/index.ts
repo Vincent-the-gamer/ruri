@@ -377,6 +377,8 @@ export interface ConfigProfile {
   segmented_reply_enabled: boolean
   /** Interval in milliseconds between segmented reply messages */
   segmented_reply_interval_ms: number
+  /** Maximum character length per segment before splitting */
+  segmented_reply_max_length: number
   created_at: string
   updated_at: string
   // 关联的配置
@@ -409,6 +411,7 @@ export interface CreateConfigProfileRequest {
   enable: boolean
   segmented_reply_enabled: boolean
   segmented_reply_interval_ms: number
+  segmented_reply_max_length: number
   provider_id: string | null
   persona_id?: string | null
   web_search_enabled: boolean
@@ -430,6 +433,7 @@ export interface UpdateConfigProfileRequest {
   enable?: boolean
   segmented_reply_enabled?: boolean
   segmented_reply_interval_ms?: number
+  segmented_reply_max_length?: number
   provider_id?: string | null
   persona_id?: string | null
   web_search_enabled?: boolean
@@ -826,6 +830,7 @@ export interface DebugSession {
   thinking_enabled: boolean
   segmented_reply_enabled: boolean
   segmented_reply_interval_ms: number
+  segmented_reply_max_length: number
   skills: EmbeddedSkill[]
   active_skill_names: string[]
   knowledge_base_ids: string[]
@@ -848,6 +853,7 @@ export interface UpdateDebugSessionRequest {
   thinking_enabled?: boolean
   segmented_reply_enabled?: boolean
   segmented_reply_interval_ms?: number
+  segmented_reply_max_length?: number
   skills?: EmbeddedSkill[]
   active_skill_names?: string[]
   knowledge_base_ids?: string[]

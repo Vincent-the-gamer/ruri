@@ -142,6 +142,7 @@ export const useConfigStore = defineStore('config', () => {
   const thinkingEnabled = computed(() => activeConfigProfile.value?.thinking_enabled ?? true)
   const segmentedReplyEnabled = computed(() => activeConfigProfile.value?.segmented_reply_enabled ?? false)
   const segmentedReplyIntervalMs = computed(() => activeConfigProfile.value?.segmented_reply_interval_ms ?? 500)
+  const segmentedReplyMaxLength = computed(() => activeConfigProfile.value?.segmented_reply_max_length ?? 1500)
 
   const activeSkillNames = computed(() => activeConfigProfile.value?.active_skill_names ?? [])
   const commandPrefix = computed(() => activeConfigProfile.value?.command_prefix ?? '/')
@@ -168,6 +169,7 @@ export const useConfigStore = defineStore('config', () => {
     thinkingEnabled,
     segmentedReplyEnabled,
     segmentedReplyIntervalMs,
+    segmentedReplyMaxLength,
     activeSkillNames,
     commandPrefix,
     enabledCommands,

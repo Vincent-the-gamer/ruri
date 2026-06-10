@@ -56,6 +56,7 @@ const formData = ref<{
     thinking_enabled: boolean;
     segmented_reply_enabled: boolean;
     segmented_reply_interval_ms: number;
+    segmented_reply_max_length: number;
     active_skill_names: string[];
     active_knowledge_base_ids: string[];
     platform_ids: string[];
@@ -85,6 +86,7 @@ const formData = ref<{
     thinking_enabled: true,
     segmented_reply_enabled: false,
     segmented_reply_interval_ms: 500,
+    segmented_reply_max_length: 1500,
     active_skill_names: [],
     active_knowledge_base_ids: [],
     platform_ids: [],
@@ -124,6 +126,8 @@ watch(
                     newConfig.segmented_reply_enabled ?? false,
                 segmented_reply_interval_ms:
                     newConfig.segmented_reply_interval_ms ?? 500,
+                segmented_reply_max_length:
+                    newConfig.segmented_reply_max_length ?? 1500,
                 active_skill_names: [...(newConfig.active_skill_names || [])],
                 active_knowledge_base_ids: [
                     ...(newConfig.active_knowledge_base_ids || []),
@@ -162,6 +166,7 @@ watch(
                 thinking_enabled: true,
                 segmented_reply_enabled: false,
                 segmented_reply_interval_ms: 500,
+                segmented_reply_max_length: 1500,
                 active_skill_names: [],
                 active_knowledge_base_ids: [],
                 platform_ids: [],
@@ -764,6 +769,20 @@ function handleSubmit() {
                         />
                         <p class="form-hint">
                             每条消息之间的延迟时间，推荐 300-800ms
+                        </p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">每段最大字符数</label>
+                        <input
+                            v-model.number="formData.segmented_reply_max_length"
+                            type="number"
+                            min="200"
+                            max="10000"
+                            step="100"
+                            class="form-input"
+                        />
+                        <p class="form-hint">
+                            超出此长度时自动分段，推荐 500-2000
                         </p>
                     </div>
                 </div>

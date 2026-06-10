@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { ChatMessage, ChatRequest, ContentPart, StreamEvent, ToolCall } from '../types'
+import type { ChatMessage, ChatRequest, ContentPart, StreamEvent } from '../types'
 import * as api from '../api'
 
 
@@ -46,8 +46,6 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   /** Whether we have done at least one successful database fetch (initial sync) */
   const _syncedWithDb = ref(false)
-  /** Accumulated tool calls during the current streaming session */
-  const _accumulatedToolCalls = ref<ToolCall[]>([])
   /** Whether the stream received a 'done' event (normal completion) */
   const _streamDoneReceived = ref(false)
 
@@ -178,7 +176,6 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     streamingContent.value = ''
     isStreaming.value = true
-    _accumulatedToolCalls.value = []
     _streamDoneReceived.value = false
 
     try {
@@ -218,7 +215,6 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       sending.value = false
       isStreaming.value = false
-      _accumulatedToolCalls.value = []
       // Save current local messages to cache (they are the authoritative
       // view after a successful stream). Do NOT replace local state with
       // server history — the streaming response is the source of truth.
@@ -262,20 +258,9 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_call_start': {
-        // Tool call is starting — ensure there's an assistant message to attach
-        // tool_calls to, even if no text content has been streamed yet.
-        // This guarantees tool calls appear before the response text in the UI.
-        if (!streamingContent.value) {
-          // Create a placeholder assistant message for the tool calls
-          const lastMsg = messages.value[messages.value.length - 1]
-          if (!lastMsg || lastMsg.role !== 'assistant' || !isStreaming.value) {
-            messages.value.push({
-              role: 'assistant',
-              content: '',
-              tool_calls: [],
-            })
-          }
-        }
+        // Tool call is starting — LLM may produce text alongside tool calls.
+        // No placeholder messages are created; the LLM's natural response
+        // (content_delta) will create the assistant message when text arrives.
         break
       }
 
@@ -291,58 +276,20 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'tool_call_end': {
-        // A tool call completed — accumulate it for attachment to the
-        // assistant message and add it to the current streaming message
-        const toolCall: ToolCall = {
-          id: event.tool_call_id,
-          type: 'function',
-          function: {
-            name: event.function_name,
-            arguments: event.arguments,
-          },
-        }
-        _accumulatedToolCalls.value.push(toolCall)
-        // Attach accumulated tool_calls to the current streaming assistant message
-        attachToolCallsToStreamingMessage()
+        // Tool call completed — the LLM will respond based on tool results.
+        // No UI updates needed; the LLM's natural response follows.
         break
       }
       case 'tool_result': {
         // Tool execution completed — the LLM will naturally respond based
-        // on the result in the next round. We don't inject fixed completion
-        // messages; instead we attach the result as a collapsible footnote
-        // so the user can inspect it if needed, without disrupting the
-        // natural conversation flow.
-        const resultContent = (event.content || '').trim();
-        if (resultContent) {
-          const lastAssistant = findLastAssistantMessage();
-          if (lastAssistant) {
-            const preview = resultContent.length > 300
-              ? resultContent.slice(0, 300) + '...'
-              : resultContent;
-            (lastAssistant as any)._tool_results = (lastAssistant as any)._tool_results || [];
-            (lastAssistant as any)._tool_results.push({
-              tool_name: event.tool_name,
-              tool_call_id: event.tool_call_id,
-              content: resultContent,
-              preview,
-            });
-          } else {
-            messages.value.push({
-              role: 'tool',
-              content: event.content,
-              tool_call_id: event.tool_call_id,
-              tool_name: event.tool_name,
-            });
-          }
-        }
+        // on the result in the next round. No UI elements are injected here;
+        // the LLM's natural language response is the only user-facing output.
         break
       }
       case 'done': {
         // Stream completed — finalize any remaining streaming content
-        // and attach accumulated tool_calls to the last assistant message
         _streamDoneReceived.value = true
         finalizeStreamingMessage()
-        attachToolCallsToLastAssistantMessage()
         cleanupEmptyPlaceholders()
         break
       }
@@ -377,27 +324,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** Attach accumulated tool_calls to the current streaming assistant message */
-  function attachToolCallsToStreamingMessage() {
-    if (_accumulatedToolCalls.value.length === 0) return
-    const lastMsg = messages.value[messages.value.length - 1]
-    if (lastMsg && lastMsg.role === 'assistant') {
-      lastMsg.tool_calls = [..._accumulatedToolCalls.value]
-    }
-  }
-
-  /** Attach accumulated tool_calls to the last assistant message (called at stream end) */
-  function attachToolCallsToLastAssistantMessage() {
-    if (_accumulatedToolCalls.value.length === 0) return
-    // Find the last assistant message
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'assistant') {
-        messages.value[i].tool_calls = [..._accumulatedToolCalls.value]
-        break
-      }
-    }
-  }
-
   /** Finalize the current streaming message and reset state */
   function finalizeStreamingMessage() {
     if (streamingContent.value) {
@@ -414,18 +340,10 @@ export const useChatStore = defineStore('chat', () => {
     streamingContent.value = ''
   }
 
-  /** Find the last assistant message in the list */
-  function findLastAssistantMessage(): ChatMessage | undefined {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'assistant') {
-        return messages.value[i]
-      }
-    }
-    return undefined
-  }
-
   /** Remove empty placeholder assistant messages created by tool_call_start
-   *  that never got populated with content or tool_calls */
+   *  that never got populated with content.
+   *  Since tool calls are no longer displayed in the chat UI, we only consider
+   *  text content as "having content" for display purposes. */
   function cleanupEmptyPlaceholders() {
     for (let i = messages.value.length - 1; i >= 0; i--) {
       const msg = messages.value[i]
@@ -433,8 +351,7 @@ export const useChatStore = defineStore('chat', () => {
         const hasContent = typeof msg.content === 'string'
           ? msg.content.length > 0
           : (Array.isArray(msg.content) && msg.content.length > 0)
-        const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0
-        if (!hasContent && !hasToolCalls) {
+        if (!hasContent) {
           messages.value.splice(i, 1)
           continue
         }
@@ -462,12 +379,9 @@ export const useChatStore = defineStore('chat', () => {
     if (streamingContent.value) {
       finalizeStreamingMessage()
     }
-    // Attach any accumulated tool calls
-    attachToolCallsToLastAssistantMessage()
     cleanupEmptyPlaceholders()
     sending.value = false
     isStreaming.value = false
-    _accumulatedToolCalls.value = []
   }
 
   async function clearHistory() {

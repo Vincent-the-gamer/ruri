@@ -111,6 +111,7 @@ const thinkingEnabled = ref(true);
 // ── Segmented Reply ──
 const segmentedReplyEnabled = ref(false);
 const segmentedReplyIntervalMs = ref(500);
+const segmentedReplyMaxLength = ref(1500);
 
 // ── Custom Error Message ──
 const customErrorMessage = ref("");
@@ -263,6 +264,7 @@ interface Snapshot {
     thinkingEnabled: boolean;
     segmentedReplyEnabled: boolean;
     segmentedReplyIntervalMs: number;
+    segmentedReplyMaxLength: number;
     customErrorMessage: string;
     selectedKbIds: string[];
     selectedSkillNames: string[];
@@ -279,6 +281,7 @@ function takeSnapshot(): Snapshot {
         thinkingEnabled: thinkingEnabled.value,
         segmentedReplyEnabled: segmentedReplyEnabled.value,
         segmentedReplyIntervalMs: segmentedReplyIntervalMs.value,
+        segmentedReplyMaxLength: segmentedReplyMaxLength.value,
         customErrorMessage: customErrorMessage.value,
         selectedKbIds: [...selectedKbIds.value],
         selectedSkillNames: [...selectedSkillNames.value],
@@ -299,6 +302,7 @@ const isDirty = computed(() => {
         thinkingEnabled.value !== snap.thinkingEnabled ||
         segmentedReplyEnabled.value !== snap.segmentedReplyEnabled ||
         segmentedReplyIntervalMs.value !== snap.segmentedReplyIntervalMs ||
+        segmentedReplyMaxLength.value !== snap.segmentedReplyMaxLength ||
         customErrorMessage.value !== snap.customErrorMessage ||
         JSON.stringify(selectedKbIds.value) !==
             JSON.stringify(snap.selectedKbIds) ||
@@ -324,6 +328,7 @@ function syncFromServer(session: any) {
     thinkingEnabled.value = session.thinking_enabled ?? true;
     segmentedReplyEnabled.value = session.segmented_reply_enabled ?? false;
     segmentedReplyIntervalMs.value = session.segmented_reply_interval_ms ?? 500;
+    segmentedReplyMaxLength.value = session.segmented_reply_max_length ?? 1500;
     selectedKbIds.value = [...(session.knowledge_base_ids || [])];
     selectedSkillNames.value = [...(session.active_skill_names || [])];
     if (session.proxy_config) {
@@ -361,6 +366,7 @@ async function handleSave() {
             thinking_enabled: thinkingEnabled.value,
             segmented_reply_enabled: segmentedReplyEnabled.value,
             segmented_reply_interval_ms: segmentedReplyIntervalMs.value,
+            segmented_reply_max_length: segmentedReplyMaxLength.value,
             custom_error_message: customErrorMessage.value || null,
             knowledge_base_ids: selectedKbIds.value,
             active_skill_names: selectedSkillNames.value,
@@ -607,6 +613,24 @@ defineExpose({
                             />
                             <p class="input-hint">
                                 每条消息之间的延迟时间，推荐 300-800ms
+                            </p>
+                        </div>
+                        <div
+                            v-if="segmentedReplyEnabled"
+                            class="form-field"
+                            style="margin-top: 0.75rem"
+                        >
+                            <label class="input-label"> 每段最大字符数 </label>
+                            <input
+                                v-model.number="segmentedReplyMaxLength"
+                                type="number"
+                                min="200"
+                                max="10000"
+                                step="100"
+                                class="text-input"
+                            />
+                            <p class="input-hint">
+                                超出此长度时自动分段，推荐 500-2000
                             </p>
                         </div>
                     </section>
